@@ -133,6 +133,75 @@ class QcMetrics:
         return payload
 
 
+@dataclass(frozen=True)
+class QcSummary:
+    """The library-level QC picture the three reports all render.
+
+    The CLI, the JSON payload and the HTML section paint the same facts - how
+    many files were measured, how many carry damage, which ones are worst - so
+    they read them from one value rather than each counting the same list.  A
+    report that says "3 clipped" next to a worst-offender table of two files is
+    exactly the contradiction this type exists to prevent.
+
+    Attributes:
+        total: Files offered to the pass, measured or not.
+        measured: Files that produced figures.
+        unmeasured: Files refused, with a reason in their ``qc_error``.
+        clipped: Measured files with at least one clipped sample.
+        with_dropouts: Measured files with at least one dropout run.
+        offenders: The worst files, worst first (see :func:`worst_offenders`).
+    """
+
+    total: int = 0
+    measured: int = 0
+    unmeasured: int = 0
+    clipped: int = 0
+    with_dropouts: int = 0
+    offenders: tuple[QcMetrics, ...] = ()
+
+    @property
+    def clean(self) -> bool:
+        """Whether every file was measurable and none showed damage."""
+        return self.unmeasured == 0 and self.clipped == 0 and self.with_dropouts == 0
+
+    def as_dict(self) -> dict[str, object]:
+        """Return the summary as JSON-friendly values.
+
+        ``worst_offenders`` names the files only: the per-file figures are in
+        the ``files`` list beside it, so repeating them here would double the
+        payload for a ranking the reader can look up by name.
+        """
+        return {
+            "total": self.total,
+            "measured": self.measured,
+            "unmeasured": self.unmeasured,
+            "clipped": self.clipped,
+            "with_dropouts": self.with_dropouts,
+            "worst_offenders": [item.file for item in self.offenders],
+        }
+
+
+def qc_summary(metrics: Sequence[QcMetrics], *, limit: int = 5) -> QcSummary:
+    """Count the pass and rank it, so every report tells one story.
+
+    Args:
+        metrics: Every file offered to the pass, refusals included.
+        limit: How many offenders to name.
+
+    Returns:
+        The counts, split into measured and refused, and the ranked offenders.
+    """
+    measured = [item for item in metrics if item.measured]
+    return QcSummary(
+        total=len(metrics),
+        measured=len(measured),
+        unmeasured=len(metrics) - len(measured),
+        clipped=sum(1 for item in measured if (item.clipped_samples or 0) > 0),
+        with_dropouts=sum(1 for item in measured if (item.dropouts or 0) > 0),
+        offenders=worst_offenders(measured, limit=limit),
+    )
+
+
 def worst_offenders(
     metrics: Sequence[QcMetrics], *, limit: int = 5
 ) -> tuple[QcMetrics, ...]:

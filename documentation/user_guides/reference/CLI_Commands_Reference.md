@@ -757,6 +757,10 @@ audiosuite stats <directory> [--incremental/--full] [--refresh] [OPTIONS]
 - `--export-path PATH` — where `--export` writes; defaults to `<folder>_library.<ext>` beside the scanned folder
 - `--export-columns NAMES` — comma-separated columns for a csv/html export (path, format, artist, title, album, album_artist, track, disc, year, genre, bpm, key, camelot, mood, tempo_marking, duration)
 - `--camelot` — add the Camelot key column to the CSV/HTML export (appends to the original CSV columns; not valid with m3u)
+- `--qc` — add the nine QC columns (loudness, loudness range, true peak, sample peak, crest factor, DC offset, phase, clipped samples, dropouts) and the worst-offender section to a csv/html export; measures every file, so it is off unless given
+- `--qc-csv PATH` — write the per-file QC table as CSV on its own, without an export
+- `--qc-json PATH` — write the per-file QC table, counts and worst offenders as JSON
+- `--qc-workers N` — how many files the QC measurement reads at once (default: 1)
 - `--completeness` — also report tag completeness for BPM, key, genre, mood, artwork and ReplayGain
 - `--detail [title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain]` — with `--completeness`, list the files missing the given tag
 - `--trend` — show the recorded completeness trend for this directory

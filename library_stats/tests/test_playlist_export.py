@@ -551,5 +551,7 @@ class TestQcColumns:
         export_html(str(library), str(plain), columns=["path"], qc=True)
         export_html(str(library), str(with_qc), columns=["path"])
 
-        assert "Quality control" in plain.read_text(encoding="utf-8")
+        page = plain.read_text(encoding="utf-8")
+        assert "Quality control" in page
+        assert "3 of 3 file(s) measured" in page, "counts come from the summary"
         assert "Quality control" not in with_qc.read_text(encoding="utf-8")

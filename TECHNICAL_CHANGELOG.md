@@ -40,6 +40,15 @@ used once, and every bullet belongs to exactly one of them.
   phase, so the CSV, JSON and HTML report cannot disagree about what "worst"
   means.
 
+- **`qc_summary` is the value all three QC reports read.** `QcSummary` counts a
+  pass (total, measured, unmeasured, clips, dropouts) and carries the ranked
+  offenders from `worst_offenders`, with `as_dict()` for the JSON payload. The
+  HTML section prints the counts above its table and the CLI prints one line
+  before writing the tables, so "3 clipped" cannot sit beside a table of two
+  files. The JSON payload keeps `worst_offenders` (file names) and gains the
+  count keys beside `files`. `clean` reports whether the pass was both fully
+  measurable and undamaged, since a refusal is not a clean result.
+
 - **The QC columns reach the export, measured only when asked for.**
   `playlist_export` gains `QC_COLUMNS`, an `ExportRow.qc` field and `_qc_value`;
   `collect_export_rows`, `export_csv` and `export_html` take `qc`/`qc_workers`

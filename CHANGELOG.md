@@ -30,10 +30,12 @@ used once, and every bullet belongs to exactly one of them.
   factor, DC offset, phase correlation, clipped samples and dropouts - and the
   HTML page gains a section naming the worst offenders, clipping first. The same
   table is available on its own with `--qc-csv` and `--qc-json`, and
-  `--qc-workers` measures several files at once. It is opt-in because it decodes
-  every file. A figure that does not exist is left blank rather than shown as
-  zero: a mono file has no phase correlation, and a file shorter than three
-  seconds has no loudness range.
+  `--qc-workers` measures several files at once. The run reports how many files
+  were measured and which was worst, and the same counts and ranking appear in
+  the JSON payload and at the top of the HTML section, so the three never
+  disagree. It is opt-in because it decodes every file. A figure that does not
+  exist is left blank rather than shown as zero: a mono file has no phase
+  correlation, and a file shorter than three seconds has no loudness range.
 
 - **An album run's per-track table is on the Results tab, not only in a file.**
   The Refinery's Results tab now lists the album report under the counters: one

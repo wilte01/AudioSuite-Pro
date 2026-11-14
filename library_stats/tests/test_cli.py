@@ -447,6 +447,31 @@ class TestExportSurface:
         assert header.startswith("path,title,qc_lufs")
         assert "qc_clipped" in header
 
+    def _tone_library(self, tmp_path: Path) -> Path:
+        """A folder with one real tone, so QC has something to measure.
+
+        The shared ``library`` fixture is digital silence: FFmpeg prints no
+        ``ebur128`` summary for it at all, so every file is refused and a test
+        written against it would assert a refusal rather than a summary.
+        """
+        import math
+        import wave
+
+        root = tmp_path / "tones"
+        root.mkdir()
+        path = root / "tone.wav"
+        rate = 44100
+        frames = bytearray()
+        for index in range(rate):
+            sample = int(0.5 * 32767 * math.sin(2 * math.pi * 440 * index / rate))
+            frames += sample.to_bytes(2, "little", signed=True) * 2
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(2)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(bytes(frames))
+        return root
+
     def test_qc_covers_the_default_columns_when_none_were_named(
         self, runner: CliRunner, library: Path, tmp_path: Path
     ) -> None:
@@ -481,16 +506,31 @@ class TestExportSurface:
         assert len(lines) == 3, "one header plus one row per file"
 
     def test_qc_json_carries_the_worst_offenders(
-        self, runner: CliRunner, library: Path, tmp_path: Path
+        self, runner: CliRunner, tmp_path: Path
     ) -> None:
+        tones = self._tone_library(tmp_path)
         out = tmp_path / "qc.json"
-        result = self._invoke(runner, library, "--qc-json", str(out))
+        result = self._invoke(runner, tones, "--qc-json", str(out))
 
         assert result.exit_code == 0, result.output
         payload = json.loads(out.read_text(encoding="utf-8"))
-        assert len(payload["files"]) == 2
+        assert len(payload["files"]) == 1
         assert set(payload["files"][0]) >= {"file", "integrated_lufs", "qc_error"}
         assert isinstance(payload["worst_offenders"], list)
+        assert payload["measured"] == 1, "the summary sits beside the files"
+        assert payload["total"] == 1
+        assert "clipped" in payload and "with_dropouts" in payload
+
+    def test_the_qc_pass_reports_its_summary_on_the_console(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        tones = self._tone_library(tmp_path)
+
+        result = self._invoke(runner, tones, "--qc-csv", str(tmp_path / "qc.csv"))
+
+        assert result.exit_code == 0, result.output
+        assert "QC: 1 of 1 file(s) measured" in result.output
+        assert "worst:" in result.output
 
     def test_the_qc_switches_are_documented(self, runner: CliRunner) -> None:
         from audio_suite_shared.cli_app import cli

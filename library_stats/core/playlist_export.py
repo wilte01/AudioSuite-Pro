@@ -628,14 +628,19 @@ def _html_qc_section(rows: Sequence[ExportRow]) -> str:
     Returns:
         HTML for the section, or ``""`` when the page has no QC figures.
     """
-    from library_stats.core.qc import worst_offenders
+    from library_stats.core.qc import qc_summary
 
     measured = [row.qc for row in rows if row.qc is not None]
     if not measured:
         return ""
+    summary = qc_summary(measured)
     refused = [item for item in measured if not item.measured]
-    offenders = worst_offenders(measured)
-    parts = ["<h2>Quality control</h2>"]
+    parts = [
+        "<h2>Quality control</h2>",
+        f"<p>{summary.measured} of {summary.total} file(s) measured; "
+        f"{summary.clipped} with clipping, {summary.with_dropouts} with "
+        "dropouts.</p>",
+    ]
     if refused:
         parts.append(f"<p>{len(refused)} file(s) could not be measured:</p>\n<ul>")
         parts.extend(
@@ -643,13 +648,13 @@ def _html_qc_section(rows: Sequence[ExportRow]) -> str:
             for item in refused
         )
         parts.append("</ul>")
-    if offenders:
+    if summary.offenders:
         parts.append(
             "<p>Worst offenders, clipping first:</p>\n"
             "<table>\n<thead><tr><th>file</th><th>clipped</th>"
             "<th>dropouts</th><th>phase</th><th>crest</th></tr></thead>\n<tbody>"
         )
-        for item in offenders:
+        for item in summary.offenders:
             clipped = "" if item.clipped_samples is None else str(item.clipped_samples)
             dropouts = "" if item.dropouts is None else str(item.dropouts)
             parts.append(

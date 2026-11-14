@@ -11,10 +11,12 @@ module to its own input proves only that the plumbing is connected.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -155,6 +157,92 @@ class TestLoudnessRange:
 
         assert metrics.lra_lu == pytest.approx(0.0, abs=1e-6)
         assert metrics.lra_note == "", "a measured zero needs no explanation"
+
+
+class TestQcSummary:
+    """One count and one ranking, so three reports cannot disagree."""
+
+    def _metric(
+        self,
+        name: str,
+        *,
+        clipped: int = 0,
+        dropouts: int = 0,
+        phase: float = 0.9,
+        crest: float = 10.0,
+        error: str = "",
+    ) -> Any:
+        from library_stats.core.qc import QcMetrics
+
+        return QcMetrics(
+            file=name,
+            crest_factor_db=None if error else crest,
+            phase_correlation=None if error else phase,
+            clipped_samples=None if error else clipped,
+            dropouts=None if error else dropouts,
+            qc_error=error,
+        )
+
+    def test_counts_split_measured_from_refused(self) -> None:
+        from library_stats.core.qc import qc_summary
+
+        summary = qc_summary(
+            [
+                self._metric("clean.flac"),
+                self._metric("hot.flac", clipped=120),
+                self._metric("gap.flac", dropouts=2),
+                self._metric("broken.wav", error="unreadable"),
+            ]
+        )
+
+        assert summary.total == 4
+        assert summary.measured == 3
+        assert summary.unmeasured == 1
+        assert summary.clipped == 1
+        assert summary.with_dropouts == 1
+        assert not summary.clean
+
+    def test_a_refusal_does_not_hide_a_clean_pass(self) -> None:
+        from library_stats.core.qc import qc_summary
+
+        summary = qc_summary(
+            [self._metric("clean.flac"), self._metric("broken", error="x")]
+        )
+
+        assert not summary.clean, "an unmeasured file is not a clean result"
+        assert qc_summary([self._metric("clean.flac")]).clean
+
+    def test_the_ranking_is_the_offenders_ranking(self) -> None:
+        from library_stats.core.qc import qc_summary, worst_offenders
+
+        files = [
+            self._metric("phase.flac", phase=-0.8),
+            self._metric("hot.flac", clipped=4),
+            self._metric("gap.flac", dropouts=3),
+            self._metric("clean.flac"),
+        ]
+
+        assert qc_summary(files).offenders == worst_offenders(files)
+        assert [item.file for item in qc_summary(files).offenders][:2] == [
+            "hot.flac",
+            "gap.flac",
+        ]
+
+    def test_the_limit_bounds_the_named_offenders(self) -> None:
+        from library_stats.core.qc import qc_summary
+
+        files = [self._metric(f"f{index}.flac", clipped=index) for index in range(1, 9)]
+
+        assert len(qc_summary(files, limit=2).offenders) == 2
+        assert qc_summary(files, limit=2).clipped == 8, "the counts are not limited"
+
+    def test_the_dict_is_json_serialisable(self) -> None:
+        from library_stats.core.qc import qc_summary
+
+        payload = qc_summary([self._metric("hot.flac", clipped=7)]).as_dict()
+
+        assert json.loads(json.dumps(payload)) == payload
+        assert payload["worst_offenders"] == ["hot.flac"]
 
 
 class TestDefectsAreCounted:

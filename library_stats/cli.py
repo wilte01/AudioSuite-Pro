@@ -593,7 +593,7 @@ def _run_qc_table(
     from pathlib import Path
 
     from library_stats.core.playlist_export import collect_export_rows
-    from library_stats.core.qc import worst_offenders
+    from library_stats.core.qc import qc_summary
 
     try:
         rows = collect_export_rows(directory, qc=True, qc_workers=workers)
@@ -604,6 +604,14 @@ def _run_qc_table(
     if not measured:
         click.echo("  No audio files to measure for QC.", err=True)
         return
+    summary = qc_summary(measured)
+    worst = summary.offenders[0].file if summary.offenders else "none"
+    click.echo(
+        f"  QC: {summary.measured} of {summary.total} file(s) measured, "
+        f"{summary.clipped} clipped, {summary.with_dropouts} with dropouts; "
+        f"worst: {worst}",
+        err=True,
+    )
 
     if qc_csv:
         fieldnames = [
@@ -636,10 +644,9 @@ def _run_qc_table(
             )
 
     if qc_json:
-        payload = {
-            "files": [item.as_dict() for item in measured],
-            "worst_offenders": [item.file for item in worst_offenders(measured)],
-        }
+        # The summary's keys sit beside ``files`` so the ranking and the counts
+        # a reader compares against it come from the same value.
+        payload = {"files": [item.as_dict() for item in measured], **summary.as_dict()}
         try:
             Path(qc_json).write_text(
                 json_mod.dumps(payload, indent=2), encoding="utf-8"
