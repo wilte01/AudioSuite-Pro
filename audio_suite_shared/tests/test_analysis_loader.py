@@ -24,6 +24,14 @@ Changed in 2.5.0: the transcode tests drive the shared resolver
 (``analysis_loader.find_ffmpeg``) instead of ``analysis_loader.shutil.which``,
 which no longer exists in the module (plan D-38).
 
+Changed in 2.7.0: `TestDecodeOffset` locks the `offset` argument that both
+decode paths honour, so an analyser can measure a later window of a long file
+instead of decoding everything before it (D144).
+
+Changed in 2.7.0: `TestSecondWindow` owns the "where is the middle sample"
+arithmetic now that both BPM Analyzer and Key Detector re-sample a refused
+file through it (D144, D156), so the two tools cannot drift apart.
+
 Changed in 1.1.0: added fallback/decode and ffmpeg-transcode tests for
 librosa_load_with_fallback().
 Changed in 1.4.0: the failed-transcode contract is now a plain-language
@@ -61,10 +69,12 @@ from audio_suite_shared.analysis_loader import (
     check_analysable,
     check_min_duration,
     check_not_silent,
+    file_duration_seconds,
     is_effectively_silent,
     librosa_load_with_fallback,
     load_analysis_audio,
     rms_energy_db,
+    second_window_offset,
     warm_analysis_stack,
 )
 from audio_suite_shared.exceptions import AudioAnalysisError, AudioCodecError
@@ -449,6 +459,72 @@ class TestLibrosaLoadWithFallback:
         assert "File does not exist" not in message
         assert "codec" not in message  # the decoder's text stays in __cause__
         assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
+class TestDecodeOffset:
+    """A later window decodes without decoding the audio before it (D144).
+
+    The BPM Analyzer's window length is a calibrated constant, so sampling the
+    middle of a long track needs an offset rather than a longer decode.  The
+    offset has to reach both decode paths, or a format that falls back to the
+    FFmpeg transcode would silently be analysed from the start of the file.
+    """
+
+    def test_offset_reaches_the_decoder(self, monkeypatch) -> None:
+        import librosa
+
+        seen: dict[str, object] = {}
+
+        def _load(path: str, **kwargs: object):
+            seen.update(kwargs)
+            return np.ones(1000, dtype=np.float32), 22050
+
+        monkeypatch.setattr(librosa, "load", _load)
+
+        librosa_load_with_fallback("any.mp3", duration=30, offset=12.5, mono=True)
+        assert seen["offset"] == 12.5
+        assert seen["duration"] == 30
+        assert seen["mono"] is True
+
+    def test_an_ordinary_decode_passes_no_offset(self, monkeypatch) -> None:
+        """A zero offset stays out of the call, so existing decodes are unchanged."""
+        import librosa
+
+        seen: dict[str, object] = {}
+
+        def _load(path: str, **kwargs: object):
+            seen.update(kwargs)
+            return np.ones(1000, dtype=np.float32), 22050
+
+        monkeypatch.setattr(librosa, "load", _load)
+
+        librosa_load_with_fallback("any.mp3", duration=30)
+        assert "offset" not in seen
+
+    def test_the_fallback_transcode_is_given_the_offset(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        import librosa
+
+        path = str(tmp_path / "song.wv")
+        Path(path).write_bytes(b"not really wavpack")
+
+        def _boom(*a: object, **k: object):
+            raise RuntimeError("nope")
+
+        monkeypatch.setattr(librosa, "load", _boom)
+
+        seen: dict[str, object] = {}
+
+        def _fake_transcode(file_path: str, **kwargs: object):
+            seen.update(kwargs)
+            return np.ones(2000, dtype=np.float32), 48000
+
+        monkeypatch.setattr(analysis_loader, "_transcode_via_ffmpeg", _fake_transcode)
+
+        librosa_load_with_fallback(path, duration=30, offset=15.0)
+        assert seen["offset"] == 15.0
+        assert seen["duration"] == 30
 
 
 class TestTranscodeViaFFmpeg:
@@ -872,3 +948,51 @@ class TestWarmAnalysisStack:
 
         assert {"onset_strength", "beat_track", "chroma_cqt"} <= set(seen)
         assert analysis_loader._warm_up_done is True
+
+
+class TestSecondWindow:
+    """Where a refused file's second sample is taken from (D144, D156).
+
+    BPM Analyzer and Key Detector both re-sample a file their first window
+    refused, through these two helpers, so the arithmetic and the two-window
+    minimum are pinned once rather than per tool.  The rule is the same for
+    both: the sample moves to the middle of the track, never to a shorter
+    window, because each tool's floor was measured at its full length.
+    """
+
+    @pytest.mark.parametrize(
+        ("total", "window", "expected"),
+        [
+            (45.0, 30, None),
+            (59.9, 30, None),
+            (90.0, 30, 30.0),
+            (312.9, 30, pytest.approx(141.45)),
+            (300.0, 0, None),
+            (180.0, 90, 45.0),
+            (90.0, 90, None),
+        ],
+    )
+    def test_the_second_window_is_centred_and_needs_two_windows(
+        self, total: float, window: int, expected: float | None
+    ) -> None:
+        assert second_window_offset(total, window) == expected
+
+    def test_an_unknown_duration_offers_no_second_window(self) -> None:
+        """A header the parser cannot read falls back to the single window."""
+        assert second_window_offset(None, 30) is None
+
+    def test_a_real_file_reports_its_header_duration(self, tmp_path: Path) -> None:
+        """The duration comes from the header, not from the capped decode."""
+        path = tmp_path / "one_second.wav"
+        samples = (_tone(seconds=1.0) * 32767.0).astype(np.int16)
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(_SR)
+            handle.writeframes(samples.tobytes())
+
+        assert file_duration_seconds(str(path)) == pytest.approx(1.0, abs=0.02)
+
+    def test_an_unreadable_file_reports_no_duration(self, tmp_path: Path) -> None:
+        """Best-effort: a file the parser cannot read simply gets no retry."""
+        assert file_duration_seconds(str(tmp_path / "missing.wav")) is None

@@ -25,6 +25,9 @@ recording is a declared row rather than an undocumented deletion (D99).
 Changed in 2.6.0: `TestAnalysisSampleRateIndependence` locks the verdict and
 the reported tempo against the container's sample rate (D137) using the same
 committed corpus recordings at 22 050 / 44 100 / 48 000 Hz.
+Changed in 2.7.0: `TestSparseIntroWindow` locks the second analysis window that
+keeps a rhythmic track whose opening 30 s is an un-grooved intro from being
+skipped as beatless (D144).
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ from bpm_analyzer.core.bpm_detector import (
     _onset_periodicity,
     detect_bpm,
 )
+from tests.corpus_table import pipe_rows
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1021,49 +1025,6 @@ class CorpusRow:
     detected_bpm: str
 
 
-def _pipe_rows(markdown: str, heading: str) -> list[dict[str, str]]:
-    """Return the first pipe table under *heading*, keyed by its header cells.
-
-    Args:
-        markdown: The ATTRIBUTION.md text.
-        heading: The heading line the table sits under, e.g. ``"## Clips"``.
-
-    Returns:
-        One dict per data row, mapping header cell to cell text.  The
-        ``|---|---|`` separator is skipped.
-
-    Raises:
-        AssertionError: If the heading or a table under it is missing, or a row
-            does not have the header's column count - a malformed table must
-            fail loudly rather than parse into a shorter corpus.
-    """
-    lines = markdown.splitlines()
-    assert heading in lines, (
-        f"{heading!r} heading missing from {ATTRIBUTION_PATH.name} - the table "
-        "is the suite's source of truth"
-    )
-    start = lines.index(heading)
-    table: list[list[str]] = []
-    for line in lines[start + 1 :]:
-        if line.startswith("|"):
-            table.append([cell.strip() for cell in line.strip().strip("|").split("|")])
-        elif table:
-            break
-    assert len(table) >= 2, f"no pipe table under {heading!r}"
-
-    header = table[0]
-    rows: list[dict[str, str]] = []
-    for row in table[1:]:
-        if all(cell and set(cell) <= set("-: ") for cell in row):
-            continue
-        assert len(row) == len(header), (
-            f"malformed row under {heading!r}: {len(row)} cells for "
-            f"{len(header)} columns: {row}"
-        )
-        rows.append(dict(zip(header, row, strict=True)))
-    return rows
-
-
 def _corpus_rows() -> list[CorpusRow]:
     """Parse the corpus table into rows.
 
@@ -1074,7 +1035,7 @@ def _corpus_rows() -> list[CorpusRow]:
         AssertionError: If the table is empty, a filename repeats, or a pulse
             cell is neither ``refused`` nor a number followed by ``BPM``.
     """
-    rows = _pipe_rows(ATTRIBUTION_PATH.read_text(encoding="utf-8"), "## Clips")
+    rows = pipe_rows(ATTRIBUTION_PATH.read_text(encoding="utf-8"), "## Clips")
     assert rows, "the corpus table is empty - the scan would pass vacuously"
 
     parsed: list[CorpusRow] = []
@@ -1185,12 +1146,12 @@ class TestCorpusTableParsing:
             "| `b.ogg` |\n"
         )
         with pytest.raises(AssertionError, match="malformed row"):
-            _pipe_rows(markdown, "## Clips")
+            pipe_rows(markdown, "## Clips")
 
     def test_a_missing_heading_is_rejected(self) -> None:
         """Without the heading there is no table, which must not read as empty."""
         with pytest.raises(AssertionError, match="heading missing"):
-            _pipe_rows("| Clip |\n|--|\n| `a.ogg` |\n", "## Clips")
+            pipe_rows("| Clip |\n|--|\n| `a.ogg` |\n", "## Clips")
 
     def test_the_committed_table_parses(self) -> None:
         """The real table yields accepted and refused rows, so neither set is empty."""
@@ -1232,6 +1193,104 @@ class TestAnalysisDurationDefault:
         ) as load:
             detect_bpm("long.mp3")
         assert load.call_args.kwargs["duration"] == DEFAULT_BPM_ANALYSIS_SECONDS
+
+
+class TestSparseIntroWindow:
+    """A refused first window is not the whole track's verdict (D144).
+
+    ``detect_bpm`` decodes the first 30 s, which for a real song is often an
+    intro.  On one album three of 37 tracks scored 0.063-0.098 in that window
+    while their bodies scored 0.47-0.56, so rhythmic tracks were skipped as
+    beatless.  When the file is at least two windows long, a second window of
+    the same calibrated length is measured from the middle of the track; the
+    floor itself does not move.
+    """
+
+    @staticmethod
+    def _intro_then_clicks(tmp_path: Path, body_bpm: float = 120.0) -> Path:
+        """30 s of noise (no pulse) followed by 60 s of clean clicks."""
+        generator = np.random.default_rng(5)
+        intro = 0.2 * generator.standard_normal(ANALYSIS_SAMPLE_RATE * 30)
+        body = clicked(body_bpm / 60.0, 60.0, dither_seed=11)
+        return Path(_write_wav(tmp_path / "intro.wav", np.concatenate([intro, body])))
+
+    def test_a_sparse_intro_does_not_hide_the_body_tempo(self, tmp_path: Path) -> None:
+        """The opening window scores below the floor; the track is still measured."""
+        import librosa
+
+        path = self._intro_then_clicks(tmp_path)
+
+        # The fixture has to reproduce the defect, or this test would pass on
+        # the unfixed tree without ever exercising the second window.
+        y, sr = librosa.load(
+            str(path),
+            sr=ANALYSIS_SAMPLE_RATE,
+            mono=True,
+            duration=DEFAULT_BPM_ANALYSIS_SECONDS,
+        )
+        envelope = librosa.onset.onset_strength(
+            y=y, sr=sr, hop_length=_ONSET_HOP_LENGTH, aggregate=np.median
+        )
+        head_tempo, _ = librosa.beat.beat_track(
+            onset_envelope=envelope, sr=sr, hop_length=_ONSET_HOP_LENGTH
+        )
+        head_estimate = float(np.atleast_1d(head_tempo)[0])
+        assert head_estimate > 0.0, (
+            "the intro produced no estimate - the periodicity branch, not the "
+            "retry, is what this fixture would exercise"
+        )
+        head_score = _onset_periodicity(envelope, head_estimate, sr)
+        assert head_score < MIN_ONSET_PERIODICITY, (
+            f"the opening window scored {head_score:.3f}; the fixture no longer "
+            "reproduces the skip this test locks"
+        )
+
+        assert abs(detect_bpm(str(path)) - 120) <= 4
+
+    def test_noise_longer_than_the_window_is_still_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """A second window is a second sample, not a lower bar.
+
+        Seeded white/pink/brown noise peaks at 0.056 in the midpoint window
+        (D144's measurement), so a beatless file that offers one must still be
+        skipped: the retry changes which audio is judged, never the floor.
+        """
+        generator = np.random.default_rng(99)
+        noise = 0.5 * generator.standard_normal(ANALYSIS_SAMPLE_RATE * 90)
+        path = Path(_write_wav(tmp_path / "noise90.wav", noise))
+
+        with pytest.raises(NoTempoDetectedError) as exc_info:
+            detect_bpm(str(path))
+        assert exc_info.value.context["onset_periodicity"] < MIN_ONSET_PERIODICITY
+
+    # The offset arithmetic and the two-window minimum live in the shared
+    # loader now, so they are pinned once for both analysers
+    # (``audio_suite_shared/tests/test_analysis_loader.py::TestSecondWindow``).
+
+    def test_a_failed_second_decode_keeps_the_first_verdict(self) -> None:
+        """The extra look is best-effort: it never turns a skip into an error."""
+        with (
+            patch(
+                "bpm_analyzer.core.bpm_detector.file_duration_seconds",
+                return_value=90.0,
+            ),
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa_load_with_fallback",
+                side_effect=[_make_load_return(120.0), OSError("decode failed")],
+            ),
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa.onset.onset_strength",
+                return_value=np.zeros(400, dtype=np.float64),
+            ),
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa.beat.beat_track",
+                return_value=(np.array([120.0]), None),
+            ),
+        ):
+            with pytest.raises(NoTempoDetectedError) as exc_info:
+                detect_bpm("fake.mp3")
+        assert exc_info.value.context["onset_periodicity"] == 0.0
 
 
 class TestAnalysisSampleRateIndependence:

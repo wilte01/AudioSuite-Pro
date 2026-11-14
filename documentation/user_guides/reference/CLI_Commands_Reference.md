@@ -159,7 +159,9 @@ Detect tempo and write the BPM tag. A positive estimate needs evidence: noise
 fits a tempo grid, so a file whose onset envelope has no periodicity at the
 detected tempo is reported as a skip instead of being tagged with a fabricated
 number. `--bpm-min` / `--bpm-max` choose between octave readings - they never
-edit a measured tempo, and an out-of-band tempo is reported as measured.
+edit a measured tempo, and an out-of-band tempo is reported as measured. A file
+at least twice the analysis duration long whose opening window carries no pulse
+is measured again from its middle, at the same length, before it is skipped.
 
 ```bash
 audiosuite bpm <directory> [--bpm-min N] [--bpm-max N] [--duration SEC] [OPTIONS]

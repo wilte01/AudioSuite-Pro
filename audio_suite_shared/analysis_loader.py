@@ -31,6 +31,10 @@ kernels once per process before a worker pool starts, so eight threads no
 longer compile the same signature eight times and serialise on the compile
 lock (backlog P6).
 
+Changed in 2.7.0: ``file_duration_seconds`` and ``second_window_offset`` are
+shared, so BPM Analyzer and Key Detector re-sample a refused file from the
+middle of the track through one implementation (D144, D156).
+
 Changed in 2.6.0: ``load_analysis_audio`` decodes at the new shared
 ``ANALYSIS_SAMPLE_RATE`` (22 050 Hz) by default rather than at the file's own
 rate; a caller that genuinely needs the native rate passes ``sr=None``
@@ -85,6 +89,14 @@ ANALYSIS_SAMPLE_RATE = 22050
 
 # Fraction of full-scale that counts as "effectively silent" (~ -60 dBFS).
 SILENCE_RMS_THRESHOLD = 1.0e-3
+
+#: How many analysis windows long a file must be before a first window it
+#: refuses is re-measured from the middle of the track.  Two windows is the
+#: shortest file whose second sample can sit in the body rather than overlap
+#: the opening one, and the second sample keeps the *calibrated* window length:
+#: every analysis floor in the suite is a number measured at one length, so a
+#: shorter window is not comparable (PLAN_feature_expansion.md D139, D144).
+SECOND_WINDOW_MIN_WINDOWS = 2
 
 #: Plain-language reason for a decode failure.  Decoders word this badly
 #: (libsndfile says "File does not exist or is not a regular file" for a file
@@ -233,6 +245,7 @@ def librosa_load_with_fallback(
     duration: int = 0,
     mono: bool = True,
     sr: int | None = None,
+    offset: float = 0.0,
 ) -> tuple[npt.NDArray[np.float32], int]:
     """Decode audio with librosa, transcoding via FFmpeg for formats it cannot read.
 
@@ -252,6 +265,9 @@ def librosa_load_with_fallback(
         duration:  Maximum seconds to decode (``0`` disables the cap).
         mono:      Downmix to a single channel when True.
         sr:        Target sample rate, or None to keep the native rate.
+        offset:    Seconds to skip before decoding (``0`` starts at the
+                   beginning), so a caller can sample a later window of a long
+                   file without decoding everything before it.
 
     Returns:
         Two-tuple ``(y, sr)`` where *y* is a mono float32 array and *sr* is
@@ -265,14 +281,14 @@ def librosa_load_with_fallback(
     import librosa
 
     try:
-        y_f32, out_sr = _librosa_load(librosa, file_path, duration, mono, sr)
+        y_f32, out_sr = _librosa_load(librosa, file_path, duration, mono, sr, offset)
     except Exception as exc:
         # A non-existent path can never be rescued by FFmpeg; surface the
         # original error rather than spawning a doomed transcode.
         if not os.path.isfile(file_path):
             raise
         transcoded = _transcode_via_ffmpeg(
-            file_path, duration=duration, mono=mono, sr=sr
+            file_path, duration=duration, mono=mono, sr=sr, offset=offset
         )
         if transcoded is None:
             raise decode_error(file_path, original=exc) from exc
@@ -286,8 +302,9 @@ def _librosa_load(
     duration: int,
     mono: bool,
     sr: int | None,
+    offset: float = 0.0,
 ) -> tuple[Any, Any]:
-    """Call ``librosa.load`` with optional duration capping.
+    """Call ``librosa.load`` with optional offset and duration capping.
 
     Args:
         librosa_module: The imported librosa module (injectable for tests).
@@ -295,16 +312,19 @@ def _librosa_load(
         duration:       Maximum seconds to decode (``0`` disables the cap).
         mono:           Downmix to a single channel when True.
         sr:             Target sample rate, or None to keep the native rate.
+        offset:         Seconds to skip before decoding (``0`` starts at the
+                        beginning).  Omitted from the call when zero, so the
+                        ordinary decode is unchanged.
 
     Returns:
         The raw ``(y_f32, sr)`` pair returned by ``librosa.load``.
     """
+    kwargs: dict[str, Any] = {"mono": mono, "sr": sr}
+    if offset > 0.0:
+        kwargs["offset"] = offset
     if duration and duration > 0:
-        capped: tuple[Any, Any] = librosa_module.load(
-            file_path, duration=duration, mono=mono, sr=sr
-        )
-        return capped
-    loaded: tuple[Any, Any] = librosa_module.load(file_path, mono=mono, sr=sr)
+        kwargs["duration"] = duration
+    loaded: tuple[Any, Any] = librosa_module.load(file_path, **kwargs)
     return loaded
 
 
@@ -314,6 +334,7 @@ def _transcode_via_ffmpeg(
     duration: int = 0,
     mono: bool = True,
     sr: int | None = None,
+    offset: float = 0.0,
 ) -> tuple[npt.NDArray[np.float32], int] | None:
     """Transcode *file_path* to a temporary WAV with FFmpeg and read it back.
 
@@ -322,6 +343,8 @@ def _transcode_via_ffmpeg(
         duration:  Maximum seconds to transcode (``0`` disables the cap).
         mono:      Downmix to a single channel when True.
         sr:        Target sample rate, or None to keep the native rate.
+        offset:    Seconds to skip before transcoding (``0`` starts at the
+                   beginning).
 
     Returns:
         Two-tuple ``(y, sr)`` on success, or None when FFmpeg is unavailable
@@ -337,7 +360,12 @@ def _transcode_via_ffmpeg(
     try:
         with tempfile.TemporaryDirectory(prefix="audiosuite_analysis_") as temp_dir:
             wav_path = os.path.join(temp_dir, "transcoded.wav")
-            args = ["-v", "error", "-y", "-i", file_path]
+            args = ["-v", "error", "-y"]
+            if offset > 0.0:
+                # Input-side seek: the caller asked for a later window, so the
+                # audio before it is not worth transcoding.
+                args += ["-ss", f"{offset:.3f}"]
+            args += ["-i", file_path]
             if duration and duration > 0:
                 args += ["-t", str(duration)]
             args += ["-ac", "1" if mono else "2", "-f", "wav", wav_path]
@@ -484,6 +512,58 @@ def check_not_silent(y: npt.NDArray[np.float64]) -> None:
             "threshold_dbfs": 20.0 * float(np.log10(SILENCE_RMS_THRESHOLD)),
         },
     )
+
+
+def file_duration_seconds(file_path: str) -> float | None:
+    """Return the file's duration in seconds, or ``None`` when unreadable.
+
+    Analysis decodes only the first window, so the decoded length says nothing
+    about how much more audio the file holds.  This reads the header instead
+    (no full decode); a container whose length the header parser cannot report
+    simply gets no second window.  Shared by every caller that re-samples a
+    refused file from later in the track (BPM Analyzer, Key Detector).
+
+    Args:
+        file_path: Path to the audio file.
+
+    Returns:
+        The duration in seconds, or None when it cannot be read.
+    """
+    import librosa
+
+    try:
+        seconds = float(librosa.get_duration(path=file_path))
+    except Exception:  # noqa: BLE001 - an unreadable length means no second window
+        logger.debug("Could not read the duration of '%s'", file_path)
+        return None
+    if not np.isfinite(seconds) or seconds <= 0.0:
+        return None
+    return seconds
+
+
+def second_window_offset(total_seconds: float | None, window: int) -> float | None:
+    """Return where a refused file's second window starts, or ``None``.
+
+    The second sample is centred in the track: an intro - or an outro fade -
+    is exactly the part the first window has just failed on, and the middle is
+    the section a listener would call the body of the song.  A file must be at
+    least :data:`SECOND_WINDOW_MIN_WINDOWS` windows long for this, so the two
+    samples do not overlap and a short file is never measured at a shorter
+    length than the one the floor was calibrated on.
+
+    Args:
+        total_seconds: The file's duration, or None when it is unknown.
+        window:        The analysis window length in seconds.
+
+    Returns:
+        The second window's start offset in seconds, or None when the file
+        offers no second window.
+    """
+    if total_seconds is None or window <= 0:
+        return None
+    if total_seconds < SECOND_WINDOW_MIN_WINDOWS * window:
+        return None
+    return (total_seconds - window) / 2.0
 
 
 def check_min_duration(

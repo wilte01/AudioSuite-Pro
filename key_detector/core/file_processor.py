@@ -27,6 +27,12 @@ instead of analysing at the file's own rate.  ``chroma_cqt``'s bin mapping and
 ``key_engine``'s confidence thresholds were measured on 22 050 Hz material, so
 44.1 kHz copies of the same music read differently — one album track read Gm
 at its native rate where the calibrated grid reads G (PLAN D138).
+
+Changed in 2.7.0: a first window that returns no defensible key is measured
+again from the middle of the track, at the same window length and against the
+same gates, because the opening 90 s of a real song is often an intro.  One
+seam, ``detect_key_for_file``, serves the thread and process workers
+(PLAN_feature_expansion.md D156).
 """
 
 import logging
@@ -43,7 +49,9 @@ import numpy.typing as npt
 from audio_suite_shared.analysis_loader import (
     ANALYSIS_SAMPLE_RATE,
     check_analysable,
+    file_duration_seconds,
     librosa_load_with_fallback,
+    second_window_offset,
     warm_analysis_stack,
 )
 from audio_suite_shared.constants import default_max_workers
@@ -87,6 +95,80 @@ def _should_tag_key(detected_key: str) -> bool:
         ``True`` for any defensible key.
     """
     return detected_key != UNKNOWN_KEY
+
+
+def detect_key_for_file(file_path: str, analysis_duration: int) -> str:
+    """Detect a file's key, re-sampling a refused file from the track's middle.
+
+    ``detect_key`` is given one window decoded from the start of the file, and
+    on real material that window is often an intro that has not settled into
+    the song's key.  A file whose head window returns :data:`UNKNOWN_KEY` is
+    therefore measured once more from the middle of the track, at the *same*
+    window length and against the *same* gates: what changes is which audio is
+    judged, never how much evidence is demanded of it, because every floor here
+    was measured at this window length.  A file the head window names is never
+    measured twice, so this can add a key but never alter or remove one, and a
+    file too short to offer a second window keeps its single measurement.
+
+    Args:
+        file_path:         Path to the audio file.
+        analysis_duration: Window length in seconds (the calibrated window).
+
+    Returns:
+        The key in display notation, or :data:`UNKNOWN_KEY` when neither
+        window supports one.
+
+    Raises:
+        AudioCodecError:    The head window cannot be decoded.
+        AudioAnalysisError: The head window is too short or effectively silent.
+    """
+    y_raw: npt.NDArray[np.float32]
+    y_raw, loaded = librosa_load_with_fallback(
+        file_path, duration=analysis_duration, sr=ANALYSIS_SAMPLE_RATE
+    )
+    loaded_sr: int = int(loaded)
+    y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
+    # See bpm_detector.detect_bpm: this tool decodes through the fallback
+    # helper directly, so it must apply the shared guard itself rather than
+    # analyse (and tag) a degenerate signal.  check_analysable rejects both a
+    # too-short decode and an effectively silent one, which chroma correlation
+    # would otherwise turn into a confident-looking key.
+    check_analysable(y, loaded_sr)
+    detected_key: str = detect_key(y, loaded_sr)
+    if detected_key != UNKNOWN_KEY:
+        return detected_key
+
+    offset = second_window_offset(
+        file_duration_seconds(file_path), int(analysis_duration)
+    )
+    if offset is None:
+        return detected_key
+
+    logger.info(
+        "No defensible key in the first %d s of '%s'; measuring the middle of "
+        "the track at %.1f s",
+        int(analysis_duration),
+        file_path,
+        offset,
+    )
+    try:
+        second_raw, second_rate = librosa_load_with_fallback(
+            file_path,
+            duration=analysis_duration,
+            sr=ANALYSIS_SAMPLE_RATE,
+            offset=offset,
+        )
+        second: npt.NDArray[np.float64] = second_raw.astype(np.float64)
+        check_analysable(second, int(second_rate))
+    # BLE001 boundary: the extra look is best-effort, so a decode or guard
+    # failure here is not a new failure to report - the first window's verdict
+    # stands and the file is reported as before.
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "Second analysis window at %.1f s failed for '%s'", offset, file_path
+        )
+        return detected_key
+    return detect_key(second, int(second_rate))
 
 
 # ── Type aliases ──────────────────────────────────────────────────────────────
@@ -157,25 +239,9 @@ def process_single_file(
             return
 
         slot_vars[slot_idx].set(f"Analyzing: {name[:25]}...")
-        y_raw: npt.NDArray[np.float32]
-        # Decode at the calibrated analysis rate: chroma_cqt's bin mapping and
-        # every confidence threshold in key_engine were measured at
-        # ANALYSIS_SAMPLE_RATE, so a file's own rate must not choose the grid
-        # (PLAN D138).
-        # The rate above is a pin, not a request: the loader resamples when the
-        # file's own rate differs, so ``_sr`` is the calibrated grid either way.
-        y_raw, _sr = librosa_load_with_fallback(
-            file_path, duration=analysis_duration, sr=ANALYSIS_SAMPLE_RATE
-        )
-        loaded_sr: int = int(_sr)
-        y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
-        # See bpm_detector.detect_bpm: this tool decodes through the fallback
-        # helper directly, so it must apply the shared guard itself rather than
-        # analyse (and tag) a degenerate signal.  check_analysable rejects both
-        # a too-short decode and an effectively silent one, which chroma
-        # correlation would otherwise turn into a confident-looking key.
-        check_analysable(y, loaded_sr)
-        detected_key: str = detect_key(y, loaded_sr)
+        # One seam for both the thread and the process worker, so the retry
+        # cannot exist on one path and not the other.
+        detected_key: str = detect_key_for_file(file_path, analysis_duration)
 
         status = "DETECTED"
 
@@ -235,28 +301,16 @@ def _detect_key_cpu(
 ) -> dict[str, object]:
     """Top-level CPU worker for key detection (picklable for ProcessPoolExecutor).
 
-    Runs librosa.load + detect_key in a separate process.  No callback, lock,
-    or UI references.
+    Runs ``detect_key_for_file`` in a separate process - the same seam the
+    thread path uses, so both honour the middle-of-track retry.  No callback,
+    lock, or UI references.
 
     Returns:
         ``{"status": "ok", "key": <str>}`` on success, or
         ``{"status": "error", "error": <str>}`` on failure.
     """
     try:
-        y_raw: npt.NDArray[np.float32]
-        # Decode at the calibrated analysis rate: chroma_cqt's bin mapping and
-        # every confidence threshold in key_engine were measured at
-        # ANALYSIS_SAMPLE_RATE, so a file's own rate must not choose the grid
-        # (PLAN D138).
-        # The rate above is a pin, not a request: the loader resamples when the
-        # file's own rate differs, so ``_sr`` is the calibrated grid either way.
-        y_raw, _sr = librosa_load_with_fallback(
-            file_path, duration=analysis_duration, sr=ANALYSIS_SAMPLE_RATE
-        )
-        loaded_sr: int = int(_sr)
-        y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
-        check_analysable(y, loaded_sr)
-        detected_key: str = detect_key(y, loaded_sr)
+        detected_key: str = detect_key_for_file(file_path, analysis_duration)
         return {"status": "ok", "key": detected_key}
     # BLE001 boundary: a per-file outcome is reported, not raised
     except Exception as exc:  # noqa: BLE001

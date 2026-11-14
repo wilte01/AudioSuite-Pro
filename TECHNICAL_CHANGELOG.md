@@ -10,14 +10,114 @@ heading that is absent here means that release carried no developer-facing
 change, which is why a release with none adds no heading rather than an empty
 one.
 
-Each released section is grouped under `### Added`, `### Changed`,
-`### Deprecated`, `### Removed`, `### Fixed` or `### Security`, in that order,
-and every bullet belongs to exactly one of them.
+Each section is grouped under `### Added`, `### Changed`, `### Deprecated`,
+`### Removed`, `### Fixed` or `### Security`, in that order, with each heading
+used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
 ### Added
 
+- **The key corpus holds 34 Bach clips covering all 24 keys, with a declared
+  split.** `tests/data/key_corpus/` grew from 11 preludes to 23 preludes and 11
+  fugues: the twelve missing preludes (minus B-flat major, which still moves
+  under the q6 encode - `Bb` on the source excerpt, `Dm` on the encode - exactly
+  as D147 recorded at q4) plus eleven fugues, No. 8 skipped because its source
+  title is D-sharp minor and the engine spells that key `Ebm`. Measured:
+  **20 of 34 named correctly**, 15 of 23 preludes and 5 of 11 fugues; the
+  fourteen misses are eight dominants, two relative minors, one relative major,
+  one mediant, one enharmonic twin (F-sharp major read as `C#`, the same seven
+  pitch classes) and one tritone. Every clip is named at the shipped gate - the
+  weakest clarity is 0.055 against the 0.035 floor - so the corpus measures which
+  key wins rather than coverage; at a 0.070 floor 25 clips are named and 17 are
+  correct. `ATTRIBUTION.md` gained a `## Split` section (white-key tonics: 22
+  clips, 12 correct; black-key tonics: 12 clips, 8 correct) so a variant can be
+  fitted on one half and scored on the other, and `TestRealMusicKeyCorpus` pins
+  the 20/34 count, the extended outcome vocabulary (relative major, enharmonic
+  twin, tritone), the coverage lock and both split scores.
+
+- **The second analysis window is one shared implementation.**
+  `file_duration_seconds` and `second_window_offset` moved out of
+  `bpm_analyzer/core/bpm_detector.py` into `audio_suite_shared/analysis_loader.py`
+  (with `SECOND_WINDOW_MIN_WINDOWS`), so BPM Analyzer and Key Detector re-sample
+  a refused file through the same arithmetic rather than two copies; BPM's
+  behaviour is unchanged. Key Detector's two decode sites now share one seam,
+  `detect_key_for_file`, so the worker thread and the process pool honour the
+  retry identically. This supersedes D145, which declined the change on a
+  37-track sample where the two rescued keys measured 0.037-0.038 clarity (the
+  bottom of the engine's measured real-music band); the trade is recorded in
+  `PLAN_feature_expansion.md` D156. Locks:
+  `TestRefusedHeadIsMeasuredFromTheMiddle` - a real 20 s-noise + 40 s-labelled-
+  C-major WAV is tagged `C`, the fixture asserts the head window really is
+  refused, a named head window is decoded once, a file below two windows is
+  decoded once, two refusals tag nothing, a failed second decode keeps the
+  verdict, and the CPU worker returns the same key - plus `TestSecondWindow` in
+  the shared loader's suite for the offset arithmetic and the header duration.
+
+- **Key detection has a percussion-removed second pass.** `_analyse` now scores
+  through one `_score_profile` helper and, when the full-spectrum pass refuses,
+  measures the same signal again after `librosa.effects.harmonic`. `KeyAnalysis`
+  gained `analysis_path` (`"chroma"` or `"harmonic"`), and
+  `HARMONIC_CLARITY_FLOOR` (0.065) is that pass's own gate, calibrated above the
+  measured noise ceiling under percussion removal (white 0.012, pink 0.026,
+  brown 0.044, band-limited 0.055 over ten seeds each) instead of at the first
+  pass's 0.035. Because the retry runs only behind a refusal, no key the first
+  pass names can change: the labelled corpus still scores 7/11, and the two
+  reported dense mixes measure 0.0578 and 0.0402 on the harmonic path, so they
+  stay refused - naming them would need a floor inside the measured noise band.
+  Locked by `TestHarmonicSecondPass` (a chord-under-noise fixture the first pass
+  refuses and the second names, coloured noise surviving both passes, the
+  band-limited ceiling, and the pinned constant).
+
+- **The key corpus has dense electronic material with a source-stated key.**
+  `tests/data/key_corpus/` gained four 20 s sections of two CC0 electronic works
+  by Johnathon M. Horner (Beat Mekanik), whose Free Music Archive pages state the
+  key in the artist's cue info ("Key: G Sharp Minor", "Key: F Major"), and
+  `ATTRIBUTION.md` gained a `## Dense clips` table beside the Bach one. Both
+  sections of each work are committed (0 s and 90 s) so one section cannot carry
+  a verdict, and every row records both passes: `Measured ...` from `analyze_key`
+  and `Harmonic ...` from `_harmonic_pass` measured directly. The measurement is
+  that a dense master is not the retry's population - all four sections are named
+  on the first pass at clarity 0.060-0.166, the harmonic pass agrees with the
+  first pass on 4 of 4, and the one wrong work (F major read as its relative
+  minor `Dm`) stays wrong after percussion removal, so that miss is chroma
+  content rather than drum masking. Locked by `TestDenseElectronicCorpus`, which
+  parses the table, checks licence/source/author/offset/duration/size per row,
+  re-measures both passes, and pins 2 of 4 sections correct with `{"F": "Dm"}`
+  as the recorded miss.
+
+- **Brown and band-limited noise are pinned under the key clarity floor.**
+  `key_detector/tests/test_key_engine.py` gained `_brown_noise` (the same
+  detrended-`cumsum` generator the BPM suite uses, so one noise colour means one
+  signal across both analysis suites), `_band_limited_noise`, and
+  `TestAtonalNoiseFloor`, which measures ten brown seeds and nine band-limited
+  cases (60-6000, 300-3000, 2000-6000 Hz) and requires every one to report
+  `Unknown` with clarity below `CLARITY_FLOOR`. The worst measured values are
+  pinned (brown 0.0265, bands 0.0229, both at a 20 s window) so a statistic
+  change that moves the coloured-noise floor fails before a threshold has to
+  absorb it, and a vacuity guard rejects a silent fixture. The class docstring
+  records the two corners a constant cannot cover: at a 3 s window brown noise's
+  clarity is seed-dependent enough that one seed in ten crosses the floor, and a
+  400 Hz-wide band at 800-1200 Hz is named `Am`/`Bm` because a band that narrow
+  is a pitched hiss. Both are recorded rather than asserted, so a false tag is
+  never encoded as the expected contract (D149).
+- **The key detector has a labelled real-music corpus and a measured
+  accuracy.** `tests/data/key_corpus/` holds eleven excerpts of CC0 Bach
+  Well-Tempered Clavier preludes performed by Kimiko Ishizaka (20 s, 1.6 MB
+  total), declared by an `ATTRIBUTION.md` `## Clips` table in the same shape as
+  `tests/data/bpm_corpus`, so a clip cannot drift from its annotation. The new
+  `TestRealMusicKeyCorpus` parses that table, checks licence, source, size and
+  duration per row, re-measures every clip's key, clarity, margin and
+  confidence against it, and pins the engine at 7 of 11 correct with the misses
+  on the dominant, the mediant and the relative minor. It then asserts that
+  re-running the engine's own gate at clarity floors 0.035 to 0.070 and margin
+  thresholds 0.05 to 0.60 gives the same number of correct keys, which is the
+  evidence D147 used to leave both constants alone. The clips are encoded at
+  Vorbis quality 6 rather than the BPM corpus's quality 4 because a quality-4
+  copy of one clip changed its own verdict; that clip was dropped instead of
+  shipped as a knife-edge. The Markdown pipe-table parser moved out of
+  `test_bpm_detector.py` into `tests/corpus_table.py` so both corpora read
+  their declarations with one implementation.
 - **The Sphinx pages are checked for British spelling as well.** The pages
   under `documentation/docs` are prose too, and they were the one corpus no
   lock read: `TestDocsSpelling` now walks the eight pages, drops fenced blocks
@@ -104,31 +204,6 @@ and every bullet belongs to exactly one of them.
   `knee_db` is refused rather than accepted-and-ignored because the installed
   compressor's knee is fixed.
 
-### Changed
-
-- **The guide-claim lock knows the run report's stage prefixes are built from
-  the stage name.** A quoted report line carries `[EQ]`, which
-  `file_processor.run_pipeline` prints through `f"[{stage}]"`, so the token
-  sweep finds no literal to match. `DYNAMIC_STAGE_PREFIXES` exempts it with that
-  reason; the report's own shape is still held by
-  `audio_refinery/tests/test_app.py`.
-
-- **A capture figure no longer photographs the previous operator's panel
-  state.** The refinery's Setup tab restores its six stage switches from the
-  saved settings file, so the 2.7.0 figure shipped with Parametric EQ as the
-  only active stage while the guide described the four defaults. The capture
-  harness now takes a per-tool setup override (`_SETUP_OVERRIDES`) and fills the
-  refinery's switches with the pipeline defaults, and the shared setup filler
-  also fills `source_path`, so a Setup figure is the window a first launch shows
-  rather than one person's last run.
-- **The Refine tab's SELECT ALL reads the model's `REFINERY_STAGES`.**
-  `master_driver/ui/refinery_tab.py` carried its own six-name tuple beside the
-  one in `audio_refinery/core/models.py` and the args builder, so a seventh
-  stage would have had to be added to the tab as well. The tuple is gone and
-  both the toggle callback and the startup sync iterate the model's list.
-
-### Added
-
 - **The EQ panel is one editor over one rack.** `_EqEditor` owns the band list,
   writes `config.eq_params` on every edit, and draws its curve through
   `dsp_eq.response_curve`; the `state["eq_refresh"]` hook lets a preset load or
@@ -155,6 +230,27 @@ and every bullet belongs to exactly one of them.
   with a warning instead of the whole configuration.
 
 ### Changed
+
+- **The guide-claim lock knows the run report's stage prefixes are built from
+  the stage name.** A quoted report line carries `[EQ]`, which
+  `file_processor.run_pipeline` prints through `f"[{stage}]"`, so the token
+  sweep finds no literal to match. `DYNAMIC_STAGE_PREFIXES` exempts it with that
+  reason; the report's own shape is still held by
+  `audio_refinery/tests/test_app.py`.
+
+- **A capture figure no longer photographs the previous operator's panel
+  state.** The refinery's Setup tab restores its six stage switches from the
+  saved settings file, so the 2.7.0 figure shipped with Parametric EQ as the
+  only active stage while the guide described the four defaults. The capture
+  harness now takes a per-tool setup override (`_SETUP_OVERRIDES`) and fills the
+  refinery's switches with the pipeline defaults, and the shared setup filler
+  also fills `source_path`, so a Setup figure is the window a first launch shows
+  rather than one person's last run.
+- **The Refine tab's SELECT ALL reads the model's `REFINERY_STAGES`.**
+  `master_driver/ui/refinery_tab.py` carried its own six-name tuple beside the
+  one in `audio_refinery/core/models.py` and the args builder, so a seventh
+  stage would have had to be added to the tab as well. The tuple is gone and
+  both the toggle callback and the startup sync iterate the model's list.
 
 - **The CLI JSON contract gains a `licences` variant.** `audiosuite licences`
   publishes `licence_dir` and a `documents` inventory through `build_payload`,
@@ -1347,17 +1443,6 @@ and every bullet belongs to exactly one of them.
 
 ## [2.1.7] - 2026-10-29
 
-### Fixed
-
-- **Two Refinery tests are gated on a measured capability, not on `CI`.**
-  `test_normalise_reaches_target_lufs` and `test_full_chain_all_stages` were
-  skipped whenever the `CI` variable was set, with a reason claiming pydub needs
-  ffmpeg - a fact nothing checked, so a runner that had ffmpeg skipped them
-  anyway. They now skip only when a real pydub FLAC round trip fails, which
-  means they execute on a runner that can. Un-skipping them immediately found
-  the 192 kHz normalise defect recorded in `CHANGELOG.md` for this release: it
-  had been invisible to CI precisely because that test never ran there.
-
 ### Changed
 
 - **The documentation has one home: `documentation/`.** The Sphinx site and the
@@ -1369,6 +1454,17 @@ and every bullet belongs to exactly one of them.
 - `AGENTS.md`'s Bandit rule quoted `exclude_dirs = ["tests"]`; it now quotes the
   real value, `["tests", "packaging"]`, so the rule a reader greps matches
   `pyproject.toml`.
+
+### Fixed
+
+- **Two Refinery tests are gated on a measured capability, not on `CI`.**
+  `test_normalise_reaches_target_lufs` and `test_full_chain_all_stages` were
+  skipped whenever the `CI` variable was set, with a reason claiming pydub needs
+  ffmpeg - a fact nothing checked, so a runner that had ffmpeg skipped them
+  anyway. They now skip only when a real pydub FLAC round trip fails, which
+  means they execute on a runner that can. Un-skipping them immediately found
+  the 192 kHz normalise defect recorded in `CHANGELOG.md` for this release: it
+  had been invisible to CI precisely because that test never ran there.
 
 ## [2.1.6] - 2026-10-28
 
@@ -1798,6 +1894,25 @@ and in `PLAN_bughunt_remediation.md`.
   was replaced with non-numeric wording so the statement cannot drift as
   modules are added or removed.
 
+### Removed
+
+- Per-tool `*_Logging_Guide.docx` files and `generate_logging_guide.py`
+  (superseded — see *Changed*).
+- The tracked `*.bak` guide backups (regenerate from the generator instead).
+- The production-dead argparse subsystem in
+  `audio_suite_shared/cli_helpers.py` (~300 lines) and its tests — every tool
+  parses its live arguments through `UniversalCLIHandler` and the per-tool
+  `utils/cli_args.py` modules.
+- Dead code confirmed by AST scan and removed (E4 M15): `_ENHANCE_PRESETS`
+  (47-line unused preset dict in `audio_refinery/ui/setup_tab.py`),
+  `check_integrity_batch` (zero callers in `audio_refinery/core/file_processor.py`),
+  `_FingerprintJob.processor` field (the worker re-derives the slot from the
+  queue), the legacy str-spec path in `master_driver/runner/module_runner.py`
+  (35 lines — no production caller passes str specs), the dead
+  `hasattr(self.app, "scheme")` branch in `cli_helpers.py` (`TempoAnalyzerApp`
+  uses `tempo_scheme`), and the write-only `_output_dir_final` and `_reset_ui`
+  in `music_format_converter/app.py`.
+
 ### Fixed
 
 - The portable-core CLI test reads its JSON payload from stdout only, so the
@@ -1842,25 +1957,6 @@ and in `PLAN_bughunt_remediation.md`.
   classes.** The `ttk.Style` object returned by `bootstrap_tool_app()` was
   only read by `master_driver/app.py`; all other apps stored it on `self`
   but never read it. The assignment is now `self.error_logger, _ = ...`.
-
-### Removed
-
-- Per-tool `*_Logging_Guide.docx` files and `generate_logging_guide.py`
-  (superseded — see *Changed*).
-- The tracked `*.bak` guide backups (regenerate from the generator instead).
-- The production-dead argparse subsystem in
-  `audio_suite_shared/cli_helpers.py` (~300 lines) and its tests — every tool
-  parses its live arguments through `UniversalCLIHandler` and the per-tool
-  `utils/cli_args.py` modules.
-- Dead code confirmed by AST scan and removed (E4 M15): `_ENHANCE_PRESETS`
-  (47-line unused preset dict in `audio_refinery/ui/setup_tab.py`),
-  `check_integrity_batch` (zero callers in `audio_refinery/core/file_processor.py`),
-  `_FingerprintJob.processor` field (the worker re-derives the slot from the
-  queue), the legacy str-spec path in `master_driver/runner/module_runner.py`
-  (35 lines — no production caller passes str specs), the dead
-  `hasattr(self.app, "scheme")` branch in `cli_helpers.py` (`TempoAnalyzerApp`
-  uses `tempo_scheme`), and the write-only `_output_dir_final` and `_reset_ui`
-  in `music_format_converter/app.py`.
 
 ## [1.0.0] - 2026-09-26
 

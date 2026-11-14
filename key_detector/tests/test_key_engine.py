@@ -19,10 +19,20 @@ Covers:
   - Stereo input: multi-channel array handling
 
 Changed in 1.0.1: adds coverage for the recalibrated keyless fallback.
+Changed in 2.7.0: `TestRealMusicKeyCorpus` measures the detector on the
+CC0 Bach corpus (34 preludes and fugues) and locks 20/34 accuracy, the miss
+pattern, the tonic-disjoint split and the fact that neither gate threshold
+can repair a miss (D147, D154).
+Changed in 2.7.0: `TestAtonalNoiseFloor` pins seeded brown and band-limited
+noise under `CLARITY_FLOOR`, with the 3 s and narrow-band limits it cannot
+cover recorded in the class docstring (D149).
+Changed in 2.7.0: `TestHarmonicSecondPass` locks the percussion-removed
+second pass and its own floor (D151).
 """
 
 import re
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 
 import librosa
@@ -37,17 +47,35 @@ from audio_suite_shared.analysis_loader import (
 from audio_suite_shared.exceptions import AudioAnalysisError
 from key_detector.core.key_engine import (
     CLARITY_FLOOR,
+    DEFAULT_CORRELATION,
+    DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+    DEFAULT_WEIGHTING,
+    HARMONIC_CLARITY_FLOOR,
     UNKNOWN_KEY,
+    _harmonic_pass,
+    _pitch_class_profile,
+    _score_profile,
     analyze_key,
     detect_key,
     detect_key_with_strength,
 )
+from tests.corpus_table import pipe_rows
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 SR: int = 22050
 DURATION_SECS: float = 3.0
 N_SAMPLES: int = int(SR * DURATION_SECS)
+
+#: Window the noise fixtures are generated at.  The engine analyses up to
+#: ``DEFAULT_ANALYSIS_SECONDS`` (90 s), but 3 s - the length of the triad
+#: fixtures - is too short for a stable coloured-noise measurement: across ten
+#: seeds, 3 s of brown noise spans 0.020-0.038 clarity and one seed crosses
+#: ``CLARITY_FLOOR``, while the same seeds at 20 s span 0.020-0.027 and none do.
+#: The variance is the short window's, not the gate's, so the fixtures use the
+#: length a real file is analysed at rather than a length that manufactures a
+#: crossing (D149).
+_ATONAL_SECONDS: float = 20.0
 
 _MIDI_ROOTS = {
     "C": 60,
@@ -156,6 +184,35 @@ def _minor_chord(
 def _white_noise(seed: int) -> npt.NDArray[np.float64]:
     """Seeded unit-variance broadband noise: the atonal F2 negative vector."""
     return np.random.default_rng(seed).normal(0.0, 1.0, N_SAMPLES).astype(np.float64)
+
+
+def _brown_noise(
+    seed: int, seconds: float = _ATONAL_SECONDS
+) -> npt.NDArray[np.float64]:
+    """Seeded detrended-brown noise: the low-frequency rumble case.
+
+    Same generator as ``bpm_analyzer/tests/test_bpm_detector.py`` (a ``cumsum``
+    of white noise, linearly detrended, scaled to 0.5) so one noise colour means
+    the same thing in both analysis suites.
+    """
+    rng = np.random.default_rng(seed)
+    n = int(SR * seconds)
+    walk = np.cumsum(rng.standard_normal(n))
+    walk -= np.linspace(walk[0], walk[-1], n)
+    return (walk / np.max(np.abs(walk)) * 0.5).astype(np.float64)
+
+
+def _band_limited_noise(
+    seed: int, low_hz: float, high_hz: float, seconds: float = _ATONAL_SECONDS
+) -> npt.NDArray[np.float64]:
+    """Seeded white noise with every frequency outside *low_hz*-*high_hz* removed."""
+    rng = np.random.default_rng(seed)
+    n = int(SR * seconds)
+    spectrum = np.fft.rfft(rng.standard_normal(n))
+    freqs: npt.NDArray[np.float64] = np.fft.rfftfreq(n, 1 / SR)
+    spectrum[(freqs < low_hz) | (freqs > high_hz)] = 0.0
+    signal: npt.NDArray[np.float64] = np.fft.irfft(spectrum, n)
+    return (signal / np.max(np.abs(signal)) * 0.5).astype(np.float64)
 
 
 def _noisy_triad(
@@ -1104,3 +1161,659 @@ class TestPublicApiContract:
 
 
 _MIDI_ROOTS_BY_MIDI: dict[int, str] = {midi: name for name, midi in _MIDI_ROOTS.items()}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Licensed real-music key corpus (plan D147)
+# ═════════════════════════════════════════════════════════════════════════════
+# The synthetic fixtures above prove the estimator follows a key template; they
+# cannot say how often it is right on real music, or whether its two thresholds
+# are placed correctly.  The clips under tests/data/key_corpus are 20 s excerpts
+# of Bach preludes and fugues performed by Kimiko Ishizaka (CC0).  ATTRIBUTION.md
+# declares
+# them and is the source of truth, so no clip can drift from its annotation.
+
+KEY_CORPUS_DIR = Path(__file__).resolve().parents[2] / "tests" / "data" / "key_corpus"
+KEY_ATTRIBUTION_PATH = KEY_CORPUS_DIR / "ATTRIBUTION.md"
+
+#: Corpus clips stay small enough to live in git, as the BPM corpus does.
+_MAX_KEY_CLIP_BYTES = 200 * 1024
+
+#: The recorded verdict vocabulary.  A "wrong (...)" outcome is a measured
+#: defect, recorded rather than hidden: deleting the clip would delete the
+#: evidence that the estimator picks a neighbour of the tonic.
+_MATCHED = "matched"
+_WRONG = (
+    "wrong (dominant)",
+    "wrong (mediant)",
+    "wrong (relative major)",
+    "wrong (relative minor)",
+    "wrong (enharmonic twin)",
+    "wrong (tritone)",
+)
+
+#: Clips named correctly when the corpus was recorded; locked so that any change
+#: has to be deliberate and re-annotated.
+_EXPECTED_MATCHES = 20
+
+#: The annotated keys the estimator misses.  A fix updates the table and this set
+#: together, which is the check that the fix actually moved the right rows.
+_EXPECTED_WRONG_KEYS = {
+    "D",
+    "E",
+    "Eb",
+    "Em",
+    "F",
+    "F#",
+    "Fm",
+    "G",
+    "G#m",
+    "Ab",
+    "B",
+    "Bm",
+}
+
+#: Every clip is named by the shipped gate (the corpus measures which key wins,
+#: not whether one is reported); the weakest clarity is 0.055 against 0.035.
+_MIN_CORPUS_CLARITY = 0.055
+
+#: The tonic-disjoint split declared in `ATTRIBUTION.md` (`## Split`): white-key
+#: tonics train a variant, black-key tonics test it.  (correct, total) per half.
+_BLACK_KEY_TONICS = {"C#", "D#", "F#", "G#", "A#"}
+_FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
+_EXPECTED_SPLIT = {"train": (12, 22), "test": (8, 12)}
+
+
+@dataclass(frozen=True)
+class _KeyClip:
+    filename: str
+    annotated_key: str
+    measured_key: str
+    clarity: float
+    margin: float
+    confidence: float
+    outcome: str
+
+
+def _key_rows() -> list[dict[str, str]]:
+    return pipe_rows(
+        KEY_ATTRIBUTION_PATH.read_text(encoding="utf-8"),
+        "## Clips",
+        name=KEY_ATTRIBUTION_PATH.name,
+    )
+
+
+def _key_clips() -> list[_KeyClip]:
+    clips: list[_KeyClip] = []
+    for row in _key_rows():
+        clips.append(
+            _KeyClip(
+                filename=row["Clip"].strip("`"),
+                annotated_key=row["Annotated key"],
+                measured_key=row["Measured key"],
+                clarity=float(row["Measured clarity"]),
+                margin=float(row["Measured margin"]),
+                confidence=float(row["Measured confidence"]),
+                outcome=row["Outcome"],
+            )
+        )
+    return clips
+
+
+_KEY_ROWS = _key_rows()
+_KEY_CLIPS = _key_clips()
+
+
+class TestRealMusicKeyCorpus:
+    """Measured accuracy on labelled real music, and why the gates stay put."""
+
+    def test_the_committed_table_parses(self) -> None:
+        assert len(_KEY_CLIPS) >= 10, f"only {len(_KEY_CLIPS)} rows parsed"
+        outcomes = {clip.outcome for clip in _KEY_CLIPS}
+        assert _MATCHED in outcomes, "no matched row - the accuracy claim is vacuous"
+        assert outcomes - {_MATCHED}, "no recorded miss - the defect is hidden"
+        assert outcomes <= {_MATCHED, *_WRONG}, (
+            f"unknown outcome vocabulary: {outcomes}"
+        )
+
+    def test_the_corpus_is_complete_and_attributed(self) -> None:
+        files = sorted(path.name for path in KEY_CORPUS_DIR.glob("*.ogg"))
+        assert files == sorted(
+            [clip.filename for clip in _KEY_CLIPS]
+            + [clip.filename for clip in _DENSE_CLIPS]
+        ), (
+            "the committed clips and the table diverged - a clip is missing its "
+            "row, or a row is missing its clip"
+        )
+        for row in _KEY_ROWS:
+            path = KEY_CORPUS_DIR / row["Clip"].strip("`")
+            assert path.is_file()
+            assert path.stat().st_size <= _MAX_KEY_CLIP_BYTES, (
+                f"{path.name} is {path.stat().st_size} bytes; corpus clips must "
+                f"stay under {_MAX_KEY_CLIP_BYTES}"
+            )
+            assert row["Licence"] == "CC0 1.0", (
+                f"{path.name}: licence {row['Licence']!r} is not the verified CC0 "
+                "dedication this corpus requires"
+            )
+            assert row["Source"].startswith(
+                "<https://commons.wikimedia.org/wiki/File:"
+            ), f"{path.name}: {row['Source']!r} is not a Commons file page"
+            assert row["Author"] == "Kimiko Ishizaka"
+            duration = librosa.get_duration(path=str(path))
+            assert 19.0 <= duration <= 21.0, f"{path.name}: duration {duration}"
+
+    def test_every_clip_measures_what_the_table_records(self) -> None:
+        for clip in _KEY_CLIPS:
+            signal, sr = load_analysis_audio(str(KEY_CORPUS_DIR / clip.filename))
+            analysis = analyze_key(signal, sr)
+            assert analysis.key == clip.measured_key, (
+                f"{clip.filename}: the table records {clip.measured_key}, the "
+                f"engine now says {analysis.key} - re-annotate the row"
+            )
+            assert analysis.clarity == pytest.approx(clip.clarity, abs=0.02)
+            assert (
+                analysis.winner_correlation - analysis.runner_up_correlation
+            ) == pytest.approx(clip.margin, abs=0.01)
+            assert analysis.confidence == pytest.approx(clip.confidence, abs=0.05)
+
+    def test_the_measured_accuracy_is_locked(self) -> None:
+        matched = [clip for clip in _KEY_CLIPS if clip.outcome == _MATCHED]
+        wrong = {clip.annotated_key for clip in _KEY_CLIPS if clip.outcome != _MATCHED}
+        assert len(matched) == _EXPECTED_MATCHES
+        assert wrong == _EXPECTED_WRONG_KEYS, (
+            f"the recorded misses are {sorted(wrong)}, not "
+            f"{sorted(_EXPECTED_WRONG_KEYS)}: the known failures are the dominant, "
+            "the mediant and the relative minor; a fix updates the table and this "
+            "set together"
+        )
+        for clip in _KEY_CLIPS:
+            if clip.outcome != _MATCHED:
+                assert clip.measured_key != clip.annotated_key
+
+    def test_the_thresholds_cannot_move_the_accuracy(self) -> None:
+        """Re-running the gate over these rows: same answer at every setting.
+
+        This is why D147 re-derived neither threshold.  The winner is decided by
+        the winning correlation, so a gate threshold changes which clips are
+        *named*, never which key wins.
+        """
+
+        def exact_named(confidence_threshold: float, clarity_floor: float) -> int:
+            named = [
+                clip
+                for clip in _KEY_CLIPS
+                if clip.confidence >= confidence_threshold
+                or clip.clarity >= clarity_floor
+            ]
+            return sum(1 for clip in named if clip.measured_key == clip.annotated_key)
+
+        base = exact_named(DEFAULT_LOW_CONFIDENCE_THRESHOLD, CLARITY_FLOOR)
+        assert base == _EXPECTED_MATCHES
+        for floor in (0.040, 0.047, 0.055):
+            assert exact_named(DEFAULT_LOW_CONFIDENCE_THRESHOLD, floor) == base, (
+                f"a {floor} clarity floor changes the correct count; if a threshold "
+                "really can repair a miss, D147 must be re-derived from it"
+            )
+        for threshold in (0.05, 0.10, 0.40, 0.60):
+            assert exact_named(threshold, CLARITY_FLOOR) == base, (
+                f"a {threshold} margin threshold changes the correct count"
+            )
+
+    def test_a_stricter_floor_refuses_music_without_fixing_it(self) -> None:
+        """The 0.070 counterfactual: fewer clips named, none of them repaired."""
+        named = [
+            clip
+            for clip in _KEY_CLIPS
+            if clip.confidence >= DEFAULT_LOW_CONFIDENCE_THRESHOLD
+            or clip.clarity >= 0.070
+        ]
+        correct = sum(1 for clip in named if clip.measured_key == clip.annotated_key)
+        assert len(named) == 25, f"0.070 names {len(named)} clips, not 25"
+        assert correct == 17, f"0.070 names {len(named)} clips and corrects {correct}"
+        # The invariant behind the numbers: a floor can only remove named clips,
+        # so it can never raise the number of correct answers.
+        assert correct <= _EXPECTED_MATCHES, (
+            f"a 0.070 floor corrects {correct} clips against {_EXPECTED_MATCHES} "
+            "at the shipped floor; a gate threshold cannot repair a miss"
+        )
+
+    def test_every_clip_is_named(self) -> None:
+        """The corpus measures the winner, not whether a key is reported.
+
+        Every clip sits above the clarity floor, so a change that starts refusing
+        one has changed coverage rather than accuracy, and this lock says so
+        before a threshold absorbs it.
+        """
+        refused = [
+            clip.filename for clip in _KEY_CLIPS if clip.measured_key == UNKNOWN_KEY
+        ]
+        assert not refused, f"the shipped gate refuses corpus clips: {refused}"
+        weakest = min(_KEY_CLIPS, key=lambda clip: clip.clarity)
+        assert weakest.clarity >= _MIN_CORPUS_CLARITY, (
+            f"{weakest.filename} measures clarity {weakest.clarity:.3f}, below the "
+            f"recorded weakest {_MIN_CORPUS_CLARITY}; re-measure the corpus before "
+            "moving a floor"
+        )
+
+    def test_the_split_is_tonic_disjoint_and_scored(self) -> None:
+        """The declared split, and the shipped engine's score on each half.
+
+        A variant fitted on the white-key half is reported on the black-key half,
+        so the halves must not share a tonic: a corpus split by pitch class would
+        let a variant be credited on the keys it learned.
+        """
+
+        def tonic(clip: _KeyClip) -> str:
+            name = (
+                clip.annotated_key[:-1]
+                if clip.annotated_key.endswith("m")
+                else clip.annotated_key
+            )
+            return _FLAT_TO_SHARP.get(name, name)
+
+        train = [clip for clip in _KEY_CLIPS if tonic(clip) not in _BLACK_KEY_TONICS]
+        test = [clip for clip in _KEY_CLIPS if tonic(clip) in _BLACK_KEY_TONICS]
+        assert len(train) + len(test) == len(_KEY_CLIPS), (
+            "the split does not partition the corpus"
+        )
+        assert {tonic(clip) for clip in train}.isdisjoint(
+            {tonic(clip) for clip in test}
+        ), "a tonic is in both halves - the split is not tonic-disjoint"
+        for half, clips in (("train", train), ("test", test)):
+            expected_correct, expected_total = _EXPECTED_SPLIT[half]
+            assert len(clips) == expected_total, (
+                f"the {half} half holds {len(clips)} clips, not {expected_total}"
+            )
+            named = sum(1 for clip in clips if clip.measured_key == clip.annotated_key)
+            assert named == expected_correct, (
+                f"the {half} half is named correctly {named} times, not "
+                f"{expected_correct}; re-record the split in ATTRIBUTION.md and here"
+            )
+
+    def test_the_thresholds_are_pinned(self) -> None:
+        assert CLARITY_FLOOR == 0.035, (
+            f"CLARITY_FLOOR is {CLARITY_FLOOR}, not the calibrated 0.035; the key "
+            "corpus gives no evidence for another value (accuracy is unchanged at "
+            "0.040-0.055), so a move needs its own re-derivation (D147)"
+        )
+        assert DEFAULT_LOW_CONFIDENCE_THRESHOLD == 0.25, (
+            f"the margin threshold is {DEFAULT_LOW_CONFIDENCE_THRESHOLD}, not the "
+            "calibrated 0.25; the corpus shows it is inert on real material "
+            "(0.05-0.60 all give the same accuracy), not that another value is better"
+        )
+
+
+# ── Dense electronic corpus (D152) ───────────────────────────────────────────
+# The Bach table above is solo keyboard and every one of its clips is named on the
+# first pass, so it cannot say how the percussion-removed second pass behaves on
+# the dense, drum-led masters it exists for.  These four sections of two CC0
+# electronic works carry a key the *source* states, which is what lets that pass be
+# scored for accuracy rather than only for yield.
+#
+# Changed in 2.7.0: added the dense electronic table (D152).
+
+#: The licence and author the dense rows must carry, both read from the FMA page.
+_DENSE_SOURCE_PREFIX = "<https://freemusicarchive.org/music/beat-mekanik/"
+_DENSE_AUTHOR = "Johnathon M. Horner (Beat Mekanik)"
+
+#: Sections named correctly: both Electron sections.  The two misses are the same
+#: relative-minor confusion the Bach table records for F major.
+_EXPECTED_DENSE_MATCHES = 2
+_EXPECTED_DENSE_WRONG = {"F": "Dm"}
+
+
+@dataclass(frozen=True)
+class _DenseClip:
+    filename: str
+    annotated_key: str
+    measured_key: str
+    clarity: float
+    margin: float
+    confidence: float
+    harmonic_key: str
+    harmonic_clarity: float
+    analysis_path: str
+    outcome: str
+
+
+def _dense_rows() -> list[dict[str, str]]:
+    return pipe_rows(
+        KEY_ATTRIBUTION_PATH.read_text(encoding="utf-8"),
+        "## Dense clips",
+        name=KEY_ATTRIBUTION_PATH.name,
+    )
+
+
+def _dense_clips() -> list[_DenseClip]:
+    return [
+        _DenseClip(
+            filename=row["Clip"].strip("`"),
+            annotated_key=row["Annotated key"],
+            measured_key=row["Measured key"],
+            clarity=float(row["Measured clarity"]),
+            margin=float(row["Measured margin"]),
+            confidence=float(row["Measured confidence"]),
+            harmonic_key=row["Harmonic key"],
+            harmonic_clarity=float(row["Harmonic clarity"]),
+            analysis_path=row["Pass"],
+            outcome=row["Outcome"],
+        )
+        for row in _dense_rows()
+    ]
+
+
+_DENSE_ROWS = _dense_rows()
+_DENSE_CLIPS = _dense_clips()
+
+
+class TestDenseElectronicCorpus:
+    """Measured accuracy on dense masters whose key the source states (D152).
+
+    What these rows measure is that the retry is not what a dense master needs:
+    all four sections are named on the first pass (clarity 0.060-0.166, against a
+    0.035 floor), so the second pass never runs on them in production, and where
+    the answer is wrong it stays wrong after percussion removal - the one miss is
+    F major read as its relative minor ``Dm`` on both the first and the harmonic
+    pass.  The defect the retry was built for is drum masking; this defect is in
+    the pitch-class content, which is why no percussion treatment repairs it.
+
+    The ``Harmonic ...`` columns are `_harmonic_pass` measured directly, so the
+    table records what that pass *would* say without claiming the engine said it.
+    """
+
+    def test_the_dense_table_parses(self) -> None:
+        assert len(_DENSE_CLIPS) == 4, f"only {len(_DENSE_CLIPS)} dense rows parsed"
+        assert len(_DENSE_ROWS) == len(_DENSE_CLIPS)
+        outcomes = {clip.outcome for clip in _DENSE_CLIPS}
+        assert _MATCHED in outcomes, "no matched row - the accuracy claim is vacuous"
+        assert outcomes - {_MATCHED}, "no recorded miss - the defect is hidden"
+        assert outcomes <= {_MATCHED, *_WRONG}, (
+            f"unknown outcome vocabulary: {outcomes}"
+        )
+
+    def test_the_dense_clips_are_attributed(self) -> None:
+        for row in _DENSE_ROWS:
+            path = KEY_CORPUS_DIR / row["Clip"].strip("`")
+            assert path.is_file(), f"{path.name} is missing its clip"
+            assert path.stat().st_size <= _MAX_KEY_CLIP_BYTES, (
+                f"{path.name} is {path.stat().st_size} bytes; corpus clips must "
+                f"stay under {_MAX_KEY_CLIP_BYTES}"
+            )
+            assert row["Licence"] == "CC0 1.0", (
+                f"{path.name}: licence {row['Licence']!r} is not the verified CC0 "
+                "dedication this corpus requires"
+            )
+            assert row["Source"].startswith(_DENSE_SOURCE_PREFIX), (
+                f"{path.name}: {row['Source']!r} is not the Free Music Archive track "
+                "page whose cue info states the key"
+            )
+            assert row["Author"] == _DENSE_AUTHOR, (
+                f"{path.name}: author {row['Author']!r} is not the artist who "
+                "released these works CC0"
+            )
+            assert row["Offset"].rstrip(" s") in {"0.00", "90.00"}, (
+                f"{path.name}: offset {row['Offset']!r} is not a measured section"
+            )
+            duration = librosa.get_duration(path=str(path))
+            assert 19.0 <= duration <= 21.0, f"{path.name}: duration {duration}"
+
+    def test_every_dense_clip_measures_what_the_table_records(self) -> None:
+        for clip in _DENSE_CLIPS:
+            signal, sr = load_analysis_audio(str(KEY_CORPUS_DIR / clip.filename))
+            analysis = analyze_key(signal, sr)
+            assert analysis.key == clip.measured_key, (
+                f"{clip.filename}: the table records {clip.measured_key}, the "
+                f"engine now says {analysis.key} - re-annotate the row"
+            )
+            assert analysis.analysis_path == clip.analysis_path == "chroma", (
+                f"{clip.filename}: the {analysis.analysis_path} pass answered where "
+                "the table records the first pass; if a dense master now reaches the "
+                "retry, re-measure every dense row"
+            )
+            assert analysis.clarity == pytest.approx(clip.clarity, abs=0.02)
+            margin = analysis.winner_correlation - analysis.runner_up_correlation
+            assert margin == pytest.approx(clip.margin, abs=0.01)
+            assert analysis.confidence == pytest.approx(clip.confidence, abs=0.05)
+
+    def test_the_recorded_harmonic_pass_matches_the_table(self) -> None:
+        for clip in _DENSE_CLIPS:
+            signal, sr = load_analysis_audio(str(KEY_CORPUS_DIR / clip.filename))
+            harmonic = _harmonic_pass(
+                signal.astype(np.float64), sr, DEFAULT_CORRELATION, DEFAULT_WEIGHTING
+            )
+            assert harmonic is not None, f"{clip.filename}: nothing left to score"
+            h_key, _h_winner, _h_runner, _h_conf, h_clarity = harmonic
+            assert h_key == clip.harmonic_key, (
+                f"{clip.filename}: the harmonic pass now says {h_key}, the table "
+                f"records {clip.harmonic_key}"
+            )
+            assert h_clarity == pytest.approx(clip.harmonic_clarity, abs=0.02)
+
+    def test_dense_accuracy_and_the_unrepaired_miss_are_locked(self) -> None:
+        matched = [clip for clip in _DENSE_CLIPS if clip.outcome == _MATCHED]
+        wrong = {
+            clip.annotated_key: clip.measured_key
+            for clip in _DENSE_CLIPS
+            if clip.outcome != _MATCHED
+        }
+        assert len(matched) == _EXPECTED_DENSE_MATCHES, (
+            f"{len(matched)} dense sections are named correctly, not "
+            f"{_EXPECTED_DENSE_MATCHES}; a change to this number is a change to the "
+            "measured accuracy on dense electronic material"
+        )
+        assert wrong == _EXPECTED_DENSE_WRONG, (
+            f"the recorded dense misses are {wrong}, not {_EXPECTED_DENSE_WRONG}"
+        )
+        for clip in _DENSE_CLIPS:
+            assert clip.harmonic_key == clip.measured_key, (
+                f"{clip.filename}: the harmonic pass says {clip.harmonic_key} where "
+                f"the first pass says {clip.measured_key}; percussion removal is "
+                "supposed not to change a verdict, so re-measure the table"
+            )
+
+
+# ── Atonal noise boundary ─────────────────────────────────────────────────────
+
+
+_BROWN_SEEDS: range = range(10)
+_BAND_LIMITED_BANDS: tuple[tuple[float, float], ...] = (
+    (60.0, 6000.0),
+    (300.0, 3000.0),
+    (2000.0, 6000.0),
+)
+
+#: Recorded ceilings (20 s, engine 2.7.0): the worst of ten brown seeds and the
+#: worst of the three bands.  Pinned so a statistic change that quietly moves
+#: the noise floor shows up before a threshold has to absorb it.
+_MEASURED_BROWN_CEILING: float = 0.0265
+_MEASURED_BAND_CEILING: float = 0.0229
+
+
+class TestAtonalNoiseFloor:
+    """Coloured noise must not fit a key template (D149).
+
+    ``CLARITY_FLOOR`` is the gate that decides on material with no tonal centre:
+    the margin threshold is inert here (these signals measure 0.000-0.13
+    confidence), so if a noise profile ever starts spanning several pitch
+    classes, the floor is the only thing between it and a written key tag.  A
+    key detector that tags a rumble or a hiss is worse than one that declines -
+    the tag reads as a musical fact (F2).
+
+    Two measured limits are recorded rather than locked, because no threshold can
+    address either without refusing real music.  At a 3 s window, brown noise's
+    clarity is seed-dependent enough that one seed in ten crosses the floor; at
+    its 0.038 ceiling the floor would have to rise to 0.045 to refuse it, which
+    is above the median clarity D146 measured across a real pop library (0.047).
+    And a 400 Hz-wide band at 800-1200 Hz is *named* (Am/Bm at 0.034-0.040,
+    both window lengths): a band that narrow is a pitched hiss, which ``chroma``
+    reads as a chord, and the gates have no spectral-flatness test to tell the
+    two apart.  Refusing it would need a new feature, not a moved constant.
+    """
+
+    def test_brown_noise_is_never_named(self) -> None:
+        worst_seed: int = -1
+        worst_clarity: float = 0.0
+        for seed in _BROWN_SEEDS:
+            analysis = analyze_key(_brown_noise(seed), SR)
+            if analysis.clarity > worst_clarity:
+                worst_seed, worst_clarity = seed, analysis.clarity
+            assert analysis.key == UNKNOWN_KEY, (
+                f"brown-noise seed {seed} was named {analysis.key!r} at clarity "
+                f"{analysis.clarity:.4f}; low-frequency rumble is not in a key"
+            )
+            assert analysis.clarity < CLARITY_FLOOR, (
+                f"brown-noise seed {seed} measures clarity {analysis.clarity:.4f} "
+                f"against the {CLARITY_FLOOR} floor - the noise profile now fits a "
+                "key template closely enough to pass the tonality gate"
+            )
+        assert worst_clarity == pytest.approx(_MEASURED_BROWN_CEILING, abs=0.005), (
+            f"the worst brown-noise seed ({worst_seed}) now measures "
+            f"{worst_clarity:.4f} against a recorded {_MEASURED_BROWN_CEILING}; "
+            "re-measure the noise band before moving CLARITY_FLOOR"
+        )
+
+    def test_band_limited_noise_is_never_named(self) -> None:
+        worst_clarity: float = 0.0
+        for low_hz, high_hz in _BAND_LIMITED_BANDS:
+            for seed in range(3):
+                analysis = analyze_key(_band_limited_noise(seed, low_hz, high_hz), SR)
+                worst_clarity = max(worst_clarity, analysis.clarity)
+                assert analysis.key == UNKNOWN_KEY, (
+                    f"band-limited noise {low_hz}-{high_hz} Hz, seed {seed}, was "
+                    f"named {analysis.key!r} at clarity {analysis.clarity:.4f}"
+                )
+                assert analysis.clarity < CLARITY_FLOOR, (
+                    f"band-limited noise {low_hz}-{high_hz} Hz, seed {seed}, "
+                    f"measures clarity {analysis.clarity:.4f} against the "
+                    f"{CLARITY_FLOOR} floor"
+                )
+        assert worst_clarity == pytest.approx(_MEASURED_BAND_CEILING, abs=0.005), (
+            f"the worst band-limited fixture now measures {worst_clarity:.4f} "
+            f"against a recorded {_MEASURED_BAND_CEILING}; re-measure the noise "
+            "band before moving CLARITY_FLOOR"
+        )
+
+    def test_the_fixtures_are_audible_noise(self) -> None:
+        """A silent fixture would pass every floor assertion vacuously."""
+        for signal in (
+            _brown_noise(0),
+            _band_limited_noise(0, 300.0, 3000.0),
+        ):
+            rms: float = float(np.sqrt(np.mean(np.square(signal))))
+            assert 0.01 < rms < 0.5, f"fixture RMS {rms:.4f} is not audible noise"
+            # The detrended brown walk has two exactly-zero endpoints; a silent
+            # fixture would be almost entirely zero rather than two samples.
+            non_zero = float(np.count_nonzero(signal)) / signal.size
+            assert non_zero > 0.99, f"only {non_zero:.1%} of the fixture is non-zero"
+
+
+# ── Harmonic second pass (D151) ──────────────────────────────────────────────
+
+_HARMONIC_FIXTURE_SECONDS: float = 5.0
+
+#: The fixture's measured full-spectrum clarity, pinned so the class cannot pass
+#: vacuously: if the first pass ever stops refusing it, the retry is no longer
+#: being exercised and this number is the tripwire.
+_MEASURED_FIXTURE_CLARITY: float = 0.0285
+
+
+def _chord_under_noise(seed: int = 11) -> npt.NDArray[np.float64]:
+    """An A-major chord buried under noise the full-spectrum pass cannot use.
+
+    Measured: the first pass scores clarity 0.0285 (below ``CLARITY_FLOOR``) and
+    refuses, while the percussion-suppressed pass finds A at 0.0881 (above
+    ``HARMONIC_CLARITY_FLOOR``).  It is the synthetic stand-in for the dense
+    mixes the retry exists for - pitch content present but outweighed by
+    broadband energy.
+    """
+    n = int(SR * _HARMONIC_FIXTURE_SECONDS)
+    t = np.arange(n) / SR
+    chord = (
+        sum(np.sin(2.0 * np.pi * 220.0 * ratio * t) for ratio in (1.0, 1.26, 1.5)) / 3
+    )
+    noisy = chord + 2.5 * np.random.default_rng(seed).standard_normal(n)
+    return (noisy / np.max(np.abs(noisy))).astype(np.float64)
+
+
+def _coloured_noise(
+    color: str, seed: int, seconds: float = 20.0
+) -> npt.NDArray[np.float64]:
+    """Seeded white, pink (1/f) or brown (detrended walk) noise."""
+    rng = np.random.default_rng(seed)
+    n = int(SR * seconds)
+    signal = rng.standard_normal(n)
+    if color == "brown":
+        signal = np.cumsum(signal)
+        signal -= np.linspace(signal[0], signal[-1], n)
+    elif color == "pink":
+        freqs: npt.NDArray[np.float64] = np.fft.rfftfreq(n, 1 / SR)
+        freqs[0] = 1.0
+        signal = np.fft.irfft(np.fft.rfft(signal) / np.sqrt(freqs), n)
+    return (signal / np.max(np.abs(signal)) * 0.5).astype(np.float64)
+
+
+def _first_pass_clarity(signal: npt.NDArray[np.float64]) -> float:
+    """The clarity the full-spectrum pass alone would report for *signal*."""
+    chroma = librosa.feature.chroma_cqt(y=signal, sr=SR).astype(np.float64)
+    _, _, _, _, clarity = _score_profile(
+        _pitch_class_profile(chroma, "uniform"), "cosine"
+    )
+    return clarity
+
+
+class TestHarmonicSecondPass:
+    """A refused file is measured once more with percussion removed (D151).
+
+    The first pass is untouched: a file it names keeps that key, so this path
+    can only add keys to files that would otherwise be reported DETECTED.  Its
+    own floor sits above the measured noise ceiling, because removing percussion
+    raises the clarity of noise as well as of music.
+    """
+
+    def test_the_fixture_really_is_refused_by_the_first_pass(self) -> None:
+        clarity = _first_pass_clarity(_chord_under_noise())
+        assert clarity == pytest.approx(_MEASURED_FIXTURE_CLARITY, abs=0.005)
+        assert clarity < CLARITY_FLOOR, (
+            "the fixture now clears the first-pass floor, so it no longer "
+            "exercises the second pass"
+        )
+
+    def test_a_chord_under_noise_is_named_by_the_second_pass(self) -> None:
+        analysis = analyze_key(_chord_under_noise(), SR)
+        assert analysis.analysis_path == "harmonic"
+        assert analysis.key == "A"
+        assert not analysis.is_low_confidence
+        assert analysis.clarity >= HARMONIC_CLARITY_FLOOR
+
+    def test_a_named_file_is_never_re_resolved(self) -> None:
+        """The retry runs only behind a refusal, so the first pass is authoritative."""
+        analysis = analyze_key(_major_chord(60), SR)
+        assert analysis.analysis_path == "chroma"
+        assert analysis.key == "C"
+
+    @pytest.mark.parametrize("color", ["white", "pink", "brown"])
+    def test_coloured_noise_survives_both_passes_as_unknown(self, color: str) -> None:
+        for seed in range(2):
+            analysis = analyze_key(_coloured_noise(color, seed), SR)
+            assert analysis.key == UNKNOWN_KEY, (
+                f"{color} noise seed {seed} was named {analysis.key!r} "
+                f"({analysis.analysis_path} pass, clarity {analysis.clarity:.4f})"
+            )
+            assert analysis.analysis_path == "chroma"
+            assert analysis.clarity < CLARITY_FLOOR
+
+    def test_band_limited_noise_clears_neither_floor(self) -> None:
+        analysis = analyze_key(_band_limited_noise(0, 2000.0, 6000.0), SR)
+        assert analysis.key == UNKNOWN_KEY
+        assert analysis.analysis_path == "chroma"
+        assert analysis.clarity < CLARITY_FLOOR
+
+    def test_the_harmonic_floor_is_pinned(self) -> None:
+        assert HARMONIC_CLARITY_FLOOR == 0.065, (
+            f"HARMONIC_CLARITY_FLOOR is {HARMONIC_CLARITY_FLOOR}, not the "
+            "calibrated 0.065: the measured noise ceiling under percussion "
+            "removal is 0.0553 (2-6 kHz band, ten seeds) and a chord-under-noise "
+            "fixture measures 0.0745, so 0.065 is the midpoint. A move needs its "
+            "own calibration (D151)"
+        )

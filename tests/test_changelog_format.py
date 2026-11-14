@@ -43,6 +43,14 @@ Changed in 2.7.0: the table, the allowances and ``spelling_offences`` moved to
 ``tests/spelling.py``, because the shipped guides are now held to the same rule
 and one implementation serves both locks (D-27).  This module re-exports the
 allowances under the name its tests use.
+
+Changed in 2.7.0: a section may use each category heading once, and only in
+the documented order.  As work was appended, ``TECHNICAL_CHANGELOG.md``'s
+``[Unreleased]`` had grown ``Added``/``Changed``/``Added``/``Changed``, and
+three released sections listed ``Security`` before ``Fixed`` or ``Removed``
+after it, so the reader's index repeated itself instead of grouping the items
+once.  Both properties are checked per section, and each check is proved able
+to fail by feeding it the shape it was added for.
 """
 
 from __future__ import annotations
@@ -200,6 +208,24 @@ def _sections(path: Path) -> list[tuple[str, list[str]]]:
 def _category_headings(body: list[str]) -> set[str]:
     """Return the category headings a section body carries."""
     return {line.strip() for line in body if line.startswith("### ")}
+
+
+def _category_sequence(body: list[str]) -> list[str]:
+    """Return a section's category headings, in document order."""
+    return [line.strip()[4:] for line in body if line.startswith("### ")]
+
+
+def _repeated_categories(body: list[str]) -> list[str]:
+    """Return the category headings a section uses more than once."""
+    sequence = _category_sequence(body)
+    return sorted({name for name in sequence if sequence.count(name) > 1})
+
+
+def _out_of_order_categories(body: list[str]) -> list[str]:
+    """Return a section's headings when they leave the documented order."""
+    sequence = _category_sequence(body)
+    ranks = [CATEGORIES.index(name) for name in sequence if name in CATEGORIES]
+    return [] if ranks == sorted(ranks) else sequence
 
 
 def _unknown_headings(body: list[str]) -> set[str]:
@@ -442,6 +468,30 @@ class TestChangelogCategories:
             + "\n  ".join(offenders)
         )
 
+    def test_a_category_heading_appears_once_per_section(self, path: Path) -> None:
+        """Two ``### Added`` blocks read as two categories with one name."""
+        offenders = [
+            f"{heading}: {_repeated_categories(body)}"
+            for heading, body in _sections(path)
+            if _repeated_categories(body)
+        ]
+        assert not offenders, (
+            f"{path.name} repeats a category heading inside one section - merge "
+            "its items under the single heading:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_categories_follow_the_documented_order(self, path: Path) -> None:
+        """Added, Changed, Deprecated, Removed, Fixed, Security - in that order."""
+        offenders = [
+            f"{heading}: {_out_of_order_categories(body)}"
+            for heading, body in _sections(path)
+            if _out_of_order_categories(body)
+        ]
+        assert not offenders, (
+            f"{path.name} lists its categories out of order "
+            f"({', '.join(CATEGORIES)}):\n  " + "\n  ".join(offenders)
+        )
+
     def test_an_empty_section_is_the_unreleased_one(self, path: Path) -> None:
         """Only ``[Unreleased]`` may be empty; a released version is a record."""
         offenders = [
@@ -462,6 +512,44 @@ class TestChangelogCategoryLockCanFail:
     that must be rejected, and one that must be accepted, so a rule that
     silently stopped matching cannot pass as enforcement.
     """
+
+    def test_it_rejects_a_repeated_category(self) -> None:
+        """The ``[Unreleased]`` shape a technical entry appended twice made."""
+        repeated = (
+            "## [Unreleased]\n\n"
+            "### Added\n\n- **A new stage.** It runs.\n\n"
+            "### Changed\n\n- **A new default.** It changed.\n\n"
+            "### Added\n\n- **Another stage.** It runs.\n"
+        )
+        _heading, body = _sections_in(repeated)[0]
+
+        assert _repeated_categories(body) == ["Added"]
+        assert _out_of_order_categories(body) == ["Added", "Changed", "Added"]
+
+    def test_it_rejects_categories_out_of_order(self) -> None:
+        """2.1.2 in ``CHANGELOG.md`` listed Security ahead of Fixed."""
+        swapped = (
+            "## [2.1.2] - 2026-10-25\n\n"
+            "### Security\n\n- **A fix.** Ok.\n\n"
+            "### Fixed\n\n- **Another fix.** Ok.\n"
+        )
+        _heading, body = _sections_in(swapped)[0]
+
+        assert _repeated_categories(body) == []
+        assert _out_of_order_categories(body) == ["Security", "Fixed"]
+
+    def test_it_accepts_each_category_once_in_order(self) -> None:
+        """The positive control: the canonical shape is not rejected."""
+        canonical = (
+            "## [2.3.1] - 2026-11-02\n\n"
+            "### Added\n\n- **A.** Ok.\n\n"
+            "### Fixed\n\n- **B.** Ok.\n\n"
+            "### Security\n\n- **C.** Ok.\n"
+        )
+        _heading, body = _sections_in(canonical)[0]
+
+        assert _repeated_categories(body) == []
+        assert _out_of_order_categories(body) == []
 
     def test_it_rejects_a_flat_section(self) -> None:
         """The flat shape is 2.4.2's real body, which shipped as one list."""

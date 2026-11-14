@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions of the tools are released together with the suite (the single
 `version` in `pyproject.toml` covers the whole distribution).
 
-Each released section is grouped under `### Added`, `### Changed`,
-`### Deprecated`, `### Removed`, `### Fixed` or `### Security`, in that order,
-and every bullet belongs to exactly one of them.
+Each section is grouped under `### Added`, `### Changed`, `### Deprecated`,
+`### Removed`, `### Fixed` or `### Security`, in that order, with each heading
+used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
@@ -123,6 +123,35 @@ and every bullet belongs to exactly one of them.
   Peak target mode.
 
 ### Fixed
+
+- **Key Detector names a key for dense mixes whose harmony is buried under the
+  drums.** A file whose first analysis finds no defensible key is analysed a
+  second time with the percussion removed, and gets a key when the harmony in
+  that view is clear. A file the first analysis names keeps its key, because the
+  second view never overrides one. Noise and atonal material is still reported
+  without a key, and accuracy on the labelled corpus is unchanged at seven of
+  eleven.
+
+- **Key Detector judges a track whose opening has no key on the rest of the
+  song.** The first analysis only ever heard the opening 90 seconds, so a track
+  that starts with a spoken passage, a drum roll-in or a bare pad was reported
+  DETECTED (not tagged) even when the song itself had an obvious key. A file at
+  least twice the analysis duration long is now measured a second time from its
+  middle, at the same length and against the same evidence bar, and that second
+  measurement supplies the key only when the first found none - a key the first
+  analysis names is never changed. Files too short to hold two full windows, and
+  material with no key anywhere, are reported exactly as before.
+
+- **BPM Analyzer no longer skips a track whose first 30 seconds are an intro.**
+  The opening window was the only audio analysed, so a song that starts with a
+  free-time intro, a spoken passage or a bare pad was refused as having no
+  discernible beat even when its body had an unmistakable groove. On one album
+  three of 37 tracks were skipped that way, and the same three measured
+  0.47-0.56 against the 0.10 minimum once their middle was examined. A track at
+  least twice the analysis duration long is now measured a second time from its
+  middle, at the same length, and the better-evidenced window decides the tempo.
+  The minimum itself has not changed, so a genuinely beatless file is still
+  skipped and left untagged.
 
 - **A Dry Run's Normalise line quotes the audio the run will normalise.** The
   preview measured the source file, so with EQ or Dynamics enabled it named a
@@ -382,6 +411,7 @@ and every bullet belongs to exactly one of them.
   named ten of the eighteen, and filed Lyrics Manager under Utility although
   the tool belongs to Enrich. The section is now one list per group covering
   all eighteen, and Lyrics Manager appears with the Enrich tools.
+
 ## [2.5.0] - 2026-11-08
 
 ### Added
@@ -623,6 +653,7 @@ and every bullet belongs to exactly one of them.
   Windows Media-era writer was reported `NO REF LINK IN ASX`. Element and
   attribute names are now matched regardless of case, and a reference must
   resolve to a regular file with a supported audio extension.
+
 ## [2.3.1] - 2026-11-02
 
 ### Changed
@@ -884,6 +915,7 @@ and every bullet belongs to exactly one of them.
   claims of this kind - format counts, worker counts, flags, status labels and
   file names - are now checked against the code, so the next drift is caught
   before a release instead of shipping.
+
 ## [2.1.6] - 2026-10-28
 
 ### Fixed
@@ -1024,20 +1056,6 @@ and every bullet belongs to exactly one of them.
 
 ## [2.1.2] - 2026-10-25
 
-### Security
-
-- **File Reorganizer and CD Ripper refuse paths that escape the destination.**
-  Tag values are untrusted input, and the Reorganizer's path resolver kept `..`,
-  so a file tagged `album="../../evil"` was copied above the chosen
-  destination (the resolver returned `..\..\evil`). The resolver now refuses a
-  `.`/`..` component, a drive-qualified value (`C:\Music`) and a
-  `\\server\share` value instead of rewriting them, and every destination is
-  checked to be inside the chosen folder before anything is written. The CD
-  Ripper's file name cleaning no longer returns a bare `.` or `..`, and its
-  per-track output path is checked the same way before any folder is created.
-  Refusals surface as a pattern error (File Reorganizer) or a failed track (CD
-  Ripper) and write nothing.
-
 ### Fixed
 
 - **Album ReplayGain is weighted by track duration.** A folder's album gain used
@@ -1058,6 +1076,20 @@ and every bullet belongs to exactly one of them.
   decodes identically to the source. ALAC and AAC-M4A share the `.m4a`
   extension, so a later run to either format replaces the earlier file with the
   same name.
+
+### Security
+
+- **File Reorganizer and CD Ripper refuse paths that escape the destination.**
+  Tag values are untrusted input, and the Reorganizer's path resolver kept `..`,
+  so a file tagged `album="../../evil"` was copied above the chosen
+  destination (the resolver returned `..\..\evil`). The resolver now refuses a
+  `.`/`..` component, a drive-qualified value (`C:\Music`) and a
+  `\\server\share` value instead of rewriting them, and every destination is
+  checked to be inside the chosen folder before anything is written. The CD
+  Ripper's file name cleaning no longer returns a bare `.` or `..`, and its
+  per-track output path is checked the same way before any folder is created.
+  Refusals surface as a pattern error (File Reorganizer) or a failed track (CD
+  Ripper) and write nothing.
 
 ## [2.1.1] - 2026-10-24
 
@@ -1194,6 +1226,7 @@ and every bullet belongs to exactly one of them.
   launching a utility handed the child `--dry` - the same visibly wrong mode the
   entries above describe. A change to either variable is now copied to the
   other, so the mode the toolbar shows is the mode every launch uses.
+
 ## [2.0.0] - 2026-10-23
 
 ### Added
@@ -1531,6 +1564,7 @@ and every bullet belongs to exactly one of them.
   exceeds 0.080, so BPM Analyzer no longer refuses genuine jazz, samba or
   hip-hop for want of a stricter noise margin. Provenance, licences and the
   measured calibration are recorded with the recordings.
+
 ## [1.4.0] - 2026-10-19
 
 ### Added
@@ -1545,19 +1579,6 @@ and every bullet belongs to exactly one of them.
   automatic panel entirely. Skipping a release does not lose its notes: the
   panel lists every release newer than the last version it showed, newest first,
   each under its own `Version x.y.z` heading.
-
-### Removed
-
-- **The Windows Explorer right-click integration is NOT being implemented.**
-  The `shell-install` / `shell-uninstall` commands and the per-user
-  `AudioSuite-Pro` context menu they registered have been withdrawn, and the
-  feature is off the roadmap: it will not be implemented. It was a step too far:
-  it gave Explorer a second way into the suite that users could not discover or
-  configure from the app itself, and its cascading submenu did not render
-  consistently across Explorer builds. The modules, the commands, the README
-  section and the platform table were all removed in the same change, so nothing
-  advertises a menu that cannot be installed. Use the Master Driver or each
-  tool's own launcher instead.
 
 ### Changed
 
@@ -1583,6 +1604,19 @@ and every bullet belongs to exactly one of them.
   per 100 files); the CSV export reuses the same reader. Genre Sync,
   Tempo Analyzer, Lyrics Manager, Audio Fingerprinter and Album Art Sync no
   longer load the same file twice for fields read together.
+
+### Removed
+
+- **The Windows Explorer right-click integration is NOT being implemented.**
+  The `shell-install` / `shell-uninstall` commands and the per-user
+  `AudioSuite-Pro` context menu they registered have been withdrawn, and the
+  feature is off the roadmap: it will not be implemented. It was a step too far:
+  it gave Explorer a second way into the suite that users could not discover or
+  configure from the app itself, and its cascading submenu did not render
+  consistently across Explorer builds. The modules, the commands, the README
+  section and the platform table were all removed in the same change, so nothing
+  advertises a menu that cannot be installed. Use the Master Driver or each
+  tool's own launcher instead.
 
 ### Fixed
 
@@ -1782,6 +1816,7 @@ and every bullet belongs to exactly one of them.
   The selector changed but the run kept the previous preset's settings, so a
   Master Driver or scripted launch quietly enhanced with the wrong DSP values. A
   pre-filled preset now runs the same update as picking it by hand.
+
 ## [1.1.0] - 2026-10-16
 
 ### Added
@@ -2199,6 +2234,11 @@ which were delivered by the pre-release work.
   Reorganizer, CD Ripper), with a guarded one-time migration that retires the
   old tool-local files.
 
+### Removed
+
+- `.wma` from Metadata Scrubber discovery - it was advertised but every `.wma`
+  failed to load.
+
 ### Fixed
 
 - **Lossless MP3 gain applied wrong, uneven gain to stereo files** (the
@@ -2237,8 +2277,3 @@ which were delivered by the pre-release work.
 - **Broken Help buttons** (Mood Analyzer, Album Art Sync and others) now open
   their guides, and several swallowed-error paths (launchers, key-file
   permissions, legacy undo rows) now report properly.
-
-### Removed
-
-- `.wma` from Metadata Scrubber discovery - it was advertised but every `.wma`
-  failed to load.

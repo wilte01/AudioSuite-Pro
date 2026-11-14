@@ -698,6 +698,27 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   read; `tests/test_bpm_analysis_duration.py` fails if they diverge.
   Evidence: `PLAN_feature_expansion.md` D139.
 
+- **A refused window is not a refused track — the sampled window is part of the
+  measurement.** `detect_bpm` decodes `DEFAULT_BPM_ANALYSIS_SECONDS` from the
+  *start* of the file, and on real material that is often an intro: three of 37
+  tracks in one album folder scored 0.063-0.098 in the head window while their
+  bodies scored 0.466-0.556, so rhythmic tracks were skipped as beatless
+  (`[SKIP] ... no discernible beat (onset periodicity 0.080, minimum 0.10)`).
+  A file at least `SECOND_WINDOW_MIN_WINDOWS` windows long is measured again
+  from the middle, at the same length, and the better-evidenced window decides.
+  Key Detector shares the rule and the helpers (`file_duration_seconds`,
+  `second_window_offset` in `audio_suite_shared/analysis_loader.py`): a refused
+  head window is re-sampled from the middle there too, and because the retry
+  runs only behind a refusal it can add a key but never change one (D156).
+  The floor does not move: the second sample changes *which* audio is judged,
+  not how much evidence is demanded. Two traps. Never lengthen the second
+  window — the floor is a 30 s number (D139) — and never re-sample the head at
+  another nearby offset, because the intro is precisely what just failed.
+  Seeded white/pink/brown noise peaks at 0.056 in the midpoint window against
+  the 0.10 floor, so a beatless file that offers a second window is still
+  skipped, and a corpus clip shorter than two windows keeps its recorded
+  verdict. Evidence: `PLAN_feature_expansion.md` D144.
+
 - **A configured band chooses between octave readings; it never edits a
   measured tempo.** `detect_bpm`'s `min_bpm`/`max_bpm` doubled any estimate
   below the floor and clamped whatever was left outside it, so a genuine 60 BPM

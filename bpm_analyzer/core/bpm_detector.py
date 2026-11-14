@@ -34,6 +34,13 @@ is a 30 s number: seeded noise peaks at 0.067 over 30 s and real music at
 that length clears 0.120, while the same music at 90 s fell to 0.071-0.094
 and ten per cent of a 120-track library sample was refused
 (PLAN_feature_expansion.md D139).
+
+Changed in 2.7.0: a refused file that is long enough to offer a second window
+is measured again from the middle of the track, at the same calibrated
+length.  The head window is often an intro that has not settled into the
+groove: three of 37 tracks on one album scored 0.063-0.098 there while the
+body of each scored 0.47-0.56, and all three were skipped as beatless
+(PLAN_feature_expansion.md D144).
 """
 
 from __future__ import annotations
@@ -49,7 +56,9 @@ import numpy.typing as npt
 from audio_suite_shared.analysis_loader import (
     ANALYSIS_SAMPLE_RATE,
     check_analysable,
+    file_duration_seconds,
     librosa_load_with_fallback,
+    second_window_offset,
 )
 from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
 from audio_suite_shared.exceptions import (
@@ -209,6 +218,105 @@ def _fold_is_supported(
     return folded >= _FOLD_EVIDENCE_RATIO * current
 
 
+def _measure_window(
+    y: npt.NDArray[np.float64],
+    sr: int,
+    file_path: str,
+    window_start: float,
+) -> tuple[npt.NDArray[np.float64], float, float | None]:
+    """Measure one analysis window: onset envelope, tempo estimate and score.
+
+    The envelope is computed once and given to both the tracker and the
+    periodicity check, so the tempo and the evidence for it always describe
+    the same frames - and, when two windows are measured, the same window.
+
+    Args:
+        y:            Decoded mono audio for this window.
+        sr:           Sample rate in Hz.
+        file_path:    Path, for the log lines only.
+        window_start: Offset this window was decoded from, in seconds.
+
+    Returns:
+        ``(onset_env, tempo, periodicity)``.  ``periodicity`` is ``None`` when
+        the tracker reported no positive tempo: there is no period to score,
+        and the no-tempo sentence must not imply one was measured.
+    """
+    onset_env: npt.NDArray[np.float64] = librosa.onset.onset_strength(
+        y=y, sr=sr, hop_length=_ONSET_HOP_LENGTH, aggregate=np.median
+    )
+    tempo_raw, _ = librosa.beat.beat_track(
+        onset_envelope=onset_env, sr=sr, hop_length=_ONSET_HOP_LENGTH
+    )
+
+    # librosa may return a numpy array; normalise to a scalar float.
+    tempo: float
+    if isinstance(tempo_raw, np.ndarray):
+        tempo = float(tempo_raw[0]) if len(tempo_raw) > 0 else 120.0
+    else:
+        tempo = float(tempo_raw)
+
+    logger.debug(
+        "Raw tempo estimate for '%s' (window at %.1f s): %.2f BPM",
+        file_path,
+        window_start,
+        tempo,
+    )
+    if not np.isfinite(tempo) or tempo <= 0.0:
+        return onset_env, tempo, None
+
+    periodicity = _onset_periodicity(onset_env, tempo, sr)
+    logger.debug(
+        "Onset periodicity for '%s' at %.2f BPM (window at %.1f s): %.3f "
+        "(minimum %.2f)",
+        file_path,
+        tempo,
+        window_start,
+        periodicity,
+        MIN_ONSET_PERIODICITY,
+    )
+    return onset_env, tempo, periodicity
+
+
+def _evidence(periodicity: float | None) -> float:
+    """Rank two windows' evidence; a window with no measurable pulse scores zero."""
+    return 0.0 if periodicity is None else periodicity
+
+
+def _measure_second_window(
+    file_path: str, offset: float, max_duration: int
+) -> tuple[npt.NDArray[np.float64], float, float | None] | None:
+    """Measure a later window, or return ``None`` when it cannot be measured.
+
+    This is an extra look at a file the first window already refused, so a
+    decode or guard failure here is not a new failure to report: the first
+    window's verdict stands and the file is skipped as before.
+
+    Args:
+        file_path:    Path to the audio file.
+        offset:       Seconds to skip before decoding this window.
+        max_duration: Window length in seconds.
+
+    Returns:
+        The measured window, or None.
+    """
+    try:
+        y_f32, sr = librosa_load_with_fallback(
+            file_path,
+            duration=max_duration,
+            mono=True,
+            sr=ANALYSIS_SAMPLE_RATE,
+            offset=offset,
+        )
+        y: npt.NDArray[np.float64] = y_f32.astype(np.float64)
+        check_analysable(y, int(sr))
+    except Exception:  # noqa: BLE001 - the first window's verdict stands
+        logger.debug(
+            "Second analysis window at %.1f s failed for '%s'", offset, file_path
+        )
+        return None
+    return _measure_window(y, int(sr), file_path, offset)
+
+
 def _no_tempo_message(periodicity: float | None = None) -> str:
     """Build the one user-facing sentence for a beatless file.
 
@@ -320,24 +428,43 @@ def detect_bpm(
             len(y) / sr,
         )
 
-        # Compute the onset envelope once and hand it to the tracker: the
-        # periodicity check below needs the same frames, and passing the
-        # envelope avoids a second STFT pass.
-        onset_env: npt.NDArray[np.float64] = librosa.onset.onset_strength(
-            y=y, sr=sr, hop_length=_ONSET_HOP_LENGTH, aggregate=np.median
-        )
-        tempo_raw, _ = librosa.beat.beat_track(
-            onset_envelope=onset_env, sr=sr, hop_length=_ONSET_HOP_LENGTH
-        )
+        # Measure the first window.  The envelope is computed once and shared
+        # by the tracker and the periodicity check, so the two always describe
+        # the same frames.
+        onset_env, tempo, periodicity = _measure_window(y, sr, file_path, 0.0)
 
-        # librosa may return a numpy array; normalise to a scalar float.
-        tempo: float
-        if isinstance(tempo_raw, np.ndarray):
-            tempo = float(tempo_raw[0]) if len(tempo_raw) > 0 else 120.0
-        else:
-            tempo = float(tempo_raw)
-
-        logger.debug("Raw tempo estimate for '%s': %.2f BPM", file_path, tempo)
+        # A pulse this window cannot see is not proof the track has none.  The
+        # first 30 s of a recording is often an intro that has not settled into
+        # the groove: three of 37 tracks on one album scored 0.063-0.098 here
+        # while their bodies scored 0.47-0.56, and each was skipped as beatless.
+        # Measure a second window of the same calibrated length from the middle
+        # of the track and keep whichever window the onsets describe better.
+        # The floor does not move (D144): what changes is which part of the
+        # track is sampled, not how much evidence is demanded of it.
+        if periodicity is None or periodicity < MIN_ONSET_PERIODICITY:
+            retry_offset = second_window_offset(
+                file_duration_seconds(file_path), int(max_duration)
+            )
+            if retry_offset is not None:
+                logger.info(
+                    "No pulse in the first %d s of '%s' (onset periodicity %s); "
+                    "measuring the middle of the track at %.1f s",
+                    int(max_duration),
+                    file_path,
+                    "not measured" if periodicity is None else f"{periodicity:.3f}",
+                    retry_offset,
+                )
+                retried = _measure_second_window(
+                    file_path, retry_offset, int(max_duration)
+                )
+                if retried is not None:
+                    second_env, second_tempo, second_periodicity = retried
+                    if _evidence(second_periodicity) > _evidence(periodicity):
+                        onset_env, tempo, periodicity = (
+                            second_env,
+                            second_tempo,
+                            second_periodicity,
+                        )
 
         # A non-positive (or non-finite) estimate means the beat tracker found
         # no beat at all — a sustained tone, a drone, or a pad with no rhythmic
@@ -355,15 +482,9 @@ def detect_bpm(
 
         # A positive estimate can still be spurious: the tracker fits a tempo
         # grid to random onsets in noise.  Only report a tempo whose period is
-        # actually present in the onset envelope.
-        periodicity = _onset_periodicity(onset_env, tempo, sr)
-        logger.debug(
-            "Onset periodicity for '%s' at %.2f BPM: %.3f (minimum %.2f)",
-            file_path,
-            tempo,
-            periodicity,
-            MIN_ONSET_PERIODICITY,
-        )
+        # actually present in the onset envelope.  ``_measure_window`` reports
+        # no score only for a non-positive estimate, refused just above.
+        periodicity = 0.0 if periodicity is None else periodicity
         if periodicity < MIN_ONSET_PERIODICITY:
             raise NoTempoDetectedError(
                 _no_tempo_message(periodicity),

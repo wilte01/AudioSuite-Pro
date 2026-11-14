@@ -59,6 +59,11 @@ centred first:
   exposed: seven of twelve tracks had real tonal centres but margins of only
   0.001-0.015, so a margin-only gate could never name them.
 
+Changed in 2.7.0: a refused file is measured a second time with percussion
+suppressed, and `HARMONIC_CLARITY_FLOOR` (0.065) names it only when that view
+clears the measured noise ceiling (D151). The first pass is untouched, so no
+key it names can change.
+
 Changed in 1.0.1: recalibrates the keyless low-confidence fallback on a key-clarity
 statistic.
 """
@@ -172,6 +177,27 @@ DEFAULT_LOW_CONFIDENCE_THRESHOLD: float = 0.25
 #: de-meaned first — after centring it measures exactly 0.0.
 CLARITY_FLOOR: float = 0.035
 
+#: Lowest acceptable tonal clarity on the harmonic second pass.  A file whose
+#: first pass is refused - ambiguous vote *and* no clear tonal centre - is
+#: measured once more with percussion suppressed (``librosa.effects.harmonic``
+#: before ``chroma_cqt``), because a dense mix's pitch content is often buried
+#: under drums rather than absent.  The second view is a stricter gate, not a
+#: looser one: percussion removal raises the clarity of *noise* as well (seeded
+#: brown measures 0.020-0.024 on the first pass and 0.034-0.044 here, and a
+#: 2-6 kHz band of noise reaches 0.0553), so its floor sits above the measured
+#: noise ceiling instead of at the first pass's 0.035.
+#:
+#: Measured at 22 050 Hz over 20 s windows, ten seeds per family: white
+#: 0.009-0.012, pink 0.018-0.026, brown 0.034-0.044, band-limited 0.011-0.055;
+#: against a real-music median of 0.090 (n=64: the eleven labelled Bach clips,
+#: the thirteen BPM corpus clips and forty tracks sampled from a 21 312-file
+#: library).  0.065 sits 0.010 above that noise ceiling and 0.010 below a
+#: committed chord-under-noise fixture the first pass refuses, so the retry can
+#: add a key but never take one away.  A 400 Hz-wide band at 800-1200 Hz reaches
+#: 0.072 here and stays named on the *first* pass, the documented limit of a
+#: chroma statistic on a pitched hiss (D149, D150).
+HARMONIC_CLARITY_FLOOR: float = 0.065
+
 #: Correlation margin treated as a fully decisive vote, per method. These are
 #: round numbers deliberately set ABOVE the measured margin band of real
 #: musical material rather than fitted to it, so that confidence saturates
@@ -203,6 +229,12 @@ class KeyAnalysis:
             with clarity below :data:`CLARITY_FLOOR` is not named even when
             the margin confidence clears the threshold.
         is_low_confidence: Whether the fallback was reported.
+        analysis_path: Which pass produced the result: ``"chroma"`` for the
+            full-spectrum first pass, or ``"harmonic"`` when a refused file
+            was named by the percussion-suppressed second pass (see
+            :data:`HARMONIC_CLARITY_FLOOR`).  A ``"harmonic"`` result carries
+            that pass's own clarity, margin and confidence, which are not
+            comparable with the first pass's numbers.
     """
 
     key: str
@@ -211,6 +243,7 @@ class KeyAnalysis:
     runner_up_correlation: float
     clarity: float
     is_low_confidence: bool
+    analysis_path: Literal["chroma", "harmonic"] = "chroma"
 
 
 # ── Scoring internals ─────────────────────────────────────────────────────────
@@ -284,6 +317,64 @@ def _display_name(index: int, is_major: bool) -> str:
     return _MINOR_DISPLAY_OVERRIDES.get(sharp, sharp) + "m"
 
 
+def _score_profile(
+    profile: npt.NDArray[np.float64], correlation: CorrelationMethod
+) -> tuple[str, float, float, float, float]:
+    """Score one 12-bin profile: ``(key, winner, runner_up, confidence, clarity)``.
+
+    Shared by the full-spectrum pass and the harmonic second pass, so both use
+    one definition of the winner, the margin and the tonality gate.
+    """
+    scores: npt.NDArray[np.float64] = _all_correlations(profile, correlation)
+
+    # The runner-up is the best key of the *opposite* modality when the two
+    # rival keys share a tonic, otherwise the best key overall; taking the
+    # second best of all 24 covers both and keeps the margin honest.
+    order: npt.NDArray[np.int64] = np.argsort(scores)[::-1]
+    winner_index: int = int(order[0])
+    winner: float = float(scores[winner_index])
+    runner_up: float = float(scores[int(order[1])])
+
+    # Tonal clarity: how far the winning key stands out from the *average*
+    # key. This is the tonality gate (see :data:`CLARITY_FLOOR`) and it must
+    # not be derived from the selected scoring method, because Pearson's
+    # noise scores are documented as unstable - measured across four noise
+    # seeds Pearson's winner-minus-mean for pure broadband noise is 0.53,
+    # high enough to name noise as tonal. Cosine gives 0.012 for the same
+    # material, so clarity always comes from the cosine scores.
+    tonality_scores: npt.NDArray[np.float64] = (
+        scores if correlation == "cosine" else _all_correlations(profile, "cosine")
+    )
+    clarity: float = float(np.max(tonality_scores) - np.mean(tonality_scores))
+
+    is_major: bool = winner_index < 12
+    tonic_index: int = winner_index if is_major else winner_index - 12
+    key: str = _display_name(tonic_index, is_major)
+
+    confidence: float = float(
+        np.clip((winner - runner_up) / _MARGIN_SCALE[correlation], 0.0, 1.0)
+    )
+    return key, winner, runner_up, confidence, clarity
+
+
+def _harmonic_pass(
+    y: npt.NDArray[np.float64],
+    sr: int,
+    correlation: CorrelationMethod,
+    weighting: Weighting,
+) -> tuple[str, float, float, float, float] | None:
+    """Score the same signal with percussion removed, or None if nothing is left."""
+    harmonic: npt.NDArray[np.float64] = librosa.effects.harmonic(y, margin=3.0).astype(
+        np.float64
+    )
+    if not np.any(harmonic):
+        return None
+    chroma: npt.NDArray[np.float64] = librosa.feature.chroma_cqt(
+        y=harmonic, sr=sr
+    ).astype(np.float64)
+    return _score_profile(_pitch_class_profile(chroma, weighting), correlation)
+
+
 def _analyse(
     y: npt.NDArray[np.float64],
     sr: int,
@@ -328,36 +419,7 @@ def _analyse(
         np.float64
     )
     profile: npt.NDArray[np.float64] = _pitch_class_profile(chroma, weighting)
-    scores: npt.NDArray[np.float64] = _all_correlations(profile, correlation)
-
-    # The runner-up is the best key of the *opposite* modality when the two
-    # rival keys share a tonic, otherwise the best key overall; taking the
-    # second best of all 24 covers both and keeps the margin honest.
-    order: npt.NDArray[np.int64] = np.argsort(scores)[::-1]
-    winner_index: int = int(order[0])
-    runner_up: float = float(scores[int(order[1])])
-    winner: float = float(scores[winner_index])
-
-    # Tonal clarity: how far the winning key stands out from the *average*
-    # key. This is the tonality gate (see :data:`CLARITY_FLOOR`) and it must
-    # not be derived from the selected scoring method, because Pearson's
-    # noise scores are documented as unstable — measured across four noise
-    # seeds Pearson's winner-minus-mean for pure broadband noise is 0.53,
-    # high enough to name noise as tonal. Cosine gives 0.012 for the same
-    # material, so clarity always comes from the cosine scores.
-    if correlation == "cosine":
-        tonality_scores: npt.NDArray[np.float64] = scores
-    else:
-        tonality_scores = _all_correlations(profile, "cosine")
-    clarity: float = float(np.max(tonality_scores) - np.mean(tonality_scores))
-
-    is_major: bool = winner_index < 12
-    tonic_index: int = winner_index if is_major else winner_index - 12
-    key: str = _display_name(tonic_index, is_major)
-
-    scale: float = _MARGIN_SCALE[correlation]
-    margin: float = winner - runner_up
-    confidence: float = float(np.clip(margin / scale, 0.0, 1.0))
+    key, winner, runner_up, confidence, clarity = _score_profile(profile, correlation)
 
     # Fallback requires BOTH gates to fail: the vote is ambiguous (margin
     # below the threshold) AND the material has no clear tonal centre
@@ -373,12 +435,39 @@ def _analyse(
             "key: low confidence %.3f (margin %.4f, tone clarity %.4f, "
             "threshold %.3f); reporting %s",
             confidence,
-            margin,
+            winner - runner_up,
             clarity,
             low_confidence_threshold,
             UNKNOWN_KEY,
         )
         key = UNKNOWN_KEY
+
+        # Second pass: a dense mix often has its pitch content buried under
+        # drums rather than missing. Removing the percussion cannot lower the
+        # evidence for a key, and its own floor sits above the measured noise
+        # ceiling (HARMONIC_CLARITY_FLOOR), so this can add a key to a refused
+        # file but never change or remove one the first pass named.
+        harmonic = _harmonic_pass(y_f64, sr, correlation, weighting)
+        if harmonic is not None:
+            h_key, h_winner, h_runner, h_confidence, h_clarity = harmonic
+            if h_clarity >= HARMONIC_CLARITY_FLOOR:
+                logger.debug(
+                    "key: harmonic pass named %s (tone clarity %.4f, minimum "
+                    "%.3f) where the full-spectrum pass found %.4f",
+                    h_key,
+                    h_clarity,
+                    HARMONIC_CLARITY_FLOOR,
+                    clarity,
+                )
+                return KeyAnalysis(
+                    key=h_key,
+                    confidence=h_confidence,
+                    winner_correlation=h_winner,
+                    runner_up_correlation=h_runner,
+                    clarity=h_clarity,
+                    is_low_confidence=False,
+                    analysis_path="harmonic",
+                )
 
     return KeyAnalysis(
         key=key,

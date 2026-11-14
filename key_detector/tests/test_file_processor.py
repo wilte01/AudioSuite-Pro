@@ -25,6 +25,10 @@ Changed in 2.6.0: ``TestAnalysisSampleRateIndependence`` drives the real CPU
 worker on corpus clips written at 22 050 / 44 100 / 48 000 Hz from one decode,
 because the analysis rate is now pinned rather than taken from the file
 (PLAN D138).
+
+Changed in 2.7.0: ``TestRefusedHeadIsMeasuredFromTheMiddle`` locks the
+middle-of-track re-sample for a file the head window cannot name, on real
+audio and on both workers (PLAN D156).
 """
 
 import threading
@@ -939,3 +943,155 @@ class TestRealFileUndoRoundTrip:
         assert result.reverted >= 1
         assert path.read_bytes() == original
         assert hashlib.sha256(path.read_bytes()).hexdigest() == original_sha.hexdigest()
+
+
+# ── D156: a refused first window is re-judged on the body of the track ────────
+# ``detect_key`` is handed one window decoded from the start of the file, which
+# on real material is often an intro that has not settled into the song's key.
+# A refused file is measured again from the middle at the same length and
+# against the same gates; a file too short to offer a second window keeps the
+# single measurement, and a failed extra decode never turns a refusal into an
+# error.
+_KEY_CORPUS = Path(__file__).resolve().parents[2] / "tests" / "data" / "key_corpus"
+
+
+class TestRefusedHeadIsMeasuredFromTheMiddle:
+    """A refused first window does not decide the whole track (D156)."""
+
+    @staticmethod
+    def _write_wav(path: Path, samples: np.ndarray, sr: int = _SR) -> Path:
+        pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2")
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(sr)
+            handle.writeframes(pcm.tobytes())
+        return path
+
+    @staticmethod
+    def _intro_then_music(tmp_path: Path) -> Path:
+        """20 s of noise (no key) followed by 40 s of a labelled C major clip."""
+        import librosa
+
+        clip = _KEY_CORPUS / "bach_wtc1_prelude_01_c_major.ogg"
+        assert clip.is_file(), f"missing analysis fixture: {clip}"
+        music, _ = librosa.load(str(clip), sr=_SR, mono=True)
+        head = 0.2 * np.random.default_rng(7).standard_normal(_SR * 20)
+        body = np.tile(music, 2)
+        return TestRefusedHeadIsMeasuredFromTheMiddle._write_wav(
+            tmp_path / "intro.wav", np.concatenate([head, body])
+        )
+
+    def test_the_body_supplies_the_key_the_head_cannot(self, tmp_path) -> None:
+        import librosa
+
+        from audio_suite_shared.tag_helper import read_key
+        from key_detector.core.key_engine import UNKNOWN_KEY, detect_key
+
+        path = self._intro_then_music(tmp_path)
+
+        # The fixture has to reproduce the refusal, or this test would pass on
+        # the unfixed tree without ever exercising the second window.
+        head, head_rate = librosa.load(str(path), sr=_SR, mono=True, duration=20)
+        assert detect_key(head.astype(np.float64), int(head_rate)) == UNKNOWN_KEY
+
+        args = _make_call_args(
+            name=path.name,
+            dir_path=str(tmp_path),
+            is_dry_run=False,
+            analysis_duration=20,
+        )
+        process_single_file(**args)
+
+        assert read_key(str(path)) == "C"
+        assert "[TAGGED]" in args["on_progress"].call_args[1]["display_text"]
+
+    def test_the_process_worker_honours_the_same_retry(self, tmp_path) -> None:
+        """Both workers share one seam, so the retry cannot exist on one path."""
+        path = self._intro_then_music(tmp_path)
+        assert _detect_key_cpu(str(path), 20) == {"status": "ok", "key": "C"}
+
+    def test_a_named_head_window_is_never_measured_twice(self, tmp_path) -> None:
+        args = _make_call_args()
+        with (
+            patch(f"{MODULE}.read_key", return_value=None),
+            patch(f"{MODULE}.write_key"),
+            patch(
+                f"{MODULE}.librosa_load_with_fallback",
+                return_value=(_audible(_SR), _SR),
+            ) as load,
+            patch(f"{MODULE}.detect_key", return_value="C"),
+        ):
+            process_single_file(**args)
+
+        assert load.call_count == 1
+
+    def test_a_refused_head_is_re_measured_at_the_middle_offset(self, tmp_path) -> None:
+        args = _make_call_args(analysis_duration=90, is_dry_run=False)
+        with (
+            patch(f"{MODULE}.read_key", return_value=None),
+            patch(f"{MODULE}.write_key") as write,
+            patch(
+                f"{MODULE}.librosa_load_with_fallback",
+                return_value=(_audible(_SR), _SR),
+            ) as load,
+            patch(f"{MODULE}.detect_key", side_effect=["Unknown", "Am"]),
+            patch(f"{MODULE}.file_duration_seconds", return_value=270.0),
+        ):
+            process_single_file(**args)
+
+        assert load.call_count == 2
+        assert load.call_args_list[1].kwargs["offset"] == pytest.approx(90.0)
+        assert write.call_args[0][1] == "Am"
+
+    def test_a_file_shorter_than_two_windows_is_measured_once(self, tmp_path) -> None:
+        args = _make_call_args(analysis_duration=90)
+        with (
+            patch(f"{MODULE}.read_key", return_value=None),
+            patch(
+                f"{MODULE}.librosa_load_with_fallback",
+                return_value=(_audible(_SR), _SR),
+            ) as load,
+            patch(f"{MODULE}.detect_key", return_value="Unknown"),
+            patch(f"{MODULE}.file_duration_seconds", return_value=100.0),
+        ):
+            process_single_file(**args)
+
+        assert load.call_count == 1
+
+    def test_two_refused_windows_still_tag_nothing(self, tmp_path) -> None:
+        args = _make_call_args(analysis_duration=90, is_dry_run=False)
+        with (
+            patch(f"{MODULE}.read_key", return_value=None),
+            patch(f"{MODULE}.write_key") as write,
+            patch(
+                f"{MODULE}.librosa_load_with_fallback",
+                return_value=(_audible(_SR), _SR),
+            ) as load,
+            patch(f"{MODULE}.detect_key", return_value="Unknown"),
+            patch(f"{MODULE}.file_duration_seconds", return_value=270.0),
+        ):
+            process_single_file(**args)
+
+        assert load.call_count == 2
+        write.assert_not_called()
+        assert "not tagged" in args["on_progress"].call_args[1]["display_text"]
+
+    def test_a_failed_second_decode_keeps_the_first_verdict(self, tmp_path) -> None:
+        """The extra look is best-effort: it never turns a refusal into an error."""
+        args = _make_call_args(analysis_duration=90, is_dry_run=False)
+        with (
+            patch(f"{MODULE}.read_key", return_value=None),
+            patch(f"{MODULE}.write_key") as write,
+            patch(
+                f"{MODULE}.librosa_load_with_fallback",
+                side_effect=[(_audible(_SR), _SR), OSError("decode failed")],
+            ),
+            patch(f"{MODULE}.detect_key", return_value="Unknown") as detect,
+            patch(f"{MODULE}.file_duration_seconds", return_value=270.0),
+        ):
+            process_single_file(**args)
+
+        detect.assert_called_once()
+        write.assert_not_called()
+        assert "not tagged" in args["on_progress"].call_args[1]["display_text"]
