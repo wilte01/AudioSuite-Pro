@@ -1501,10 +1501,13 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "pitch_time",
         "pitch_time.app",
         "PitchTimeApp",
-        # Measured on the real window: the Setup tab stacks a label column, the
+        # Measured on the real window.  The Setup tab stacks a label column, the
         # two value fields, the setting line and a four-line caption, and the
         # figure stops above the caption's last line when the window is shorter.
-        window=(1083, 1132),
+        # 1132 was the height it opens at, which left two thirds of the picture
+        # empty background; 520 is the content plus a margin, so the figure shows
+        # the form rather than the window's unused space.
+        window=(1083, 520),
         populate=GENERIC_POPULATE,
         # Changed in 2.7.0: Processing and Results are empty until a run
         # finishes, the state skip_tabs exists for.  The Setup figure is the one
