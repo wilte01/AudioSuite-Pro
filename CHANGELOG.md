@@ -30,8 +30,10 @@ used once, and every bullet belongs to exactly one of them.
   factor, DC offset, phase correlation, clipped samples and dropouts - and the
   HTML page gains a section naming the worst offenders, clipping first. The same
   table is available on its own with `--qc-csv` and `--qc-json`, and
-  `--qc-workers` measures several files at once. The run reports how many files
-  were measured and which was worst, and the same counts and ranking appear in
+  `--qc-workers` measures several files at once - by default half your CPU
+  cores, capped at eight, so a QC export no longer runs one file at a time.
+  The run reports how many files were measured and which was worst, and the
+  same counts and ranking appear in
   the JSON payload and at the top of the HTML section, so the three never
   disagree. It is opt-in because it decodes every file. A figure that does not
   exist is left blank rather than shown as zero: a mono file has no phase

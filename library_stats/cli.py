@@ -163,9 +163,11 @@ from library_stats.library_cache import LibraryCache
 @click.option(
     "--qc-workers",
     type=click.IntRange(min=1, max=32),
-    default=1,
-    show_default=True,
-    help="How many files the QC measurement reads at once.",
+    default=None,
+    help=(
+        "How many files the QC measurement reads at once "
+        "(default: half the CPU cores, capped at 8)."
+    ),
 )
 # Changed in 2.4.3: SS3.3 complexity ceiling — the command is split into cache
 # selection, scan/history execution and report rendering; its output order and
@@ -190,7 +192,7 @@ def stats(
     qc: bool,
     qc_csv: str | None,
     qc_json: str | None,
-    qc_workers: int,
+    qc_workers: int | None,
 ) -> None:
     """Scan library and show aggregate tag statistics (read-only).
 
@@ -259,8 +261,15 @@ def stats(
                 "--qc-json for a QC table on its own."
             )
         columns = _with_qc_columns(columns)
+
+    # Resolved once, so the table, the export and the message cannot disagree
+    # about how many workers ran.
+    from library_stats.core.qc import default_qc_workers
+
+    workers = default_qc_workers() if qc_workers is None else qc_workers
+
     if qc_csv or qc_json:
-        _run_qc_table(directory, qc_csv=qc_csv, qc_json=qc_json, workers=qc_workers)
+        _run_qc_table(directory, qc_csv=qc_csv, qc_json=qc_json, workers=workers)
 
     if export_format is not None:
         _run_export(
@@ -271,7 +280,7 @@ def stats(
             columns=columns,
             camelot=camelot,
             qc=qc,
-            qc_workers=qc_workers,
+            qc_workers=workers,
         )
     elif camelot:
         click.echo("  Warning: --camelot applies to --export csv/html only.", err=True)
@@ -499,7 +508,7 @@ def _run_export(
     columns: tuple[str, ...] | None,
     camelot: bool,
     qc: bool,
-    qc_workers: int,
+    qc_workers: int | None,
 ) -> None:
     """Write one ``--export`` artefact and report it on stderr.
 

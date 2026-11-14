@@ -473,7 +473,9 @@ def _order_key(row: ExportRow) -> tuple[str, str, int, str]:
     return (album_artist, album, _track_position(row), Path(row.path).name.casefold())
 
 
-def _with_qc(rows: Sequence[ExportRow], *, workers: int) -> list[ExportRow]:
+def _with_qc(
+    rows: Sequence[ExportRow], *, workers: int | None = None
+) -> list[ExportRow]:
     """Measure each row's QC figures and return the rows carrying them.
 
     The measurement is the expensive half of a QC export - one FFmpeg pass and
@@ -484,13 +486,17 @@ def _with_qc(rows: Sequence[ExportRow], *, workers: int) -> list[ExportRow]:
 
     Args:
         rows: Rows in playlist order.
-        workers: Threads to measure with; ``1`` measures in order.
+        workers: Threads to measure with; ``None`` uses
+            :func:`library_stats.core.qc.default_qc_workers`, and ``1``
+            measures in order.
 
     Returns:
         The rows with ``qc`` set, in the same order.
     """
-    from library_stats.core.qc import measure_file
+    from library_stats.core.qc import default_qc_workers, measure_file
 
+    if workers is None:
+        workers = default_qc_workers()
     paths = [row.path for row in rows]
     if workers <= 1 or len(paths) < 2:
         measured = [measure_file(path) for path in paths]
@@ -501,7 +507,7 @@ def _with_qc(rows: Sequence[ExportRow], *, workers: int) -> list[ExportRow]:
 
 
 def collect_export_rows(
-    scan_path: str, *, qc: bool = False, qc_workers: int = 1
+    scan_path: str, *, qc: bool = False, qc_workers: int | None = None
 ) -> list[ExportRow]:
     """Read every supported file under *scan_path* into album-ordered rows.
 
@@ -513,7 +519,8 @@ def collect_export_rows(
         scan_path: Root directory to walk recursively.
         qc: Whether to measure each file's QC figures.  Off by default: a
             playlist or a plain CSV must not pay for a decode per file.
-        qc_workers: Threads to measure with when *qc* is set.
+        qc_workers: Threads to measure with when *qc* is set; ``None`` uses the
+            machine's default (half the cores, capped at eight).
 
     Returns:
         The rows, sorted by :func:`_order_key`.
@@ -727,7 +734,7 @@ def export_html(
     camelot: bool = False,
     heading: str = "Library export",
     qc: bool = False,
-    qc_workers: int = 1,
+    qc_workers: int | None = None,
 ) -> int:
     """Write a self-contained HTML report of the library under *scan_path*.
 
@@ -739,7 +746,8 @@ def export_html(
         camelot: Add the ``camelot`` column.
         heading: Page heading and ``<title>`` text.
         qc: Measure every file and add the QC section.  Off by default.
-        qc_workers: Threads to measure with when *qc* is set.
+        qc_workers: Threads to measure with when *qc* is set; ``None`` uses the
+            machine's default.
 
     Returns:
         The number of rows written.

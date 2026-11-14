@@ -49,6 +49,19 @@ used once, and every bullet belongs to exactly one of them.
   count keys beside `files`. `clean` reports whether the pass was both fully
   measurable and undamaged, since a refusal is not a clean result.
 
+- **The QC pass sizes itself to the machine instead of running serially.**
+  `qc.default_qc_workers()` returns half the cores, at least one and never more
+  than `QC_MAX_WORKERS` (8); the old default of 1 made every QC export serial on
+  every host. Eight is the knee measured on a 20-core machine (51 real files:
+  151 ms/file serial, 46 ms at four workers, 31 ms at eight, 27 ms at sixteen),
+  because the cost is FFmpeg subprocess latency rather than CPU. `qc_workers`
+  is now `int | None` through `collect_export_rows`, `export_csv` and
+  `export_html`, and the CLI resolves the default once so the table, the export
+  and the printed message cannot disagree. Tests: a parametrised core-count
+  table (1/1, 2/1, 4/2, 8/4, 16/8, 64/8), the unknown-core fallback, the cap,
+  and a recording `ThreadPoolExecutor` proving `collect_export_rows(qc=True)`
+  builds a pool rather than measuring serially.
+
 - **The QC columns reach the export, measured only when asked for.**
   `playlist_export` gains `QC_COLUMNS`, an `ExportRow.qc` field and `_qc_value`;
   `collect_export_rows`, `export_csv` and `export_html` take `qc`/`qc_workers`

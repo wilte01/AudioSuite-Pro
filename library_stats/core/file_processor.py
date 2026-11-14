@@ -890,7 +890,7 @@ def export_csv(
     columns: Sequence[str] | None = None,
     camelot: bool = False,
     qc: bool = False,
-    qc_workers: int = 1,
+    qc_workers: int | None = None,
 ) -> int:
     """Export per-file metadata as CSV (one row per file).
 

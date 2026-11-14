@@ -15,6 +15,7 @@ things.  The guide says so where the column is explained.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,13 @@ from audio_suite_shared.exceptions import AudioFormatError, AudioSuiteError
 #: ``1.0`` survives the round trip exactly, and a PCM one decodes to
 #: ``32767/32768``, so the tolerance has to admit both.
 CLIP_FLOOR = 0.999
+
+#: The pass runs FFmpeg subprocesses, so past a point extra threads only queue:
+#: on a 20-core host 51 files went 4.9x faster at eight workers and 5.7x at
+#: sixteen, and the per-file floor is the subprocess latency, not the CPU.  Half
+#: the cores keeps a big machine responsive while still using its parallelism.
+QC_MAX_WORKERS = 8
+
 
 #: A loudness range needs gated short-term windows, and EBU Tech 3342 measures
 #: them over 3 s.  FFmpeg prints ``LRA: 0.0`` for a stream it cannot gate, which
@@ -200,6 +208,20 @@ def qc_summary(metrics: Sequence[QcMetrics], *, limit: int = 5) -> QcSummary:
         with_dropouts=sum(1 for item in measured if (item.dropouts or 0) > 0),
         offenders=worst_offenders(measured, limit=limit),
     )
+
+
+def default_qc_workers() -> int:
+    """Return the worker count a QC pass uses when the caller names none.
+
+    Half the cores, at least one, never more than :data:`QC_MAX_WORKERS`.  A
+    fixed one -- the previous default -- made every run serial on every
+    machine, and a fixed eight oversubscribes a small one.
+
+    Returns:
+        A worker count suitable for ``ThreadPoolExecutor``.
+    """
+    cores = os.cpu_count() or 1
+    return max(1, min(QC_MAX_WORKERS, cores // 2))
 
 
 def worst_offenders(

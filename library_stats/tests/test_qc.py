@@ -159,6 +159,37 @@ class TestLoudnessRange:
         assert metrics.lra_note == "", "a measured zero needs no explanation"
 
 
+class TestDefaultWorkers:
+    """Half the cores, at least one, never past the measured knee."""
+
+    @pytest.mark.parametrize(
+        ("cores", "expected"),
+        [(1, 1), (2, 1), (3, 1), (4, 2), (8, 4), (16, 8), (20, 8), (64, 8)],
+    )
+    def test_it_halves_the_cores_inside_the_cap(
+        self, cores: int, expected: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from library_stats.core.qc import default_qc_workers
+
+        monkeypatch.setattr("os.cpu_count", lambda: cores)
+
+        assert default_qc_workers() == expected
+
+    def test_an_unknown_core_count_falls_back_to_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from library_stats.core.qc import default_qc_workers
+
+        monkeypatch.setattr("os.cpu_count", lambda: None)
+
+        assert default_qc_workers() == 1
+
+    def test_the_cap_is_eight(self) -> None:
+        from library_stats.core.qc import QC_MAX_WORKERS
+
+        assert QC_MAX_WORKERS == 8
+
+
 class TestQcSummary:
     """One count and one ranking, so three reports cannot disagree."""
 

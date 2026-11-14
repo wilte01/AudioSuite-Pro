@@ -21,6 +21,7 @@ only when asked for, one pass per file, and the HTML section (F-S7).
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -538,6 +539,34 @@ class TestQcColumns:
         assert sorted(calls) == sorted(row.path for row in rows)
         assert len(calls) == len(rows)
         assert all(row.qc is not None for row in rows)
+
+    def test_collecting_without_a_worker_count_uses_the_machine_default(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "library_stats.core.qc.measure_file",
+            lambda path: calls.append(path) or self._measured(),
+        )
+        seen: list[int] = []
+
+        class RecordingPool(ThreadPoolExecutor):
+            def __init__(self, max_workers: int | None = None) -> None:
+                seen.append(max_workers or 0)
+                super().__init__(max_workers=max_workers)
+
+        monkeypatch.setattr(
+            "library_stats.core.playlist_export.ThreadPoolExecutor", RecordingPool
+        )
+        monkeypatch.setattr("os.cpu_count", lambda: 8)
+
+        collect_export_rows(str(library), qc=True)
+
+        assert seen == [3], (
+            "a pool was built, so the default was above one; it holds three "
+            "threads because three files cannot use four"
+        )
+        assert len(calls) == 3
 
     def test_the_html_section_appears_only_when_asked(
         self, library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

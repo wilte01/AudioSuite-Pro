@@ -760,7 +760,7 @@ audiosuite stats <directory> [--incremental/--full] [--refresh] [OPTIONS]
 - `--qc` — add the nine QC columns (loudness, loudness range, true peak, sample peak, crest factor, DC offset, phase, clipped samples, dropouts) and the worst-offender section to a csv/html export; measures every file, so it is off unless given
 - `--qc-csv PATH` — write the per-file QC table as CSV on its own, without an export
 - `--qc-json PATH` — write the per-file QC table, counts and worst offenders as JSON
-- `--qc-workers N` — how many files the QC measurement reads at once (default: 1)
+- `--qc-workers N` — how many files the QC measurement reads at once (empty: half the CPU cores, capped at 8)
 - `--completeness` — also report tag completeness for BPM, key, genre, mood, artwork and ReplayGain
 - `--detail [title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain]` — with `--completeness`, list the files missing the given tag
 - `--trend` — show the recorded completeness trend for this directory

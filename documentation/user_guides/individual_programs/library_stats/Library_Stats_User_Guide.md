@@ -153,7 +153,7 @@ Two of those figures are worth reading carefully. **Phase correlation** near +1 
 
 A figure that could not be measured is blank, never zero: a file shorter than three seconds has no gated loudness range to report, and a mono file has no phase correlation. A file the measurement refused keeps its row and shows why in the QC table's `qc_error` column, so a QC pass never loses a track because its audio could not be read.
 
-Use `--qc-csv` and `--qc-json` to write the per-file QC table on its own, without an export. The JSON payload also lists the worst offenders, so a script can name them without re-deriving the order, and `--qc-workers` reads that many files at once (the default, 1, measures them one at a time).
+Use `--qc-csv` and `--qc-json` to write the per-file QC table on its own, without an export. The JSON payload also lists the worst offenders, so a script can name them without re-deriving the order, and `--qc-workers` reads that many files at once. Without it, the pass uses half your CPU cores, capped at 8 - on a 20-core machine that was the point where more workers stopped paying (51 files ran 4.9x faster at eight and only 5.7x at sixteen).
 
 ### Choosing Columns
 
@@ -190,7 +190,7 @@ Options include --incremental, --refresh, --export-csv, --export-json, --export 
 - **A Camelot column is empty: **The file has no key tag, or the Key Detector found none worth tagging. Run the Key Detector first.
 - **An export column is rejected: **Only the documented columns exist. A misspelt name fails with the list rather than producing a file missing the column you asked for.
 - **A QC column is empty: **Either `--qc` was not given (nothing is measured without it) or that figure does not exist for the file: a mono file has no phase correlation, a file under three seconds has no loudness range. Check the QC table's `qc_error` column for a file that could not be measured at all.
-- **The QC export is slow: **It decodes and measures every file, which the other columns do not. Raise `--qc-workers` to measure several at once, or write the table once with `--qc-csv` and read it instead of re-measuring.
+- **The QC export is slow: **It decodes and measures every file, which the other columns do not. It already reads half your cores at once; set `--qc-workers` explicitly if you want more, and write the table once with `--qc-csv` to read it instead of re-measuring.
 
 ## Read-Only Safety
 
