@@ -241,6 +241,10 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.dsp_time_pitch
+:members:
+```
+
 ```{automodule} audio_suite_shared.lossless_gain
 :members:
 ```
@@ -269,6 +273,10 @@ claim is proven from where a consumer actually stands.
 ```
 
 ```{automodule} audio_suite_shared.tag_helper_writer
+:members:
+```
+
+```{automodule} audio_suite_shared.tag_copy
 :members:
 ```
 

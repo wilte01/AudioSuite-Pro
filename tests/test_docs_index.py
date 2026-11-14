@@ -43,6 +43,7 @@ Changed in 2.3.0: ``REQUIRED_TOOL_ROWS`` moves to 32, the regenerated table's ro
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the required tool-row count is 29 (F-E4 splitter, F-E5 joiner).
+Changed in 2.7.0: the frozen tool-row count is 33 (F-S4).
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 # Changed in 2.6.0: the tool-row count follows the registry to 31 (F-E8).
 # Changed in 2.6.0: the count follows the registry again to 32 with the
 # Artwork Extractor (F-E10 follow-up).
-REQUIRED_TOOL_ROWS = 32
+REQUIRED_TOOL_ROWS = 33
 
 #: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
 #: repository path, even when it contains a slash.

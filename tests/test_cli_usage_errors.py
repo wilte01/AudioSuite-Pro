@@ -116,6 +116,9 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "lyrics": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analysis-batch": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analyzer": {"missing": [], "invalid": [MISSING_PATH]},
+    # ``pitchtime`` refuses a run that names neither mode, and it refuses it
+    # before a file is opened: a usage error, not a failed run.
+    "pitchtime": {"missing": [], "invalid": [LIBRARY]},
     # ``plugins list`` takes no argument, like ``doctor``; ``enable``/``disable``
     # reject an id no discovered plugin declares, which is a usage error.
     "plugins disable": {"missing": [], "invalid": [MISSING_PATH]},

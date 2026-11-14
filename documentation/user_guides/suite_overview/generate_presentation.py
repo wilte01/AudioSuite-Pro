@@ -558,6 +558,16 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         "Joins a folder in a chosen order, with gaps or equal-power crossfades",
     ],
+    # Changed in 2.7.0: the per-tool table gains Pitch / Time (F-S4).
+    [
+        "Pitch / Time",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Changes speed or pitch; keeps the source's rate, depth and tags",
+    ],
     [
         "CUE Sheet Generator",
         YES,

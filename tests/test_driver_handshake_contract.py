@@ -33,6 +33,7 @@ is the four-flag grammar its own `parse()` reads, so the batch can schedule it
 (F-E8, D-19).  The Driver-state double answers `duplicate_exact_mode` as well,
 because the Duplicate Finder builder now emits `--exact` and its parser
 validates the value (F-E9).
+Changed in 2.7.0: ``pitch_time`` is declared and driven (F-S4).
 """
 
 from __future__ import annotations
@@ -194,6 +195,7 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "art": ToolSpec("album_art_sync.utils.cli_args"),
     "lyrics_manager": ToolSpec(reason=_UNCHANGED),
     "converter": ToolSpec(reason=_UNCHANGED),
+    "pitch_time": ToolSpec("pitch_time.utils.cli_args"),
     "cue_sheet": ToolSpec("cue_sheet.utils.cli_args"),
     # Changed in 2.6.0: the Artwork Extractor is driven with the four-flag
     # handshake plus its own sidecar options (F-E10 follow-up).
@@ -282,8 +284,8 @@ class TestTheTableCoversTheRegistry:
         )
 
     def test_the_table_is_not_empty_and_records_its_exceptions(self) -> None:
-        assert len(HANDSHAKE_TOOLS) == 32
-        assert len(DRIVEN_TOOLS) == 14, DRIVEN_TOOLS
+        assert len(HANDSHAKE_TOOLS) == 33
+        assert len(DRIVEN_TOOLS) == 15, DRIVEN_TOOLS
         excluded = {t for t, spec in HANDSHAKE_TOOLS.items() if spec.reason}
         assert len(excluded) == 18
 

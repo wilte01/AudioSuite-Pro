@@ -7,6 +7,7 @@ report states is the same arithmetic the window previews (:func:`plan_duration_m
 so a run's result can be checked against its plan rather than against itself.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E5).
+Changed in 2.7.0: the easy-tag copy moved to ``audio_suite_shared.tag_copy`` (F-S4).
 """
 
 from __future__ import annotations
@@ -19,8 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mutagen import File as MutagenFile
-from mutagen import MutagenError
 from pydub import AudioSegment
 
 from audio_suite_shared.audio_formats import (
@@ -30,6 +29,7 @@ from audio_suite_shared.audio_formats import (
 )
 from audio_suite_shared.audio_probe import probe_stream
 from audio_suite_shared.exceptions import AudioConfigValueError, AudioSuiteError
+from audio_suite_shared.tag_copy import copy_easy_tags
 
 from .compat import CompatibilityReport, probe_inputs
 from .concat import write_copy
@@ -53,25 +53,6 @@ REPORT_NAMES: dict[bool, str] = {
     True: "audio_joiner_dry_run_log.txt",
     False: "audio_joiner_sync_log.txt",
 }
-
-#: Containers mutagen can write; a joined WAV or AIFF is reported instead of
-#: tagged, because the format carries no tag block at all.
-TAGGABLE_EXTENSIONS: frozenset[str] = frozenset(
-    {".mp3", ".flac", ".m4a", ".mp4", ".ogg", ".opus"}
-)
-
-#: The easy-tag fields copied from the first segment.
-EASY_TAG_FIELDS: tuple[str, ...] = (
-    "title",
-    "artist",
-    "album",
-    "albumartist",
-    "date",
-    "genre",
-    "tracknumber",
-    "discnumber",
-    "comment",
-)
 
 
 @dataclass(frozen=True)
@@ -142,40 +123,6 @@ def measure_durations(sources: Sequence[Path]) -> tuple[int, ...]:
             )
         durations.append(int(round(stream.duration_sec * 1000)))
     return tuple(durations)
-
-
-def copy_tags(source: Path, destination: Path) -> bool:
-    """Copy *source*'s tags onto *destination*.
-
-    Only the easy-tag fields are written, through the destination's own loaded
-    object, so a FLAC file's Vorbis block is updated in place: rebinding
-    ``FLAC.tags`` would save the stale block and lose the writing silently.
-
-    Args:
-        source: The segment whose tags are the template.
-        destination: The joined file to tag.
-
-    Returns:
-        True when the tags were written; False when the container holds no tag
-        block the suite can write, or the write failed.
-    """
-    if destination.suffix.lower() not in TAGGABLE_EXTENSIONS:
-        return False
-    try:
-        origin = MutagenFile(str(source), easy=True)
-        target = MutagenFile(str(destination), easy=True)
-        if origin is None or target is None or origin.tags is None:
-            return False
-        if target.tags is None:
-            target.add_tags()
-        for field in EASY_TAG_FIELDS:
-            if field in origin:
-                target[field] = origin[field]
-        target.save()
-    except (MutagenError, OSError, ValueError) as exc:
-        logger.warning("Could not copy tags onto %s: %s", destination, exc)
-        return False
-    return True
 
 
 def _load(source: Path, report: CompatibilityReport) -> AudioSegment:
@@ -316,7 +263,7 @@ def join_files(
         segments = [_load(source, report) for source in sources]
         _export(combine(segments, settings), output, sources[0])
 
-    tags_copied = copy_tags(sources[0], output)
+    tags_copied = copy_easy_tags(sources[0], output)
     notes.append(
         "Tags: copied from the first segment"
         if tags_copied

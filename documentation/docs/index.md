@@ -64,6 +64,7 @@ tool entry in the manifest.
 | Channel Tools | `Channel_Tools.pyw` | [Markdown](../user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.md) |
 | Duplicate Finder | `Duplicate_Finder.pyw` | [Markdown](../user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.md) |
 | ML Denoiser | `ML_Denoiser.pyw` | [Markdown](../user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.md) |
+| Pitch / Time | `Pitch_Time.pyw` | [Markdown](../user_guides/individual_programs/pitch_time/Pitch_Time_User_Guide.md) |
 | Restoration (Declip) | `Restoration.pyw` | [Markdown](../user_guides/individual_programs/restoration/Restoration_User_Guide.md) |
 | Stem Separator | `Stem_Separator.pyw` | [Markdown](../user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.md) |
 | Audio Joiner | `Audio_Joiner.pyw` | [Markdown](../user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.md) |
@@ -74,7 +75,7 @@ tool entry in the manifest.
 
 ## Suite-wide guides
 
-* {doc}`user/suite-overview` — how the 32 tools are grouped, what
+* {doc}`user/suite-overview` — how the 33 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
 * {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.

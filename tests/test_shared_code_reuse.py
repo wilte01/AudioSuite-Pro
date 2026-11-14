@@ -60,6 +60,7 @@ scan list), and three allowlist entries excused nothing at all.
 The suite already locks two neighbouring boundaries, and this module does not
 repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
 ``tests/test_filename_safety.py`` owns the filename character set.
+Changed in 2.7.0: the tag-copy extension list moves to ``tag_copy`` (F-S4).
 """
 
 from __future__ import annotations
@@ -94,9 +95,9 @@ EXTENSION_LIST_ALLOWLIST: dict[str, str] = {
         "the containers whose frames a stream copy can cut; a writable subset "
         "of the format matrix, which is why it is declared as such"
     ),
-    "audio_joiner/core/join.py": (
-        "the containers whose tags the joiner copies; a tagging subset of the "
-        "format matrix"
+    "audio_suite_shared/tag_copy.py": (
+        "the containers whose tags a rewritten file can carry; a tagging "
+        "subset of the format matrix, shared by the joiner and Pitch / Time"
     ),
     "tag_field_updater/core/mapping_engine.py": (
         "the containers its per-format rules cover, deliberately including the "

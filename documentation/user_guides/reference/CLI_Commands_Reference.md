@@ -957,6 +957,34 @@ audiosuite channels "D:\Music\Live" --operation mono_minus3db --live
 audiosuite channels "D:\Music\Live" --operation stereo_width --width 150 --json
 ```
 
+### Pitch / Time
+
+Change every file's playback speed (pitch unchanged) or its pitch (length
+unchanged), writing each result beside its source under a name that carries the
+setting. The source's sample rate, channel count, bit depth and tags are kept,
+and the source file is never modified. Set exactly one of `--rate` or
+`--semitones`; a setting that asks for no change skips every file and reports
+why.
+
+```bash
+audiosuite pitchtime <directory> [--rate FACTOR] [--semitones N]
+    [--dry|--live] [--json]
+```
+
+**Options:**
+
+- `--rate FACTOR` - tempo mode: playback speed factor, `1.25` playing a `1.000 s` file in `0.800 s` at the same pitch; accepted range `0.25` to `4.0`; cannot be combined with `--semitones`
+- `--semitones N` - pitch mode: shift in semitones, `12` an octave up, with the length unchanged; accepted range `-24` to `24`; cannot be combined with `--rate`
+- `--dry` / `--live` - read and measure every file without writing, or write the results (default: live)
+
+**Examples:**
+
+```bash
+audiosuite pitchtime "D:\Music\Rehearsal" --rate 1.25
+audiosuite pitchtime "D:\Music\Set" --semitones -2 --dry
+audiosuite pitchtime "D:\Music\Set" --rate 0.9 --json
+```
+
 ## Suite commands
 
 ### doctor
@@ -1137,7 +1165,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 32 tools appears
+installation rather than on a folder of audio. Each of the 33 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -1175,6 +1203,7 @@ here, and each tool's own section above documents its flags.
 | `scrub` | Metadata Scrubber | Enrich |
 | `spectrogram` | Spectral Viewer | Util |
 | `join` | Audio Joiner | Util |
+| `pitchtime` | Pitch / Time | Util |
 | `channels` | Channel Tools | Util |
 | `split` | Track Splitter | Util |
 | `stats` | Library Statistics Dashboard | Util |

@@ -1,6 +1,6 @@
 # AudioSuite-Pro
 
-AudioSuite-Pro is a Windows-first audio workbench of 32 first-party tools
+AudioSuite-Pro is a Windows-first audio workbench of 33 first-party tools
 that share one driver, one command line and one registry: tag enrichment
 (BPM, key, mood, lyrics, album art, ReplayGain, genre), DSP repair and
 conversion (loudness normalisation, hum/click removal, silence trimming,
@@ -66,7 +66,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 31 of 32 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 32 of 33 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -230,6 +230,7 @@ The table below is **generated from the tool manifest**
 | Channel Tools | Apply mono, dual-mono, phase, mid/side and width rules in place | `Channel_Tools.pyw` | `documentation/user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.docx` | Portable core |
 | Duplicate Finder | Find duplicate recordings by fingerprint and quarantine, delete or stub extras | `Duplicate_Finder.pyw` | `documentation/user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.docx` | Portable core |
 | ML Denoiser | Neural noise reduction with RNNoise (speech-trained) | `ML_Denoiser.pyw` | `documentation/user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.docx` | Portable core |
+| Pitch / Time | Change playback speed or pitch, file by file | `Pitch_Time.pyw` | `documentation/user_guides/individual_programs/pitch_time/Pitch_Time_User_Guide.docx` | Portable core |
 | Restoration (Declip) | Reconstruct flat-topped peaks lost to clipping | `Restoration.pyw` | `documentation/user_guides/individual_programs/restoration/Restoration_User_Guide.docx` | Portable core |
 | Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `documentation/user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
 | Audio Joiner | Join segments into one file, with gaps or crossfades | `Audio_Joiner.pyw` | `documentation/user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.docx` | Portable core |

@@ -18,6 +18,25 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The pitch/time tool ships with one transform implementation and one tag-copy
+  helper.** `audio_suite_shared/dsp_time_pitch.py` holds `time_stretch` and
+  `pitch_shift` (librosa's phase vocoder), and both were measured on the
+  acceptance fixture rather than asserted from the request: `rate=1.25` on a
+  1.000 s 440 Hz tone returned 0.800 s at 440.0 Hz (0.0 cents) and `+12`
+  semitones returned 1.000 s at 880.0 Hz (0.0 cents); pedalboard's
+  `time_stretch` measures the same, so it is not kept as a second
+  implementation. `audio_suite_shared/tag_copy.py` is the easy-tag copy moved
+  out of `audio_joiner/core/join.py`, so the joiner and the new tool import one
+  helper instead of each keeping a copy. Registration: manifest entry (33
+  first-party tools, utilities 20 -> 21, the repair block renumbered from 160 so
+  `pitch_time` sits alphabetically), CLI command and JSON-schema variant, Master
+  Driver card / argv builder / dependency entry, launcher, guide plus rendered
+  DOCX, CLI reference section, regenerated README and docs tables, re-recorded
+  CLI corpus and schema examples, and the changed-in note budget re-recorded at
+  2022 lines. `tests/cli_payloads.argv_for` gained the command's recording argv
+  (a dry run at `--rate 1.25`), which the recorder needs because the command
+  refuses a run that names neither mode.
+
 - **The key corpus holds 34 Bach clips covering all 24 keys, with a declared
   split.** `tests/data/key_corpus/` grew from 11 preludes to 23 preludes and 11
   fugues: the twelve missing preludes (minus B-flat major, which still moves

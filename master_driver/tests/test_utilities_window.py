@@ -25,6 +25,7 @@ row per group.  ``EXPECTED_UTILITY_ORDER`` freezes the displayed order (which
 is the sequential batch order too) and ``EXPECTED_GROUPS`` freezes the captions
 and their membership, so a reorder or a re-grouping is a deliberate diff here
 rather than a side effect of a manifest edit.
+Changed in 2.7.0: the frozen utility order gains ``pitch_time`` (F-S4).
 """
 
 from __future__ import annotations
@@ -70,6 +71,7 @@ EXPECTED_UTILITY_ORDER: tuple[str, ...] = (
     "channel_tools",
     "duplicate_finder",
     "ml_denoiser",
+    "pitch_time",
     "restoration",
     "stem_separator",
     "audio_joiner",
@@ -101,6 +103,7 @@ EXPECTED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "channel_tools",
             "duplicate_finder",
             "ml_denoiser",
+            "pitch_time",
             "restoration",
             "stem_separator",
         ),

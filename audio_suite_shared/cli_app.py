@@ -73,6 +73,8 @@ Usage::
                        [--silence-db -45] [--min-track 5000]
                        [--boundary midpoint] [--naming PATTERN]
                        [--cue] [--no-cue] [--dry] [--json]
+    audiosuite pitchtime /path/to/dir [--rate 1.25] [--dry] [--json]
+    audiosuite pitchtime /path/to/dir [--semitones -12] [--dry] [--json]
     audiosuite plugins list [--json]
     audiosuite plugins enable PLUGIN_ID [--json]
     audiosuite plugins disable PLUGIN_ID [--json]
@@ -196,6 +198,8 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("mood_analysis_batch_tagger.cli", "mood-analysis-batch"),
     ("mood_analyzer.cli", "mood-analyzer"),
     ("music_format_converter.cli", "convert"),
+    # Changed in 2.7.0: the pitch/time tool's command (F-S4).
+    ("pitch_time.cli", "pitchtime"),
     ("replaygain_analyzer.cli", "replaygain"),
     ("restoration.cli", "declip"),
     ("spectral_viewer.cli", "spectrogram"),

@@ -42,6 +42,7 @@ Changed in 2.3.1 (U-03, released in 2.6.0): the card assertion skips a manifest
 with ``driver_card=False``, and a new lock keeps that exemption honest - the
 launcher and CLI command still exist and the card module really is gone.
 Changed in 2.5.0: the first-party tool count is 29 (F-E4 splitter, F-E5 joiner).
+Changed in 2.7.0: the frozen first-party count is 33 (F-S4).
 """
 
 from __future__ import annotations
@@ -158,7 +159,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 32
+        assert len(get_registry().first_party) == 33
 
 
 class TestRegistrationLock:

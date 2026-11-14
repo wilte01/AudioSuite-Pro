@@ -51,6 +51,7 @@ Changed in 1.4.0: the worker default is read from default_max_workers().
 
 Changed in 2.1.0: plugin tools contribute their own toggle keys.
 Changed in 2.5.0: the frozen toggle set gains the Channel Tools utility (F-E6).
+Changed in 2.7.0: the pitch/time toggle and its controls (F-S4).
 """
 
 import json
@@ -611,6 +612,8 @@ class TestModuleToggles:
         "audio_refinery",
         "track_splitter",
         "audio_joiner",
+        # F-S4: the pitch/time tool's card, registered from its manifest.
+        "pitch_time",
     }
 
     def test_all_expected_keys_present(self, state):

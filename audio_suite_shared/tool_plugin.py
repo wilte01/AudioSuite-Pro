@@ -661,7 +661,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="split",
         standalone=True,
         group="organise",
-        order=200,
+        order=210,
     ),
     ToolManifest(
         id="audio_joiner",
@@ -672,7 +672,22 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="join",
         standalone=True,
         group="organise",
-        order=180,
+        order=190,
+    ),
+    # Changed in 2.7.0: registers the pitch/time tool (F-S4).  It joins the
+    # repair block alphabetically, so the tools after it are renumbered into
+    # the next tens - the same renumbering the grouping rule documents, and it
+    # changes no tool's position relative to any other.
+    ToolManifest(
+        id="pitch_time",
+        name="Pitch / Time",
+        category="utility",
+        pyw_filename="Pitch_Time.pyw",
+        description="Change playback speed or pitch, file by file",
+        cli_command="pitchtime",
+        standalone=True,
+        group="repair",
+        order=160,
     ),
     # Changed in 2.5.0: registers the channel utility's manifest (F-E6).
     ToolManifest(
@@ -717,7 +732,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="reorganize",
         standalone=True,
         group="organise",
-        order=190,
+        order=200,
     ),
     ToolManifest(
         id="tag_field_updater",
@@ -739,7 +754,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="stems",
         standalone=True,
         group="repair",
-        order=170,
+        order=180,
     ),
     ToolManifest(
         id="ml_denoiser",
@@ -775,7 +790,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="declip",
         standalone=True,
         group="repair",
-        order=160,
+        order=170,
     ),
     ToolManifest(
         id="tag_editor",

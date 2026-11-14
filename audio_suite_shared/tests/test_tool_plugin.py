@@ -31,6 +31,7 @@ names a group declared for its category, every declared group has cards, the
 alphabetical inside a block.  ENRICH keeps its dependency-vetted order inside a
 group instead, which the lock asserts by forbidding a reorder
 (PLAN_2026-11-08_util_card_grouping.md, PLAN_2026-11-08_enrich_card_grouping.md).
+Changed in 2.7.0: the registry locks count 33 tools and 21 utilities (F-S4).
 """
 
 from pathlib import Path
@@ -200,7 +201,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 32  # 11 enrich + 20 utility + 1 refinery
+        assert len(r.first_party) == 33  # 11 enrich + 21 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -265,6 +266,7 @@ class TestDefaultRegistry:
             "duplicate_finder",
             "restoration",
             "channel_tools",
+            "pitch_time",
         }
         assert ids == expected
 
@@ -286,6 +288,7 @@ class TestDefaultRegistry:
             "key",
             "mood-analyzer",
             "join",
+            "pitchtime",
             "convert",
             "stats",
             "split",
@@ -332,6 +335,7 @@ class TestDefaultRegistry:
             "duplicate_finder",
             "restoration",
             "channel_tools",
+            "pitch_time",
         }
         assert standalone == expected
 
@@ -418,7 +422,7 @@ class TestRemovedStandaloneTools:
         utilities = [m.id for m in r.by_category("utility") if not m.plugin]
         cards = [m.id for m in r.driver_by_category("utility") if not m.plugin]
 
-        assert len(utilities) == 20, utilities
+        assert len(utilities) == 21, utilities
         assert sorted(cards) == sorted(utilities)
 
     def test_no_launcher_and_no_command_survive(self):

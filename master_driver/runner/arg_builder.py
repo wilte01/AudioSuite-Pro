@@ -389,6 +389,16 @@ def _build_utility_tool_args(
             ]
             + ([] if state.audio_joiner_copy.get() else ["--no-copy"])
         ),
+        # Changed in 2.7.0: the pitch/time tool emits one mode, never both, so
+        # a card launch cannot ask for two modes at once (F-S4).
+        "pitch_time": lambda: (
+            [path, mode_flag, start_flag, end_flag]
+            + (
+                ["--rate", state.pitch_time_rate.get() or "1.0"]
+                if state.pitch_time_mode.get() == "tempo"
+                else ["--semitones", state.pitch_time_semitones.get() or "0.0"]
+            )
+        ),
         "spectral_viewer": lambda: (
             [
                 path,

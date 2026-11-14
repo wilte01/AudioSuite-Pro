@@ -205,6 +205,10 @@ def argv_for(command: str, work: Path) -> list[str]:
     if command == "fingerprint":
         # A lookup without an API key is a usage error, not a payload.
         return [str(library), "--dry", "--no-lookup"]
+    if command == "pitchtime":
+        # The command refuses a run that names neither mode, so the recording
+        # names one; the dry run reports the projection and writes nothing.
+        return [str(library), "--rate", "1.25", "--dry"]
     return [str(library), "--dry"]
 
 

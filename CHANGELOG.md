@@ -24,6 +24,20 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **A new Pitch / Time tool changes a folder's speed or pitch.** Tempo mode
+  plays each file faster or slower without moving its pitch, so a rehearsal can
+  be slowed down to learn a part; Pitch mode moves the pitch without changing
+  the length, so a song recorded in the wrong key can be moved into a singable
+  one, and 12 semitones is an octave. Every result is written beside its source
+  under a name that says what was done - `song_tempo_1.25.wav`,
+  `song_pitch_-2st.wav` - so the original is never replaced. The source's
+  sample rate, channel count, bit depth and tags are kept. A setting that asks
+  for no change is reported as a skip instead of re-encoding the file for
+  nothing. The Master Driver card picks the mode and sends that one setting,
+  and the command line gains `audiosuite pitchtime`, which takes `--rate` or
+  `--semitones` (never both) and `--dry` for a run that measures without
+  writing.
+
 - **The Audio Refinery's Dynamics stage has its own Setup panel.** Tick the
   stage, open Settings, and you can set the compressor (threshold, ratio,
   attack, release and makeup gain) and the limiter (ceiling, lookahead and

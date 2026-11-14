@@ -42,6 +42,7 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the help listing covers 30 tools (F-E4 splitter, F-E5 joiner,
 F-E6 channel tools).
+Changed in 2.7.0: the discoverability lock counts 33 tools and 30 commands (F-S4).
 """
 
 from __future__ import annotations
@@ -476,21 +477,23 @@ class TestDiscoverabilityContract:
     ) -> None:
         """The acceptance criterion, stated without inventing a feature.
 
-        Plan G2 asks that ``--help`` list every tool.  29 of the 30 have a
-        subcommand and so are listed; the 30th (``undo_tag_edits``) is a
-        declared GUI-only gap, and listing it would mean building the CLI
-        command the plan explicitly does not ask for.  It is therefore
-        covered by ``test_no_undeclared_gap_below`` instead of by help text.
+        Plan G2 asks that ``--help`` list every tool.  30 of the 33 have a
+        subcommand and so are listed; the other three (``cue_sheet``,
+        ``artwork`` and ``undo_tag_edits``) are declared GUI-only gaps, and
+        listing them would mean building CLI commands the plans explicitly do
+        not ask for.  They are covered by ``test_no_undeclared_gap_below``
+        instead of by help text.
 
         The count fell from 32 to 27 in 2.6.0: the five DSP tools REFINE runs
-        as pipeline stages no longer ship their own commands (U-04).
+        as pipeline stages no longer ship their own commands (U-04).  It rose
+        to 33 tools / 30 commands in 2.7.0 with the pitch/time tool (F-S4).
         """
         tools = get_registry().first_party
-        assert len(tools) == 32
+        assert len(tools) == 33
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
-        assert len(with_subcommand) == 29
+        assert len(with_subcommand) == 30
         for manifest in with_subcommand:
             assert manifest.cli_command in result.output, (
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "

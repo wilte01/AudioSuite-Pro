@@ -100,6 +100,8 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
     {
         ("album_art_normalizer/app.py", "ArtNormalizerApp"),
         ("audio_joiner/app.py", "AudioJoinerApp"),
+        # Changed in 2.7.0: the pitch/time tool's window (F-S4).
+        ("pitch_time/app.py", "PitchTimeApp"),
         ("cue_sheet/app.py", "CueSheetApp"),
         # Changed in 2.6.0: the Artwork Extractor's window (F-E10 follow-up).
         ("artwork_extractor/app.py", "ArtworkExtractorApp"),

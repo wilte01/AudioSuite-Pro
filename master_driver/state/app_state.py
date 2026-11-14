@@ -37,6 +37,7 @@ F-08a).
 Changed in 2.3.1 (U-03, released in 2.6.0): the five DSP tools' option variables
 (``declick_*``, ``trimmer_*``, ``nr_*``, ``enhancer_*``, ``normalizer_*``) go with
 their cards; the toggles follow ``driver_manifests``, so they go too.
+Changed in 2.7.0: the Pitch / Time card's controls (F-S4).
 """
 
 from __future__ import annotations
@@ -290,6 +291,13 @@ class AppState:
         self.audio_joiner_gap_ms = tk.StringVar(master, value="0")
         self.audio_joiner_crossfade_ms = tk.StringVar(master, value="0")
         self.audio_joiner_copy = tk.BooleanVar(master, value=True)
+
+        # ── Pitch / Time controls ────────────────────────────────────────────
+        # The card emits one mode, never both: the tool's command refuses a
+        # launch that sets both flags (F-S4).
+        self.pitch_time_mode = tk.StringVar(master, value="tempo")
+        self.pitch_time_rate = tk.StringVar(master, value="1.0")
+        self.pitch_time_semitones = tk.StringVar(master, value="0.0")
 
         # ── ASX Playlist Extractor controls ──────────────────────────────────
         # Off by default, matching the extractor's CLI and preserving today's

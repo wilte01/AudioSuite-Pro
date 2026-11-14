@@ -193,6 +193,8 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "lyrics": "lyrics_manager",
     "mood-analysis-batch": "mood_analysis_batch",
     "mood-analyzer": "mood_analyzer",
+    # Changed in 2.7.0: the pitch/time tool's command (F-S4).
+    "pitchtime": "pitch_time",
     # The plugin management commands belong to the plugin system rather than
     # to a tool; like ``doctor`` and ``cue`` they are declared here because
     # they publish a payload.  A *plugin's own* command is deliberately absent:
@@ -364,6 +366,15 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "segments": int,
         "reencoded": bool,
         "tags_copied": bool,
+    },
+    # Changed in 2.7.0: the transform that ran, the value it applied, and how
+    # many files were written; a dry run reports the projection and writes
+    # nothing (F-S4).
+    "pitchtime": {
+        "mode": str,
+        "rate": float,
+        "semitones": float,
+        "written": int,
     },
     "split": {
         # How many tracks the plan produced, how many files were actually

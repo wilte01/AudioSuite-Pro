@@ -45,6 +45,7 @@ shared fields) from ``run_duplicate_scan`` (F-02).
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the publisher table gains the Track Splitter (F-E4).
+Changed in 2.7.0: the publisher table gains ``pitch_time`` (F-S4).
 """
 
 from __future__ import annotations
@@ -85,6 +86,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "music_format_converter": (
         "music_format_converter.core.file_processor.run_conversion"
     ),
+    "pitch_time": "pitch_time.core.engine.run_pitch_time",
     "replaygain_analyzer": "replaygain_analyzer.core.file_processor.run_analysis",
     "stem_separator": "stem_separator.core.file_processor.run_stem_separation",
     "tag_editor": "tag_editor.core.processor.run_apply",
