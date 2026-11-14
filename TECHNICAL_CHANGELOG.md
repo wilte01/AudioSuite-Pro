@@ -18,6 +18,24 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The album plan carries a per-track report, and the Refinery writes it out.**
+  `audio_normalizer/core/album.py` gains `AlbumTrack` rows on
+  `AlbumPlan.tracks`, `_track_measurement` (integrated LUFS and true peak from
+  the one FFmpeg pass the ceiling check already ran, so the report costs no
+  extra decode), `album_deviation_note` (worded through
+  `run_outcome.shortfall`), and `album_csv_rows`/`write_album_csv`.
+  `audio_refinery/core/file_processor.py` writes `refinery_album.csv` beside the
+  run report and records the caveat through
+  `run_outcome.record_caveats("audio_refinery", ...)`; a failed report write is
+  logged, never raised. `NormaliseParams.album_deviation_lu` (3.0) round-trips
+  through `utils/settings.py` and the shipped default, and
+  `audiosuite refine --album-deviation-lu` sets it. Tests: six in
+  `audio_normalizer/tests/test_album.py` (one row per track, deviation measured
+  after that track's own gain, a limited track's own gain, the caveat and its
+  silence inside the window, and the CSV parsed with `csv.DictReader`) and two
+  in `audio_refinery/tests/test_file_processor.py` (the table beside the
+  report, the caveat reaching the run outcome).
+
 - **The pitch/time tool ships with one transform implementation and one tag-copy
   helper.** `audio_suite_shared/dsp_time_pitch.py` holds `time_stretch` and
   `pitch_shift` (librosa's phase vocoder), and both were measured on the

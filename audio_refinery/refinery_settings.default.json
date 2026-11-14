@@ -79,6 +79,7 @@
     "lra": 11.0,
     "mode": "normalise",
     "album_mode": false,
+    "album_deviation_lu": 3.0,
     "target_mode": "lufs",
     "target_peak_dbtp": -1.0
   }

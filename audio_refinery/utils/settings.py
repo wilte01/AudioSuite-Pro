@@ -422,6 +422,9 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
         # a file with a mode no stage implements.
         mode=stored_mode if stored_mode in NORMALISATION_MODES else "normalise",
         album_mode=bool(d.get("album_mode", False)),
+        # F-S5's report window is stored with the rest of the album setting; a
+        # file written before it existed reads as the documented default.
+        album_deviation_lu=float(d.get("album_deviation_lu", 3.0)),
         # Likewise an unknown target mode falls back to LUFS, which is what
         # every run before F-E2 did.
         target_mode=(
@@ -561,6 +564,7 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
             "lra": n.lra,
             "mode": n.mode,
             "album_mode": n.album_mode,
+            "album_deviation_lu": n.album_deviation_lu,
             "target_mode": n.target_mode,
             "target_peak_dbtp": n.target_peak_dbtp,
         },

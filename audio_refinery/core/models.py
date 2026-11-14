@@ -157,6 +157,11 @@ class NormaliseParams:
     #: gain to every track.  Off by default, which keeps per-file normalisation
     #: exactly as it was for anyone who does not ask for it.
     album_mode: bool = False
+    #: How far, in LU, a track may end up from the album target before the run
+    #: names it (F-S5).  An album is not meant to be flat, so the window flags
+    #: the outlier rather than the spread; it decides the caveat only, never a
+    #: track's gain.
+    album_deviation_lu: float = 3.0
     #: Peak target mode (F-E2): ``"peak"`` measures the file's true peak and
     #: applies a static gain that lands it on ``target_peak_dbtp``, instead of
     #: measuring integrated loudness.  ``"lufs"`` is every existing run.

@@ -10,16 +10,19 @@ measuring the folder is N concatenated decodes and N different answers.  These
 locks therefore count the builder's calls and check that every worker received
 the same plan object, and they read the plan's configured targets rather than
 the pipeline's stage config.
+Changed in 2.7.0: the run writes the album table and records the caveat (F-S5).
 """
 
 from __future__ import annotations
 
+import csv
+from dataclasses import replace
 from pathlib import Path
 from queue import Queue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from audio_normalizer.core.album import AlbumPlan, plan_key
+from audio_normalizer.core.album import AlbumPlan, AlbumTrack, plan_key
 from audio_refinery.core.file_processor import run_pipeline
 from audio_refinery.core.models import (
     FileResult,
@@ -30,6 +33,7 @@ from audio_refinery.core.models import (
 )
 from audio_refinery.core.registry import CompletionRegistry
 from audio_suite_shared.exceptions import AudioProcessingError
+from audio_suite_shared.run_outcome import clear_outcome, read_outcome
 
 NAMES = ("01.flac", "02.flac", "03.flac")
 
@@ -62,6 +66,17 @@ def _album(files: list[Path]) -> AlbumPlan:
         limited={plan_key(path): False for path in files},
         album_true_peak=-2.0,
         notes=(),
+        tracks=tuple(
+            AlbumTrack(
+                file=path.name,
+                track_lufs=-20.0,
+                track_tp=-4.0,
+                applied_gain_db=-3.0,
+                limited=False,
+                deviation_lu=0.0,
+            )
+            for path in files
+        ),
     )
 
 
@@ -185,3 +200,42 @@ def test_a_plan_failure_stops_the_run_before_a_file_is_processed(
     assert captured["errors"], "a failed album measurement must report an error"
     assert captured["plans"] == []
     assert captured["completes"] == []
+
+
+def test_the_run_writes_the_album_table_beside_its_report(tmp_path: Path) -> None:
+    """The per-track table is a file a user can open, not a log line (F-S5)."""
+    clear_outcome("audio_refinery")
+
+    _run(tmp_path, _config(album_mode=True))
+
+    written = tmp_path / "refinery_album.csv"
+    assert written.exists()
+    with written.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["file"] for row in rows] == list(NAMES)
+    assert {row["album_lufs"] for row in rows} == {"-20.00"}
+    # Every track sits on the album's own level, so there is nothing to report.
+    assert read_outcome("audio_refinery") == ""
+
+
+def test_a_track_outside_the_window_is_named_in_the_run_outcome(
+    tmp_path: Path,
+) -> None:
+    """An outlier reaches the batch report through the shared outcome channel."""
+    clear_outcome("audio_refinery")
+
+    def _outlier(paths: list[str], **_kwargs: Any) -> AlbumPlan:
+        plan = _album([Path(path) for path in paths])
+        return replace(
+            plan,
+            tracks=tuple(
+                replace(row, deviation_lu=4.0 if row.file == "02.flac" else 0.0)
+                for row in plan.tracks
+            ),
+        )
+
+    _run(tmp_path, _config(album_mode=True), builder=_outlier)
+
+    assert read_outcome("audio_refinery") == (
+        "1 of 3 tracks sits more than 3.0 LU from the album target: 02"
+    )

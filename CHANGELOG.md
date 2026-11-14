@@ -24,6 +24,15 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **Album loudness runs now report every track, not just the album.** A run in
+  Album loudness mode writes `refinery_album.csv` beside its own log, one row
+  per track: the album's measured loudness, that track's measured loudness and
+  true peak, the gain it was given, whether the true-peak ceiling limited it,
+  and how far it ends from the album target. A track more than
+  `--album-deviation-lu` LU away (default 3) is named in the batch report, so a
+  track the album's single gain left behind says so instead of hiding in the
+  numbers. A Dry Run shows the same table and writes no audio.
+
 - **A new Pitch / Time tool changes a folder's speed or pitch.** Tempo mode
   plays each file faster or slower without moving its pitch, so a rehearsal can
   be slowed down to learn a part; Pitch mode moves the pitch without changing

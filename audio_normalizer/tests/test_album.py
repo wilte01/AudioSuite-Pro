@@ -15,12 +15,17 @@ the file's own bit depth survives the rewrite.
 
 Changed in 2.6.0: album mode writes WAV/AIFF through the shared format matrix,
 with the source's depth pinned, so a PCM album is no longer refused.
+Changed in 2.7.0: the per-track report (F-S5) - one row per track with its
+measured loudness, true peak and deviation, the CSV the run writes beside its
+report, and the caveat that names a track outside the deviation window.
 """
 
 from __future__ import annotations
 
+import csv
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -28,9 +33,11 @@ from pydub import AudioSegment
 
 from audio_normalizer.core.album import (
     AlbumPlan,
+    album_deviation_note,
     apply_album_gain,
     build_album_plan,
     plan_key,
+    write_album_csv,
 )
 from audio_suite_shared import audio_probe
 from audio_suite_shared.audio_formats import source_bit_depth
@@ -319,3 +326,134 @@ class TestApplyAlbumGain:
 
         assert _fingerprint(source) == before
         assert _lufs(destination) == pytest.approx(source_lufs - 6.0, abs=0.2)
+
+
+# ── Per-track report (F-S5) ───────────────────────────────────────────────────
+
+
+def _measured(lufs: float, peak: float) -> SimpleNamespace:
+    """Return the shape ``audio_probe.measure_loudness`` answers with."""
+    return SimpleNamespace(integrated_lufs=lufs, true_peak_dbtp=peak)
+
+
+def _stub_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    album_lufs: float,
+    per_track: dict[str, tuple[float, float]],
+) -> None:
+    """Answer the album and per-track probes from the same table."""
+
+    def _album(paths, **_kwargs):
+        return SimpleNamespace(integrated_lufs=album_lufs, true_peak_dbtp=-1.0)
+
+    def _track(path, **_kwargs):
+        lufs, peak = per_track[Path(path).name]
+        return _measured(lufs, peak)
+
+    monkeypatch.setattr(audio_probe, "measure_album_loudness", _album)
+    monkeypatch.setattr(audio_probe, "measure_loudness", _track)
+
+
+class TestPerTrackReport:
+    """Every number the report shows comes from a measurement of that track."""
+
+    def _plan(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> AlbumPlan:
+        files = [tmp_path / "01_open.flac", tmp_path / "02_close.flac"]
+        for path in files:
+            path.write_bytes(b"stub")
+        # The album sits 4 LU below its target, so every track moves +4 dB.  The
+        # peaks stay far enough below the ceiling that neither track is limited.
+        _stub_probe(
+            monkeypatch,
+            album_lufs=-20.0,
+            per_track={
+                "01_open.flac": (-21.0, -8.0),
+                "02_close.flac": (-16.0, -7.0),
+            },
+        )
+        return build_album_plan(files, target_lufs=TARGET)
+
+    def test_the_plan_carries_one_row_per_track(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        plan = self._plan(monkeypatch, tmp_path)
+
+        assert [row.file for row in plan.tracks] == ["01_open.flac", "02_close.flac"]
+        assert [row.track_lufs for row in plan.tracks] == [-21.0, -16.0]
+        assert [row.track_tp for row in plan.tracks] == [-8.0, -7.0]
+        assert [row.applied_gain_db for row in plan.tracks] == [4.0, 4.0]
+        assert [row.limited for row in plan.tracks] == [False, False]
+
+    def test_the_deviation_is_measured_after_the_gain(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        plan = self._plan(monkeypatch, tmp_path)
+
+        # -21 LUFS + 4 dB ends 1 LU under the -16 target; -16 LUFS + 4 ends 4 LU
+        # over it.  The deviation is where the track ends, against the target the
+        # album was measured for, not against the album's own average.
+        assert [row.deviation_lu for row in plan.tracks] == [-1.0, 4.0]
+
+    def test_a_limited_track_reports_its_own_gain_and_deviation(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        loud = tmp_path / "loud.flac"
+        loud.write_bytes(b"stub")
+        _stub_probe(
+            monkeypatch,
+            album_lufs=-20.0,
+            per_track={"loud.flac": (-6.0, -0.5)},
+        )
+
+        plan = build_album_plan([loud], target_lufs=TARGET, true_peak_ceiling=-1.5)
+
+        # The album asks for +4 dB; -0.5 dBTP plus 4 would pass the -1.5 ceiling,
+        # so this track takes its own -1.0 dB instead and is named as limited.
+        row = plan.tracks[0]
+        assert row.limited is True
+        assert row.applied_gain_db == pytest.approx(-1.0, abs=1e-6)
+        assert row.deviation_lu == pytest.approx(9.0, abs=1e-6)
+
+    def test_a_track_outside_the_window_is_named_by_the_caveat(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        plan = self._plan(monkeypatch, tmp_path)
+
+        assert album_deviation_note(plan, 3.0) == (
+            "1 of 2 tracks sits more than 3.0 LU from the album target: 02_close"
+        )
+
+    def test_a_plan_inside_the_window_records_no_caveat(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        plan = self._plan(monkeypatch, tmp_path)
+
+        assert album_deviation_note(plan, 5.0) == ""
+
+    def test_the_csv_carries_the_measured_row_per_track(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        plan = self._plan(monkeypatch, tmp_path)
+        destination = tmp_path / "refinery_album.csv"
+
+        written = write_album_csv(plan, destination)
+
+        assert written == destination
+        with destination.open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert list(rows[0]) == [
+            "file",
+            "album_lufs",
+            "track_lufs",
+            "track_tp",
+            "applied_gain_db",
+            "limited",
+            "deviation_lu",
+        ]
+        assert [row["file"] for row in rows] == ["01_open.flac", "02_close.flac"]
+        assert [row["album_lufs"] for row in rows] == ["-20.00", "-20.00"]
+        assert [row["track_lufs"] for row in rows] == ["-21.00", "-16.00"]
+        assert [row["track_tp"] for row in rows] == ["-8.00", "-7.00"]
+        assert [row["applied_gain_db"] for row in rows] == ["4.00", "4.00"]
+        assert [row["limited"] for row in rows] == ["no", "no"]
+        assert [row["deviation_lu"] for row in rows] == ["-1.00", "4.00"]

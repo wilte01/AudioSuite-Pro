@@ -1,6 +1,10 @@
 """album.py — album-mode loudness: one gain for a folder, applied per track.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E1).
+Changed in 2.7.0: the plan carries a per-track report (F-S5) - each track's
+measured loudness and true peak, the gain it was given, and where that leaves it
+against the album target - plus the CSV a run writes beside its report and the
+caveat naming a track outside the deviation window.
 
 Why a plan
 ----------
@@ -33,9 +37,11 @@ without distorting the waveform's shape.
 
 from __future__ import annotations
 
+import csv
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from audio_suite_shared import audio_formats, audio_probe
@@ -44,6 +50,7 @@ from audio_suite_shared.exceptions import AudioFormatError
 
 # Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
 from audio_suite_shared.ffmpeg import FFMPEG_PATH
+from audio_suite_shared.run_outcome import shortfall
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
@@ -52,6 +59,52 @@ from .normalizer import _codec_args, _preserve_args
 #: A gain this small is not a change.  Writing the file would re-encode it for
 #: nothing, and the pipeline's no-op rule is what keeps a re-run byte-identical.
 GAIN_EPSILON_DB = 0.01
+
+#: How far, in LU, a track may end up from the album target before the run says
+#: so.  An album is deliberately not flat: a quiet interlude is supposed to sit
+#: below a loud finale, so the window flags the outlier rather than the spread.
+DEVIATION_LU_DEFAULT = 3.0
+
+#: The per-track table's columns, in the order the CSV writes them.
+REPORT_COLUMNS: tuple[str, ...] = (
+    "file",
+    "album_lufs",
+    "track_lufs",
+    "track_tp",
+    "applied_gain_db",
+    "limited",
+    "deviation_lu",
+)
+
+
+@dataclass(frozen=True)
+class AlbumTrack:
+    """One track's measured place in the album report.
+
+    Every figure is a measurement of that track, not a value the render was
+    asked for: ``track_lufs`` and ``track_tp`` come from the decode the plan
+    already runs for the ceiling check, and ``deviation_lu`` is where the track
+    ends after its own gain, not where it started.
+
+    Attributes:
+        file: The file's own name, extension included.
+        track_lufs: Measured integrated loudness before the gain, or ``None``
+            when FFmpeg could not gate the track (digital silence).
+        track_tp: Measured true peak before the gain, in dBTP; ``None`` on the
+            same terms as ``track_lufs``.
+        applied_gain_db: The gain this track was given - the album's, or its own
+            when the ceiling limited it; 0.0 when the run changes nothing.
+        limited: Whether the ceiling, not the album, decided that gain.
+        deviation_lu: ``track_lufs + applied_gain_db - target_lufs``, or
+            ``None`` when the track could not be measured.
+    """
+
+    file: str
+    track_lufs: float | None
+    track_tp: float | None
+    applied_gain_db: float
+    limited: bool
+    deviation_lu: float | None
 
 
 @dataclass(frozen=True)
@@ -68,6 +121,7 @@ class AlbumPlan:
             one; ``None`` when it printed none.
         notes: Human-readable remarks for the run log — a limited track, an
             album already on target, a track with no measurable peak.
+        tracks: One report row per track, in album order.
     """
 
     album_lufs: float
@@ -77,6 +131,7 @@ class AlbumPlan:
     limited: dict[str, bool]
     album_true_peak: float | None
     notes: tuple[str, ...] = ()
+    tracks: tuple[AlbumTrack, ...] = ()
 
 
 def plan_key(path: str | os.PathLike[str]) -> str:
@@ -88,20 +143,25 @@ def plan_key(path: str | os.PathLike[str]) -> str:
     return os.path.normpath(str(path))
 
 
-def _track_true_peak(path: str) -> tuple[float | None, str | None]:
-    """Measure one track's true peak for the ceiling check.
+def _track_measurement(
+    path: str,
+) -> tuple[float | None, float | None, str | None]:
+    """Measure one track once, for the ceiling check and for the report.
+
+    Integrated loudness and true peak come from the same FFmpeg pass, so the
+    per-track report costs no extra decode.
 
     Returns:
-        ``(peak_dbtp, problem)``.  A track FFmpeg cannot gate (digital silence)
-        has no peak to compare, so the ceiling cannot limit it; the reason is
-        returned for the plan's notes rather than raised, because one silent
-        track must not abort an album.
+        ``(integrated_lufs, peak_dbtp, problem)``.  A track FFmpeg cannot gate
+        (digital silence) has neither figure, so the ceiling cannot limit it;
+        the reason is returned for the plan's notes rather than raised, because
+        one silent track must not abort an album.
     """
     try:
         measured = audio_probe.measure_loudness(path, ffmpeg=FFMPEG_PATH)
     except AudioFormatError as exc:
-        return None, f"{os.path.basename(path)}: no true peak available ({exc})"
-    return measured.true_peak_dbtp, None
+        return None, None, f"{os.path.basename(path)}: no true peak available ({exc})"
+    return measured.integrated_lufs, measured.true_peak_dbtp, None
 
 
 def build_album_plan(
@@ -133,20 +193,36 @@ def build_album_plan(
     album = audio_probe.measure_album_loudness(keys, ffmpeg=FFMPEG_PATH)
 
     notes: list[str] = []
+    measurements: dict[str, tuple[float | None, float | None]] = {}
+
+    def _measure(key: str) -> tuple[float | None, float | None]:
+        """Measure one track once, remembering it for the report."""
+        if key not in measurements:
+            lufs, peak, problem = _track_measurement(key)
+            measurements[key] = (lufs, peak)
+            if problem is not None:
+                notes.append(problem)
+        return measurements[key]
+
     if abs(target_lufs - album.integrated_lufs) <= tolerance:
         notes.append(
             f"Album loudness {album.integrated_lufs:.1f} LUFS is already within "
             f"{tolerance:g} LU of the {target_lufs:.1f} LUFS target - "
             "nothing to apply."
         )
+        zero_gains = {key: 0.0 for key in keys}
+        no_limits = {key: False for key in keys}
+        for key in keys:
+            _measure(key)
         return AlbumPlan(
             album_lufs=album.integrated_lufs,
             target_lufs=target_lufs,
             true_peak_ceiling=true_peak_ceiling,
-            gains={key: 0.0 for key in keys},
-            limited={key: False for key in keys},
+            gains=zero_gains,
+            limited=no_limits,
             album_true_peak=album.true_peak_dbtp,
             notes=tuple(notes),
+            tracks=_report_rows(keys, zero_gains, no_limits, measurements, target_lufs),
         )
 
     album_gain = target_lufs - album.integrated_lufs
@@ -155,9 +231,7 @@ def build_album_plan(
     limited_tracks: list[str] = []
 
     for key in keys:
-        peak, problem = _track_true_peak(key)
-        if problem is not None:
-            notes.append(problem)
+        _track_lufs, peak = _measure(key)
         gain = album_gain
         is_limited = False
         if peak is not None and peak + gain > true_peak_ceiling:
@@ -183,6 +257,7 @@ def build_album_plan(
         limited=limited,
         album_true_peak=album.true_peak_dbtp,
         notes=tuple(notes),
+        tracks=_report_rows(keys, gains, limited, measurements, target_lufs),
     )
 
 
@@ -363,6 +438,129 @@ def apply_album_gain(
         true_peak_ceiling=true_peak_ceiling,
         record_snapshot=record_snapshot,
     )
+
+
+def _report_rows(
+    keys: Sequence[str],
+    gains: dict[str, float],
+    limited: dict[str, bool],
+    measurements: dict[str, tuple[float | None, float | None]],
+    target_lufs: float,
+) -> tuple[AlbumTrack, ...]:
+    """Build one report row per track, in album order.
+
+    Args:
+        keys: The plan's keys, in album order.
+        gains: The gain decided for each track.
+        limited: Whether the ceiling decided each track's gain.
+        measurements: Each track's measured ``(lufs, true_peak)``.
+        target_lufs: The album's integrated-loudness target.
+
+    Returns:
+        One row per key, carrying where the track ends after its own gain.
+    """
+    rows: list[AlbumTrack] = []
+    for key in keys:
+        lufs, peak = measurements.get(key, (None, None))
+        gain = gains[key]
+        rows.append(
+            AlbumTrack(
+                file=os.path.basename(key),
+                track_lufs=lufs,
+                track_tp=peak,
+                applied_gain_db=gain,
+                limited=limited[key],
+                deviation_lu=None if lufs is None else (lufs + gain) - target_lufs,
+            )
+        )
+    return tuple(rows)
+
+
+def album_deviation_note(plan: AlbumPlan, window: float = DEVIATION_LU_DEFAULT) -> str:
+    """Name the tracks the album's one gain left outside *window* LU.
+
+    An album is not meant to be flat, so this reports the outlier rather than
+    the spread: a track that needed its own gain, or that sat far from the
+    album's average, is named with the figure the run can be checked against.
+
+    Args:
+        plan: The album plan, with its per-track rows.
+        window: How many LU from the target a track may sit before it is named.
+
+    Returns:
+        One caveat line naming the tracks outside the window, or ``""`` when
+        every measurable track is inside it.
+    """
+    flagged = [
+        Path(row.file).stem
+        for row in plan.tracks
+        if row.deviation_lu is not None and abs(row.deviation_lu) > window
+    ]
+    if not flagged:
+        return ""
+    verb = "sits" if len(flagged) == 1 else "sit"
+    return (
+        shortfall(
+            len(flagged),
+            len(plan.tracks),
+            "track",
+            f"{verb} more than {window:.1f} LU from the album target",
+        )
+        + ": "
+        + ", ".join(flagged)
+    )
+
+
+def album_csv_rows(plan: AlbumPlan) -> list[dict[str, str]]:
+    """Return the per-track table as text rows, ready for the CSV.
+
+    Two decimal places throughout, because the figures are measurements a user
+    compares against a meter rather than values to be re-computed.
+
+    Args:
+        plan: The album plan, with its per-track rows.
+
+    Returns:
+        One mapping per track, keyed by :data:`REPORT_COLUMNS`.
+    """
+    rows: list[dict[str, str]] = []
+    for row in plan.tracks:
+        rows.append(
+            {
+                "file": row.file,
+                "album_lufs": f"{plan.album_lufs:.2f}",
+                "track_lufs": "" if row.track_lufs is None else f"{row.track_lufs:.2f}",
+                "track_tp": "" if row.track_tp is None else f"{row.track_tp:.2f}",
+                "applied_gain_db": f"{row.applied_gain_db:.2f}",
+                "limited": "yes" if row.limited else "no",
+                "deviation_lu": (
+                    "" if row.deviation_lu is None else f"{row.deviation_lu:.2f}"
+                ),
+            }
+        )
+    return rows
+
+
+def write_album_csv(plan: AlbumPlan, destination: str | os.PathLike[str]) -> Path:
+    """Write the per-track table to *destination*.
+
+    The file sits beside the run's own report, so a run's numbers stay in one
+    folder whether it was written to the source or to an output directory.
+
+    Args:
+        plan: The album plan, with its per-track rows.
+        destination: The CSV path to write.
+
+    Returns:
+        The path written.
+    """
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REPORT_COLUMNS)
+        writer.writeheader()
+        writer.writerows(album_csv_rows(plan))
+    return path
 
 
 def plan_payload(plan: AlbumPlan) -> dict[str, Any]:

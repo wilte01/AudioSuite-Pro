@@ -319,6 +319,15 @@ def _validate_trim_range(
     ),
 )
 @click.option(
+    "--album-deviation-lu",
+    default=3.0,
+    type=click.FloatRange(0.1, 20.0),
+    help=(
+        "How many LU from the album target a track may sit before the run "
+        "names it in the batch report (default 3)."
+    ),
+)
+@click.option(
     "--normalise-mode",
     type=click.Choice(NORMALISATION_MODES),
     default="normalise",
@@ -386,6 +395,7 @@ def refine(
     true_peak: float,
     lra: float,
     album_mode: bool,
+    album_deviation_lu: float,
     normalise_mode: str,
     target_mode: str,
     target_peak: float,
@@ -506,6 +516,7 @@ def refine(
             lra=lra,
             mode=normalise_mode,
             album_mode=album_mode,
+            album_deviation_lu=album_deviation_lu,
             target_mode=target_mode,
             target_peak_dbtp=target_peak,
         ),

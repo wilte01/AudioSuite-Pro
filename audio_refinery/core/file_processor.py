@@ -36,7 +36,12 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from audio_normalizer.core.album import AlbumPlan, build_album_plan
+from audio_normalizer.core.album import (
+    AlbumPlan,
+    album_deviation_note,
+    build_album_plan,
+    write_album_csv,
+)
 from audio_suite_shared.audio_formats import READ_ONLY_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
@@ -49,6 +54,7 @@ from audio_suite_shared.exceptions import (
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.resource_manager import cleanup_expired_resources
+from audio_suite_shared.run_outcome import record_caveats
 from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
 from .models import FileResult, FileStatus, StageConfig
@@ -57,6 +63,15 @@ from .registry import CompletionRegistry
 from .trim import check_copy_mode
 
 logger = logging.getLogger(__name__)
+
+
+#: The per-track album table's name, written beside the run's own report.
+ALBUM_REPORT_NAME = "refinery_album.csv"
+
+#: The Master Driver reads this tool's caveat by its manifest id; the
+#: ``DRIVER_TOOL_ID`` name is the contract `tests/test_run_outcome_contract.py`
+#: holds every module that records a note to.
+DRIVER_TOOL_ID = "audio_refinery"
 
 
 class AudioRefineryProcessor(BaseFileProcessor):
@@ -239,6 +254,20 @@ def run_pipeline(
             album_plan.album_lufs,
             len(files),
             sum(1 for value in album_plan.limited.values() if value),
+        )
+        # Changed in 2.7.0: the plan's per-track table is written beside the
+        # run's own report, and a track outside the deviation window is named in
+        # the batch report through the shared outcome channel (F-S5).  A report
+        # write failure is logged, never raised: the audio work has not started.
+        try:
+            write_album_csv(album_plan, output_dir / ALBUM_REPORT_NAME)
+        except OSError as exc:
+            logger.warning("Could not write the album report: %s", exc)
+        record_caveats(
+            DRIVER_TOOL_ID,
+            album_deviation_note(
+                album_plan, config.normalise_params.album_deviation_lu
+            ),
         )
 
     lock = threading.Lock()

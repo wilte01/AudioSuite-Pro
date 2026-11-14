@@ -364,6 +364,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--target-mode [lufs|peak]` — `lufs` pushes integrated loudness to `--target-lufs`; `peak` moves the file by one static gain until its true peak reaches `--target-peak`, so the track's own dynamics stay as they are (default: lufs)
 - `--target-peak DBTP` — True-peak target for `--target-mode peak`, -6 to 0; it cannot be combined with `--album-mode` (default: -1.0)
 - `--album-mode` / `--no-album-mode` — Measure the folder once as one album and move every track by that single gain; a track that would break the true-peak ceiling is limited on its own (default: no-album-mode)
+- `--album-deviation-lu LU` — How far a track may end from the album target before the run names it in the batch report; the per-track table (`refinery_album.csv`) is written beside the run's log either way, 0.1–20 (default: 3.0)
 
 **Examples:**
 
