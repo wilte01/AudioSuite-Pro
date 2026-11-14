@@ -499,6 +499,16 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
         # sample run's lines are its own names rather than a bracketed token.
         status="Processing files...",
         lines=_FINISHED,
+        # Both counters are the window's own wording, not the shared defaults:
+        # ``_poll_events`` writes "Files: n/total | Errors: n" as the run goes
+        # and ``_finish`` writes the Files/Written/Skipped/Errors block.
+        stats=f"Files: {SAMPLE_DONE}/{len(SAMPLE_TRACKS)}  |  Errors: 0",
+        summary=(
+            f"Files: {len(SAMPLE_TRACKS)}\n"
+            f"Written: {SAMPLE_DONE + 1}\n"
+            f"Skipped: {len(SAMPLE_TRACKS) - SAMPLE_DONE - 1}\n"
+            "Errors: 0"
+        ),
     ),
     "replaygain_analyzer": SampleRun(
         # A measured file publishes an empty display line, so the list stays
@@ -1509,11 +1519,9 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         # the form rather than the window's unused space.
         window=(1083, 520),
         populate=GENERIC_POPULATE,
-        # Changed in 2.7.0: Processing and Results are empty until a run
-        # finishes, the state skip_tabs exists for.  The Setup figure is the one
-        # the guide needs: it shows the Change row, the two value fields and the
-        # setting line, which is the whole of what the window asks for.
-        skip_tabs=frozenset({"processing", "results"}),
+        # All three tabs are photographed: Processing and Results are empty on a
+        # fresh window, so the sample run declared for this tool fills them with
+        # its own per-file lines and summary rather than another tool's.
     ),
     ToolPlan(
         "replaygain_analyzer",

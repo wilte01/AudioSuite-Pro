@@ -56,6 +56,8 @@ The Processing tab reports the run as it happens: a progress bar over the
 folder's files, a `Files: done/total | Errors: n` counter, and the name of the
 file being read.
 
+![The Processing tab part-way through a run: the progress bar, the files-read counter and one line per finished file](images/processing.png)
+
 ## Results Tab
 
 The Results tab shows the completion heading, the total time, and the summary:
@@ -67,6 +69,8 @@ The Results tab shows the completion heading, the total time, and the summary:
 
 View Log opens this run's report, and Open Folder opens the folder the results
 were written to.
+
+![The Results tab after a finished run: the completion heading, the elapsed time, the written and skipped counts, and the View Log and Open Folder buttons](images/results.png)
 
 ## The Run Report
 
