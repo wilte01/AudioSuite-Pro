@@ -47,35 +47,31 @@ The strip also carries Auto Start and Auto End, which mirror the Master Driver's
 
 ![The Results tab after a finished run](images/results.png)
 
-When a scan finishes, the window switches to the Results tab. It shows the completion heading, the total scan time, the shared **Processed / Skipped / Errors** counters, a View Log button and an Open Folder button. The file, album and artist counts are on the Summary tab, described below.
+When a scan finishes, the window switches to the Results tab. It shows the completion heading, the total scan time, the scan's own counts (total files, albums and artists), a View Log button and an Open Folder button. The tag-level figures are on the Summary tab and the tabs after it, described below.
 
 Every scan writes its report into the folder it scanned, as `library_stats_scan_log.txt`. The report opens with `LIBRARY STATISTICS REPORT`, the Mode, the scanned folder, the cache settings and a rule; then the format breakdown and missing-tag counts; and closes with a SUMMARY block holding the counters, the scan time and the elapsed time. Each scan overwrites the previous report. View Log opens it; the program's diagnostic log under `logs/` is a separate file and is not what the button opens.
 
 ## Summary Tab
 
-
-
+![The Summary tab after a scan: the file, album, album-artist, artist and duration cards, the format breakdown, the major/minor key split and the top artists](images/summary.png)
 
 Summary shows total files, distinct albums, album artists, track artists, and scan duration. It also shows format counts, a major/minor key split, and the top artists by file count.
 
 ## Charts Tab
 
-
-
+![The Charts tab after a scan: the top-genre pie, the BPM distribution, the top-key bars, the release-year bars, the Artwork Coverage panel and the completeness trend](images/charts.png)
 
 When matplotlib is installed, Charts displays a top-genre pie chart, BPM distribution histogram, top-key bar chart, and release-year distribution, plus an Artwork Coverage panel and the completeness trend. Artwork Coverage counts the files that embed a cover picture against the rest of the library and prints the percentage, so a gap in the artwork is visible beside the tag distributions; it uses the counts the scan already measured, so it costs no second read. Click that panel to jump straight to the Artwork Gaps tab, which lists the albums behind the figure. If matplotlib is unavailable, the tab reports the installation requirement instead.
 
 ## Missing Data Tab
 
-
-
+![The Missing Data tab after a scan: one count, percentage and bar per missing tag, with files without artwork counted the same way](images/missing_data.png)
 
 Missing Data reports counts and percentages for files without BPM, key, genre, mood, tempo marking, or embedded artwork. The artwork figure comes from the same cache an incremental scan reads, so it reflects covers that were already measured rather than a fresh extraction pass. It uses the total scanned file count as the denominator and displays a simple visual bar for each missing-data percentage.
 
 ## Completeness Tab
 
-
-
+![The Completeness tab after a scan: a coloured bar per tag field and, beneath it, the per-album heatmap of missing tags](images/completeness.png)
 
 Completeness separately checks whether each supported field is present: Title, Artist, Album, Track Number, Year, BPM, Key, Genre, Mood, Tempo Marking, Album Art, and ReplayGain. It shows total, present, missing, and percentage-complete values for each field, plus an overall percentage across all fields.
 
@@ -93,6 +89,8 @@ Each scan records a completeness snapshot in the Library Statistics cache, and t
 ## Artwork Gaps Tab
 
 Artwork Gaps lists the albums whose files are missing embedded artwork, worst-covered first, with how many of each album's files are affected. The list comes from the completeness scan, so opening the tab costs no second read of the library.
+
+![The Artwork Gaps tab after a scan: one line per album with how many of its files carry no cover, and the Extract Covers, Dry Run and View Artwork Log buttons](images/artwork_gaps.png)
 
 **Extract Covers** writes a cover beside each listed album, taken from the picture a file in that album already has: a folder needs one cover, so the first file carrying artwork supplies it and the sidecar is `cover.jpg` or `cover.png` according to the image's own format. An existing sidecar is kept unless the run replaces it, because a curated cover is the better copy. An album where no file has artwork is reported as `NO ART` and nothing is written; **Dry Run** reports the same outcome without writing anything. The pass changes no audio and no tags.
 

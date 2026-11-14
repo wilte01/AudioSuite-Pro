@@ -1318,6 +1318,185 @@ def _plan_fillers(plan: ToolPlan) -> Mapping[str, Callable[[Any], None]]:
 #: starts no run; no plan can supply another tool's lines by accident.
 GENERIC_POPULATE: Mapping[str, Callable[[Any], None]] = {}
 
+#: The sample library Library Stats' dashboard tabs are photographed with, in
+#: the shape its own scan publishes.  The figures are chosen to agree with each
+#: other - thirty files, three albums, twelve tag fields - so a reader adding a
+#: column up gets the total rather than a contradiction.
+_LS_FILES = 30
+_LS_TAG_MISSING: Mapping[str, int] = {
+    "title": 0,
+    "artist": 0,
+    "album": 0,
+    "track_number": 2,
+    "year": 3,
+    "bpm": 4,
+    "key": 6,
+    "genre": 2,
+    "mood": 9,
+    "tempo_marking": 11,
+    "album_art": 5,
+    "replaygain": 8,
+}
+
+
+def _sample_stats_report() -> Any:
+    """Return one invented scan report, in the tool's own report type."""
+    from library_stats.core.file_processor import StatsReport, _bpm_bin
+
+    # The bins are the tool's own: its chart labels are "60\u201379" with an en
+    # dash, so a sample keyed by hand would chart as empty.
+    bpm_counts: dict[str, int] = {}
+    for bpm, count in ((56, 3), (88, 6), (105, 8), (125, 7), (145, 4), (172, 2)):
+        label = _bpm_bin(bpm)
+        bpm_counts[label] = bpm_counts.get(label, 0) + count
+
+    return StatsReport(
+        scan_path=SAMPLE_FOLDER,
+        total_files=_LS_FILES,
+        total_albums=3,
+        total_artists=4,
+        total_track_artists=6,
+        duration_secs=8412.0,
+        format_breakdown={"flac": 18, "mp3": 9, "m4a": 3},
+        bpm_distribution=bpm_counts,
+        key_distribution={
+            "A minor": 4,
+            "C major": 5,
+            "D minor": 3,
+            "E minor": 3,
+            "F major": 4,
+            "G major": 5,
+        },
+        key_mode_distribution={"major": 17, "minor": 13},
+        mood_distribution={
+            "Calm": 6,
+            "Energetic": 9,
+            "Hopeful": 4,
+            "Melancholic": 2,
+        },
+        genre_distribution={"Rock": 11, "Electronic": 9, "Jazz": 6, "Folk": 4},
+        tempo_marking_distribution={"Down": 7, "Medium": 12, "Up": 9},
+        year_distribution={"1994": 5, "1997": 6, "2001": 7, "2006": 4},
+        missing_data={
+            "no_bpm": 4,
+            "no_key": 6,
+            "no_genre": 2,
+            "no_mood": 9,
+            "no_tempo_marking": 11,
+            "no_art": 5,
+            "no_replaygain": 8,
+        },
+        top_artists=[
+            ("Portishead", 6),
+            ("Massive Attack", 5),
+            ("Radiohead", 4),
+            ("Boards of Canada", 3),
+        ],
+        top_genres=[("Rock", 11), ("Electronic", 9), ("Jazz", 6), ("Folk", 4)],
+    )
+
+
+def _sample_completeness() -> Any:
+    """Return the completeness half of the same invented scan."""
+    from library_stats.core.completeness import (
+        TAG_FIELDS,
+        AlbumCompleteness,
+        CompletenessReport,
+        TagCompleteness,
+    )
+
+    tag_results = {}
+    for tag_field in TAG_FIELDS:
+        missing = _LS_TAG_MISSING[tag_field]
+        present = _LS_FILES - missing
+        tag_results[tag_field] = TagCompleteness(
+            field=tag_field,
+            total=_LS_FILES,
+            present=present,
+            missing=missing,
+            pct_complete=round(present / _LS_FILES * 100.0, 1),
+            missing_files=tuple(
+                f"{index:02d} - sample track {index}.flac"
+                for index in range(1, missing + 1)
+            ),
+        )
+
+    albums = (
+        AlbumCompleteness(
+            album="Portishead - Dummy",
+            total_files=10,
+            missing={"album_art": 2, "mood": 4},
+            folders=("C:\\Music\\Sample Album\\Portishead - Dummy",),
+        ),
+        AlbumCompleteness(
+            album="Massive Attack - Mezzanine",
+            total_files=10,
+            missing={"album_art": 1, "mood": 3, "bpm": 2},
+            folders=("C:\\Music\\Sample Album\\Massive Attack - Mezzanine",),
+        ),
+        AlbumCompleteness(
+            album="Radiohead - OK Computer",
+            total_files=10,
+            missing={"album_art": 2, "tempo_marking": 4},
+            folders=("C:\\Music\\Sample Album\\Radiohead - OK Computer",),
+        ),
+    )
+
+    checks = _LS_FILES * len(TAG_FIELDS)
+    missing_total = sum(_LS_TAG_MISSING.values())
+    return CompletenessReport(
+        directory=SAMPLE_FOLDER,
+        total_files=_LS_FILES,
+        tag_results=tag_results,
+        overall_pct=round((checks - missing_total) / checks * 100.0, 1),
+        duration_secs=8412.0,
+        album_results=albums,
+    )
+
+
+def _apply_sample_scan(app: Any) -> None:
+    """Fill every Library Stats dashboard from one invented scan, once.
+
+    The tool's own scan-completion path is driven rather than the labels being
+    poked: ``_on_scan_complete`` renders the summary, the missing-data figures,
+    the charts, the completeness heatmap and the artwork gaps, so the figure
+    cannot show a layout that path no longer produces.
+    """
+    if getattr(app, "_capture_scan_applied", False):
+        return
+    app._capture_scan_applied = True
+    app._on_scan_complete(_sample_stats_report(), _sample_completeness())
+
+
+def _library_stats_fillers() -> Mapping[str, Callable[[Any], None]]:
+    """Return the fillers for Library Stats: a run figure, or a filled scan.
+
+    The sample scan is applied while the Setup tab is filled, once, so every
+    later tab is photographed after it has settled.  Applying it tab by tab put
+    the scan's own tab switch in flight when a figure was grabbed, and the
+    Summary figure came out showing the Results tab.
+    """
+    base = dict(_fillers("library_stats"))
+
+    def setup(app: Any) -> None:
+        """Fill the folder picker, then run the sample scan into every view."""
+        base["setup"](app)
+        _apply_sample_scan(app)
+        app.root.update()
+
+    return {
+        "setup": setup,
+        "processing": base["processing"],
+        # The scan's own completion line is what a scanned library shows.
+        "results": _apply_sample_scan,
+        "summary": _apply_sample_scan,
+        "charts": _apply_sample_scan,
+        "missing_data": _apply_sample_scan,
+        "completeness": _apply_sample_scan,
+        "artwork_gaps": _apply_sample_scan,
+    }
+
+
 #: Every GUI tool that has a guide, in guide-folder order.  ``window`` is
 #: ``None`` until a capture has measured what the tool paints; the run prints the
 #: realised size so it can be pinned, and a pinned size is then asserted, so a
@@ -1444,12 +1623,11 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "library_stats.app",
         "LibraryStatsApp",
         window=(1334, 533),
-        populate=GENERIC_POPULATE,
-        # Changed in 2.6.0: the Artwork Gaps view has no data until a scan
-        # runs, like the other dashboard tabs, so it is skipped for the reason.
-        skip_tabs=frozenset(
-            {"summary", "charts", "missing_data", "completeness", "artwork_gaps"}
-        ),
+        # Changed in 2.7.0: the five dashboard tabs used to be skipped because
+        # they are empty until a scan runs.  They are filled from one invented
+        # scan through the tool's own ``_on_scan_complete`` path instead, so the
+        # guide shows what a finished scan looks like on every tab.
+        populate=_library_stats_fillers(),
     ),
     ToolPlan(
         "lyrics_manager",
