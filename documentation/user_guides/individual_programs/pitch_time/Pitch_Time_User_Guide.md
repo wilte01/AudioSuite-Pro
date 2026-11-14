@@ -37,7 +37,7 @@ before a long run.
 ## Setup Tab
 
 - **Source folder:** The folder holding the files. Every supported audio file directly inside it is processed; subfolders are not searched.
-- **Mode:** Tempo changes the length at the same pitch; Pitch changes the pitch at the same length. The mode and the value together are the setting, and a run uses exactly one of them.
+- **Change:** Tempo changes the length at the same pitch; Pitch changes the pitch at the same length. The mode and the value together are the setting, and a run uses exactly one of them.
 - **Tempo rate (factor):** How many times faster the result plays. `1.25` plays a `1.000 s` file in `0.800 s`; `0.8` plays it in `1.250 s`. The accepted range is `0.25` to `4.0`.
 - **Pitch shift (semitones):** How far the pitch moves. `12` is an octave up and `-12` an octave down; fractions such as `0.5` are accepted. The accepted range is `-24` to `24`.
 - **Dry Run / Live:** Live writes the results; Dry Run reads, measures and reports without writing.

@@ -4,6 +4,8 @@ The card emits one mode, never both: the tool's command refuses a launch that
 sets two modes at once, so the choice here is the choice the run makes.
 
 Changed in 2.7.0: new tool (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
+Changed in 2.7.0: the Tempo / Pitch row is labelled "Change:", the same name
+the window uses and the one the driver's run-mode row does not already take.
 """
 
 import tkinter as tk
@@ -59,7 +61,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
         row.pack(fill="x", pady=(4, 0))
         tk.Label(
             row,
-            text="Mode:",
+            text="Change:",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,

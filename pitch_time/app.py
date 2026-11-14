@@ -9,6 +9,9 @@ method) would raise on 3.14 and leave the window waiting for a result that
 never arrives.
 
 Changed in 2.7.0: new module (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
+Changed in 2.7.0: the Tempo / Pitch row is labelled "Change:" rather than
+"Mode:", which the run-mode row above it already used; two rows sharing one
+word read as one control.
 """
 
 from __future__ import annotations
@@ -196,7 +199,7 @@ class PitchTimeApp(SuiteApp):
         row.pack(fill="x", pady=2)
         tk.Label(
             row,
-            text="Mode:",
+            text="Change:",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,
