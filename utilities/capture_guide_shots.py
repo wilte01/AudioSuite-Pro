@@ -1454,6 +1454,27 @@ def _sample_completeness() -> Any:
     )
 
 
+#: Six completeness snapshots, oldest first, the tool's own history shape.
+#: The last one is the sample report's own overall percentage, so the trend
+#: ends where the Completeness tab's "Overall" figure says it should.
+_LS_TREND: tuple[tuple[str, float], ...] = (
+    ("2026-06-14 09:12:04", 71.2),
+    ("2026-07-14 09:12:31", 74.8),
+    ("2026-08-14 09:11:58", 78.3),
+    ("2026-09-14 09:12:22", 81.6),
+    ("2026-10-14 09:12:09", 84.0),
+    ("2026-11-14 09:12:40", 86.1),
+)
+
+
+def _sample_trend() -> list[dict[str, Any]]:
+    """Return the sample trend points in the shape the cache hands the chart."""
+    return [
+        {"recorded_at": recorded_at, "overall_pct": pct}
+        for recorded_at, pct in _LS_TREND
+    ]
+
+
 def _apply_sample_scan(app: Any) -> None:
     """Fill every Library Stats dashboard from one invented scan, once.
 
@@ -1461,10 +1482,15 @@ def _apply_sample_scan(app: Any) -> None:
     poked: ``_on_scan_complete`` renders the summary, the missing-data figures,
     the charts, the completeness heatmap and the artwork gaps, so the figure
     cannot show a layout that path no longer produces.
+
+    The cache's history read is answered from memory for this capture: a
+    committed figure must not record snapshots in, or read them from, the
+    developer's own library cache.
     """
     if getattr(app, "_capture_scan_applied", False):
         return
     app._capture_scan_applied = True
+    app._cache.completeness_history = lambda *_args, **_kwargs: _sample_trend()
     app._on_scan_complete(_sample_stats_report(), _sample_completeness())
 
 
