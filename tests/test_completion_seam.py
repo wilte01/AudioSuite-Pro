@@ -100,6 +100,10 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "errors",
             "duration_secs",
             "log_entries",
+            # Changed in 2.7.0: the Results tab's album table is filled from
+            # the plan's rows, so a publisher that stopped sending them would
+            # leave the table silently empty (F-S6).
+            "album_rows",
         }
     ),
     "BPMAnalyzerApp": frozenset(

@@ -30,7 +30,7 @@ import tkinter as tk
 from pathlib import Path
 from queue import Queue
 from tkinter import messagebox, ttk
-from typing import Any, cast
+from typing import Any, Mapping, Sequence, cast
 
 from audio_suite_shared import audio_playback, styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
@@ -206,6 +206,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self._completion_label = results_widgets["completion_label"]
         self._time_label = results_widgets["time_label"]
         self._summary_label = results_widgets["summary_label"]
+        # Changed in 2.7.0: the album table the completion handler fills (F-S6).
+        self._album_frame: tk.Frame = results_widgets["album_frame"]
+        self._album_tree: ttk.Treeview = results_widgets["album_tree"]
         self.setup_audition(results_widgets)
 
         self._tab_processing = tab_proc
@@ -670,6 +673,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        album_rows: Sequence[Mapping[str, str]],
         **_extra: Any,
     ) -> None:
         logger.info(
@@ -715,6 +719,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
                 text=f"Refinery Complete — {succeeded} file(s) processed"
             )
             self._time_label.config(text=f"Total time: {time_str}")
+            self._show_album_rows(album_rows)
             self.notebook.select(self._tab_results)
             self.start_btn.config(state="normal")
             self.overall_status.set("Complete")
@@ -746,6 +751,30 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
                 self.root.after(1500, self.root.destroy)
 
         self.root.after(0, _update)
+
+    def _show_album_rows(self, rows: Sequence[Mapping[str, str]]) -> None:
+        """Fill the album table, or hide it when the run planned no album.
+
+        Args:
+            rows: One mapping per track, keyed by the CSV's column names.  An
+                empty sequence hides the panel: a run that was not in album
+                mode has no album to report, and an empty table under a caption
+                would read as a measurement that failed.
+        """
+        for item in self._album_tree.get_children():
+            self._album_tree.delete(item)
+        if not rows:
+            self._album_frame.pack_forget()
+            return
+        for row in rows:
+            self._album_tree.insert(
+                "",
+                tk.END,
+                values=[
+                    row.get(key, "") for key, _heading in results_tab.ALBUM_COLUMNS
+                ],
+            )
+        self._album_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
     def _on_error(self, message: str) -> None:
         def _update() -> None:

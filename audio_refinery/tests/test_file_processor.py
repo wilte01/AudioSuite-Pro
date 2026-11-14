@@ -218,6 +218,30 @@ def test_the_run_writes_the_album_table_beside_its_report(tmp_path: Path) -> Non
     assert read_outcome("audio_refinery") == ""
 
 
+def test_the_results_table_is_published_with_the_run(tmp_path: Path) -> None:
+    """The GUI's album table is fed the plan, not a re-read of the CSV (F-S6)."""
+    captured, _ = _run(tmp_path, _config(album_mode=True))
+
+    payload = captured["completes"][-1]
+    assert [row["file"] for row in payload["album_rows"]] == list(NAMES)
+    assert payload["album_rows"][0] == {
+        "file": "01.flac",
+        "album_lufs": "-20.00",
+        "track_lufs": "-20.00",
+        "track_tp": "-4.00",
+        "applied_gain_db": "-3.00",
+        "limited": "no",
+        "deviation_lu": "0.00",
+    }
+
+
+def test_a_per_file_run_publishes_no_album_rows(tmp_path: Path) -> None:
+    """A run that planned no album has nothing to tabulate, and says so."""
+    captured, _ = _run(tmp_path, _config(album_mode=False))
+
+    assert captured["completes"][-1]["album_rows"] == ()
+
+
 def test_a_track_outside_the_window_is_named_in_the_run_outcome(
     tmp_path: Path,
 ) -> None:

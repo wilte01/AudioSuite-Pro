@@ -137,6 +137,9 @@ class TestAuditionOnComplete:
         app._log_path = str(tmp_path / "refinery_log.txt")
         app._completion_label = MagicMock()
         app._time_label = MagicMock()
+        app._album_frame = MagicMock()
+        app._album_tree = MagicMock()
+        app._album_tree.get_children.return_value = ()
         app.notebook = MagicMock()
         app._tab_results = MagicMock()
         app.start_btn = MagicMock()
@@ -158,6 +161,7 @@ class TestAuditionOnComplete:
             errors=0,
             duration_secs=1.0,
             log_entries=[],
+            album_rows=(),
         )
         if scheduled:
             scheduled[0]()
@@ -681,6 +685,9 @@ def _completion_shell(tmp_path: Path) -> Any:
     app._audition_result = None
     app._completion_label = MagicMock()
     app._time_label = MagicMock()
+    app._album_frame = MagicMock()
+    app._album_tree = MagicMock()
+    app._album_tree.get_children.return_value = ()
     app.overall_status = MagicMock()
     app.notebook = MagicMock()
     app._tab_results = MagicMock()
@@ -755,6 +762,7 @@ class TestCompletionSeam:
             "errors",
             "duration_secs",
             "log_entries",
+            "album_rows",
         ],
     )
     def test_a_missing_field_raises_and_writes_no_report(
@@ -770,6 +778,7 @@ class TestCompletionSeam:
             "errors": 1,
             "duration_secs": 1.0,
             "log_entries": ["line\n"],
+            "album_rows": (),
         }
         payload.pop(field)
 
@@ -778,6 +787,75 @@ class TestCompletionSeam:
 
         assert field in str(caught.value)
         assert not (tmp_path / "refinery_log.txt").exists()
+
+
+class TestAlbumTable:
+    """The Results tab lists the album's tracks, not just the CSV beside the log.
+
+    The table is a widget, so this drives the real completion handler on a real
+    window and reads the rows back off the tree instead of trusting the code
+    that filled it.
+    """
+
+    ROWS = (
+        {
+            "file": "01 - Alpha.flac",
+            "album_lufs": "-20.00",
+            "track_lufs": "-21.00",
+            "track_tp": "-8.00",
+            "applied_gain_db": "-3.00",
+            "limited": "no",
+            "deviation_lu": "-1.00",
+        },
+        {
+            "file": "02 - Beta.flac",
+            "album_lufs": "-20.00",
+            "track_lufs": "-19.50",
+            "track_tp": "-0.40",
+            "applied_gain_db": "-0.60",
+            "limited": "yes",
+            "deviation_lu": "3.00",
+        },
+    )
+
+    @staticmethod
+    def _complete(app: AudioRefineryApp, rows: Any, tmp_path: Path) -> None:
+        """Run the real completion handler into the window's own widgets."""
+        app._log_path = str(tmp_path / "refinery_log.txt")
+        app._on_complete(
+            total=2,
+            processed=2,
+            succeeded=2,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            album_rows=rows,
+        )
+
+    def test_the_album_table_shows_the_runs_tracks(
+        self, real_app: Any, app_root: tk.Toplevel, tmp_path: Path
+    ) -> None:
+        self._complete(real_app, self.ROWS, tmp_path)
+        app_root.update()
+
+        tree = real_app._album_tree
+        shown = [tree.item(item, "values") for item in tree.get_children()]
+        assert [row[0] for row in shown] == ["01 - Alpha.flac", "02 - Beta.flac"]
+        assert shown[1][5] == "yes"
+        # The panel is in the tab's layout, not merely built: `pack` is the
+        # manager a packed child reports, and an empty string means the frame is
+        # not managed by any of them.
+        assert real_app._album_frame.winfo_manager() == "pack"
+
+    def test_a_run_without_album_mode_leaves_the_table_hidden(
+        self, real_app: Any, app_root: tk.Toplevel, tmp_path: Path
+    ) -> None:
+        self._complete(real_app, (), tmp_path)
+        app_root.update()
+
+        assert real_app._album_tree.get_children() == ()
+        assert real_app._album_frame.winfo_manager() == ""
 
 
 class TestEqPresetSeam:

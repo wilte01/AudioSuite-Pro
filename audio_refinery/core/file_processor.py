@@ -38,6 +38,7 @@ from typing import Any
 
 from audio_normalizer.core.album import (
     AlbumPlan,
+    album_csv_rows,
     album_deviation_note,
     build_album_plan,
     write_album_csv,
@@ -345,6 +346,10 @@ def run_pipeline(
         errors=errors[0],
         duration_secs=time.monotonic() - start,
         log_entries=log_entries,
+        # Changed in 2.7.0: the same rows the CSV records, published to the
+        # window so the Results tab can tabulate them without re-reading the
+        # file the run just wrote (F-S6).
+        album_rows=(() if album_plan is None else tuple(album_csv_rows(album_plan))),
     )
 
     cleanup_expired_resources(max_age_hours=1)

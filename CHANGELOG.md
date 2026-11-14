@@ -24,6 +24,13 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **An album run's per-track table is on the Results tab, not only in a file.**
+  The Refinery's Results tab now lists the album report under the counters: one
+  row per track with the album's loudness, that track's loudness and true peak,
+  the gain it was given, whether the ceiling limited it, and how far it ends from
+  the album target. A run that was not in album mode shows no table, because
+  there is no album to report.
+
 - **Album loudness runs now report every track, not just the album.** A run in
   Album loudness mode writes `refinery_album.csv` beside its own log, one row
   per track: the album's measured loudness, that track's measured loudness and

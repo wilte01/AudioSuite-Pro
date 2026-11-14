@@ -18,6 +18,21 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The album table reaches the Results tab through the completion payload.**
+  `run_pipeline` publishes `album_rows` (the plan's `album_csv_rows`, empty for a
+  per-file run) alongside `log_entries`, so the window tabulates what the plan
+  decided rather than re-reading `refinery_album.csv`.
+  `audio_refinery/ui/results_tab.py` builds a `ttk.Treeview` under the shared
+  results widgets (its own, not the shared builder's: no other tool plans an
+  album) and returns `album_frame`/`album_tree`; `app.py::_show_album_rows`
+  clears it, fills it and packs the panel only when there are rows. `album_rows`
+  joins the handler's required fields, so a publisher that stopped sending it
+  fails the seam lock instead of leaving the table silently empty. Tests: two in
+  `audio_refinery/tests/test_file_processor.py` (the payload carries the plan's
+  rows; a per-file run publishes none) and two in `test_app.py::TestAlbumTable`
+  driving the real handler on a real window and reading the rows back off the
+  tree.
+
 - **The album plan carries a per-track report, and the Refinery writes it out.**
   `audio_normalizer/core/album.py` gains `AlbumTrack` rows on
   `AlbumPlan.tracks`, `_track_measurement` (integrated LUFS and true peak from
