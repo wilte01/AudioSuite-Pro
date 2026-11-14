@@ -94,6 +94,12 @@ _ASTATS_OVERALL_MARKER = "] Overall"
 _ASTATS_PEAK_RE = re.compile(r"Peak level dB:\s+([-+]?\d+(?:\.\d+)?)")
 _ASTATS_RMS_RE = re.compile(r"RMS level dB:\s+([-+]?\d+(?:\.\d+)?)")
 
+#: ``astats`` prints a per-channel block before its overall block, each opening
+#: with this marker.  The blocks are kept rather than discarded because a DC
+#: offset on one channel only is exactly what an overall figure hides.
+_ASTATS_CHANNEL_MARKER = "Channel: "
+_ASTATS_DC_RE = re.compile(r"DC offset:\s+([-+]?\d+(?:\.\d+)?)")
+
 #: The one filter chain this suite uses to read EBU R128 loudness.
 _EBUR128_CHAIN = "ebur128=peak=true"
 
@@ -506,6 +512,124 @@ def measure_levels(path: str, *, ffmpeg: str | None = None) -> LevelMetrics:
         sample_peak_dbfs=sample_peak,
         true_peak_dbtp=true_peak if true_peak is not None else sample_peak,
         crest_factor_db=sample_peak - rms,
+    )
+
+
+@dataclass(frozen=True)
+class ForensicMetrics:
+    """One pass's loudness, level and per-channel DC figures for a file.
+
+    A QC report needs these together, and each is printed by the same
+    ``ebur128``/``astats`` run, so they are returned as one result: a caller
+    that asked for them separately would decode the file three times.
+
+    Attributes:
+        integrated_lufs: Gated integrated loudness (EBU R128).
+        loudness_range_lu: Loudness range in LU, or ``None`` for a stream too
+            short to gate.
+        true_peak_dbtp: Oversampled peak in dBFS units, or ``None``.
+        sample_peak_dbfs: The loudest decoded sample, in dBFS.
+        crest_factor_db: ``sample_peak_dbfs - RMS level``.
+        dc_offset: One DC offset per channel, in channel order, as ``astats``
+            measured them.
+        channel_peaks_dbfs: One peak level per channel, in channel order.
+    """
+
+    integrated_lufs: float
+    loudness_range_lu: float | None
+    true_peak_dbtp: float | None
+    sample_peak_dbfs: float
+    crest_factor_db: float
+    dc_offset: tuple[float, ...]
+    channel_peaks_dbfs: tuple[float, ...]
+
+
+def _channel_blocks(stderr: str) -> list[str]:
+    """Return the per-channel ``astats`` blocks, in channel order.
+
+    Args:
+        stderr: A completed ``astats`` run's stderr.
+
+    Returns:
+        One block per channel, each holding that channel's own figures.  Empty
+        when FFmpeg printed no per-channel section.
+    """
+    before_overall = stderr.split(_ASTATS_OVERALL_MARKER, 1)[0]
+    parts = before_overall.split(_ASTATS_CHANNEL_MARKER)[1:]
+    return [part for part in parts if part.strip()]
+
+
+def measure_forensics(path: str, *, ffmpeg: str | None = None) -> ForensicMetrics:
+    """Measure loudness, levels and per-channel DC offset in one pass.
+
+    The filter chain is the one :func:`measure_levels` runs, so a caller that
+    needs both figures can take them from here instead of decoding twice.
+
+    Args:
+        path: Path to the audio file.
+        ffmpeg: Executable to use; defaults to ``ffmpeg`` on ``PATH``.
+
+    Returns:
+        The measured figures.
+
+    Raises:
+        AudioFormatError: The container is not readable, or FFmpeg printed no
+            level summary for it.
+        AudioExternalToolError: FFmpeg could not be run.
+    """
+    _require_readable(path)
+    executable = ffmpeg or FFMPEG_EXECUTABLE
+    result = _run(
+        executable,
+        [
+            "-hide_banner",
+            "-i",
+            os.path.normpath(path),
+            "-af",
+            f"{_EBUR128_CHAIN},astats=metadata=1:reset=0",
+            "-f",
+            "null",
+            "-",
+        ],
+        path=path,
+    )
+    stderr = result.stderr or ""
+
+    sections = stderr.split(_ASTATS_OVERALL_MARKER, 1)
+    if len(sections) < 2:
+        raise AudioFormatError(
+            f"FFmpeg printed no level summary for '{_file_name(path)}'.",
+            context={"file": path, "returncode": result.returncode},
+        )
+    overall = sections[1]
+    sample_peak = _last_float(_ASTATS_PEAK_RE, overall)
+    rms = _last_float(_ASTATS_RMS_RE, overall)
+    integrated = _last_float(_INTEGRATED_RE, stderr)
+    if sample_peak is None or rms is None or integrated is None:
+        raise AudioFormatError(
+            f"FFmpeg printed an incomplete level summary for '{_file_name(path)}'.",
+            context={"file": path, "returncode": result.returncode},
+        )
+
+    dc_offset: list[float] = []
+    channel_peaks: list[float] = []
+    for block in _channel_blocks(stderr):
+        dc = _last_float(_ASTATS_DC_RE, block)
+        peak = _last_float(_ASTATS_PEAK_RE, block)
+        if dc is not None:
+            dc_offset.append(dc)
+        if peak is not None:
+            channel_peaks.append(peak)
+
+    true_peak = _last_float(_TRUE_PEAK_RE, stderr)
+    return ForensicMetrics(
+        integrated_lufs=integrated,
+        loudness_range_lu=_last_float(_LRA_RE, stderr),
+        true_peak_dbtp=true_peak,
+        sample_peak_dbfs=sample_peak,
+        crest_factor_db=sample_peak - rms,
+        dc_offset=tuple(dc_offset),
+        channel_peaks_dbfs=tuple(channel_peaks),
     )
 
 

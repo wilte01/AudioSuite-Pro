@@ -24,6 +24,17 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The library export can now tell you how the audio itself sounds, not just how
+  it is tagged.** `--qc` adds nine quality-control columns to a CSV or HTML
+  export - integrated loudness, loudness range, true peak, sample peak, crest
+  factor, DC offset, phase correlation, clipped samples and dropouts - and the
+  HTML page gains a section naming the worst offenders, clipping first. The same
+  table is available on its own with `--qc-csv` and `--qc-json`, and
+  `--qc-workers` measures several files at once. It is opt-in because it decodes
+  every file. A figure that does not exist is left blank rather than shown as
+  zero: a mono file has no phase correlation, and a file shorter than three
+  seconds has no loudness range.
+
 - **An album run's per-track table is on the Results tab, not only in a file.**
   The Refinery's Results tab now lists the album report under the counters: one
   row per track with the album's loudness, that track's loudness and true peak,

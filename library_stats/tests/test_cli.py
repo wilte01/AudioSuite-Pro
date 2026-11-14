@@ -10,10 +10,15 @@ per-reader patches of the old eight-read fan-out (PLAN D55).
 Changed in 2.2.0: ``TestExportSurface`` covers ``--export {m3u,csv,html}``,
 its column set, the Camelot column and the refusals (columns on a playlist, an
 empty column list), all against real tagged files (F-05/F-06).
+Changed in 2.7.0: the QC switches (``--qc``, ``--qc-csv``, ``--qc-json``,
+``--qc-workers``) - the columns they add, the default set they start from, the
+refusal of ``--qc`` without a CSV/HTML export, and the two standalone tables
+(F-S7).
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -420,6 +425,80 @@ class TestExportSurface:
         lines = out.read_text(encoding="utf-8").splitlines()
         assert lines[0] == "path,title,camelot"
         assert lines[1].endswith("One,8B")
+
+    def test_qc_adds_its_columns_to_the_export(
+        self, runner: CliRunner, library: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "qc.csv"
+        result = self._invoke(
+            runner,
+            library,
+            "--export",
+            "csv",
+            "--export-path",
+            str(out),
+            "--export-columns",
+            "path,title",
+            "--qc",
+        )
+
+        assert result.exit_code == 0, result.output
+        header = out.read_text(encoding="utf-8").splitlines()[0]
+        assert header.startswith("path,title,qc_lufs")
+        assert "qc_clipped" in header
+
+    def test_qc_covers_the_default_columns_when_none_were_named(
+        self, runner: CliRunner, library: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "default.csv"
+        result = self._invoke(
+            runner, library, "--export", "csv", "--export-path", str(out), "--qc"
+        )
+
+        assert result.exit_code == 0, result.output
+        header = out.read_text(encoding="utf-8").splitlines()[0]
+        assert header.startswith("path,")
+        assert header.endswith("qc_dropouts")
+
+    def test_qc_without_an_export_is_refused(
+        self, runner: CliRunner, library: Path
+    ) -> None:
+        result = self._invoke(runner, library, "--qc")
+
+        assert result.exit_code == 2
+        assert "--qc-csv" in result.output
+
+    def test_qc_csv_writes_the_per_file_table(
+        self, runner: CliRunner, library: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "qc.csv"
+        result = self._invoke(runner, library, "--qc-csv", str(out))
+
+        assert result.exit_code == 0, result.output
+        lines = out.read_text(encoding="utf-8").splitlines()
+        assert lines[0].startswith("file,integrated_lufs")
+        assert "clipped_samples" in lines[0]
+        assert len(lines) == 3, "one header plus one row per file"
+
+    def test_qc_json_carries_the_worst_offenders(
+        self, runner: CliRunner, library: Path, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "qc.json"
+        result = self._invoke(runner, library, "--qc-json", str(out))
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        assert len(payload["files"]) == 2
+        assert set(payload["files"][0]) >= {"file", "integrated_lufs", "qc_error"}
+        assert isinstance(payload["worst_offenders"], list)
+
+    def test_the_qc_switches_are_documented(self, runner: CliRunner) -> None:
+        from audio_suite_shared.cli_app import cli
+
+        result = runner.invoke(cli, ["stats", "--help"])
+
+        for flag in ("--qc ", "--qc-csv", "--qc-json", "--qc-workers"):
+            assert flag in result.output, flag
 
     def test_camelot_applies_to_the_legacy_csv_export(
         self, runner: CliRunner, library: Path, tmp_path: Path

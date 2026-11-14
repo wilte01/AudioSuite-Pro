@@ -12,12 +12,17 @@ Fixtures are real encoded files tagged through mutagen, so the columns under
 test come from the same reader path the dashboard uses.
 
 Changed in 2.2.0: new — F-05/F-06.
+
+Changed in 2.7.0: ``TestQcColumns`` covers the QC column group - rendered
+figures, an unmeasured figure as blank rather than zero, measurement happening
+only when asked for, one pass per file, and the HTML section (F-S7).
 """
 
 from __future__ import annotations
 
 import csv
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mutagen.flac import FLAC
@@ -28,6 +33,7 @@ from library_stats.core.file_processor import StatsReport, export_csv
 from library_stats.core.playlist_export import (
     DEFAULT_EXPORT_COLUMNS,
     EXPORT_COLUMNS,
+    QC_COLUMNS,
     ExportRow,
     camelot_for_key,
     collect_export_rows,
@@ -449,3 +455,101 @@ class TestRowValues:
         assert (
             ExportRow(path="/m/a.flac", format=".flac", title="T").display_name == "T"
         )
+
+
+class TestQcColumns:
+    """The QC group is opt-in, and an unmeasured figure is never a number."""
+
+    def _measured(self) -> Any:
+        from library_stats.core.qc import QcMetrics
+
+        return QcMetrics(
+            file="a.flac",
+            integrated_lufs=-14.0,
+            lra_lu=None,
+            lra_note="shorter than 3.0 s: no gated window, so no loudness range",
+            true_peak_dbtp=-1.0,
+            sample_peak_dbfs=-1.2,
+            crest_factor_db=7.5,
+            dc_offset=(0.25, 0.01),
+            phase_correlation=None,
+            phase_note="mono file: phase correlation needs two channels",
+            clipped_samples=3,
+            dropouts=0,
+        )
+
+    def test_the_group_is_inside_the_column_set(self) -> None:
+        assert set(QC_COLUMNS) <= set(EXPORT_COLUMNS)
+        assert len(set(QC_COLUMNS)) == len(QC_COLUMNS)
+        assert all(column.startswith("qc_") for column in QC_COLUMNS)
+        assert not set(QC_COLUMNS) & set(DEFAULT_EXPORT_COLUMNS)
+
+    def test_an_unmeasured_row_renders_every_column_blank(self) -> None:
+        row = ExportRow(path="/m/a.flac", format=".flac")
+
+        assert [row.value(column) for column in QC_COLUMNS] == [""] * len(QC_COLUMNS)
+
+    def test_measured_figures_are_rendered_at_a_readable_precision(self) -> None:
+        row = ExportRow(path="/m/a.flac", format=".flac", qc=self._measured())
+
+        assert row.value("qc_lufs") == "-14.00"
+        assert row.value("qc_true_peak") == "-1.00"
+        assert row.value("qc_sample_peak") == "-1.20"
+        assert row.value("qc_crest") == "7.5"
+        assert row.value("qc_dc_offset") == "0.2500"
+        assert row.value("qc_clipped") == "3"
+        assert row.value("qc_dropouts") == "0"
+
+    def test_absent_figures_render_blank_rather_than_zero(self) -> None:
+        row = ExportRow(path="/m/a.flac", format=".flac", qc=self._measured())
+
+        assert row.value("qc_lra") == "", "a too-short file has no range"
+        assert row.value("qc_phase") == "", "a mono file has no correlation"
+
+    def test_collecting_does_not_measure_unless_asked(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[str] = []
+
+        def fake(path: str) -> Any:
+            calls.append(path)
+            return self._measured()
+
+        monkeypatch.setattr("library_stats.core.qc.measure_file", fake)
+
+        rows = collect_export_rows(str(library))
+
+        assert calls == [], "a playlist or plain CSV must not pay for a decode"
+        assert all(row.qc is None for row in rows)
+
+    def test_collecting_measures_each_file_once_when_asked(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[str] = []
+
+        def fake(path: str) -> Any:
+            calls.append(path)
+            return self._measured()
+
+        monkeypatch.setattr("library_stats.core.qc.measure_file", fake)
+
+        rows = collect_export_rows(str(library), qc=True, qc_workers=3)
+
+        assert sorted(calls) == sorted(row.path for row in rows)
+        assert len(calls) == len(rows)
+        assert all(row.qc is not None for row in rows)
+
+    def test_the_html_section_appears_only_when_asked(
+        self, library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "library_stats.core.qc.measure_file", lambda path: self._measured()
+        )
+        plain = tmp_path / "plain.html"
+        with_qc = tmp_path / "qc.html"
+
+        export_html(str(library), str(plain), columns=["path"], qc=True)
+        export_html(str(library), str(with_qc), columns=["path"])
+
+        assert "Quality control" in plain.read_text(encoding="utf-8")
+        assert "Quality control" not in with_qc.read_text(encoding="utf-8")

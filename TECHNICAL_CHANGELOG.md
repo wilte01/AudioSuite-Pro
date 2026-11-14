@@ -18,6 +18,42 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **`measure_forensics` reads the per-channel figures one FFmpeg pass already
+  produces.** `audio_suite_shared/audio_probe.py` gains `ForensicMetrics`
+  (integrated LUFS, LRA, true peak, sample peak, crest, per-channel DC offset and
+  per-channel peaks) and `measure_forensics`, which parses the `Channel:` blocks
+  of a single `ebur128`+`astats` pass. The overall block's DC offset is the first
+  channel's figure, so the per-channel blocks are parsed in order rather than
+  taking the summary line. `loudness_range_lu` keeps FFmpeg's `0.0`, including
+  for a stream too short to gate; interpreting that value is the caller's job.
+
+- **`library_stats/core/qc.py` is the sample-domain half of a QC report.**
+  `measure_file` returns `QcMetrics` with clipped-sample counts (`|sample| >=
+  0.999`), dropout runs (5 ms or longer below -120 dBFS), phase correlation
+  (`np.corrcoef`, `None` for mono with a note) and the probe's figures. A refusal
+  is returned as `qc_error`, never raised, so a QC pass over a library does not
+  stop on one unreadable file; the module imports neither `subprocess` nor
+  `secure_subprocess`, so it cannot become a second FFmpeg caller. A loudness
+  range is reported as `None` when the file is shorter than one 3 s gated window
+  (EBU Tech 3342) and as measured - `0.0` included - when it is not.
+  `worst_offenders` ranks clipping first, then dropouts, then the most negative
+  phase, so the CSV, JSON and HTML report cannot disagree about what "worst"
+  means.
+
+- **The QC columns reach the export, measured only when asked for.**
+  `playlist_export` gains `QC_COLUMNS`, an `ExportRow.qc` field and `_qc_value`;
+  `collect_export_rows`, `export_csv` and `export_html` take `qc`/`qc_workers`
+  and measure through a `ThreadPoolExecutor` only when the flag is set, because
+  the export re-reads the tree rather than the scan's cache and a playlist must
+  not pay for a decode per file. The HTML page renders a QC section (refusals
+  listed first, then the offenders). CLI: `--qc`, `--qc-csv`, `--qc-json`,
+  `--qc-workers`; `--qc` with no `--export-columns` starts from the default set
+  so the switch adds the group to something, and `--qc` without a CSV/HTML export
+  is a usage error pointing at `--qc-csv`/`--qc-json`. Tests: 13 in
+  `library_stats/tests/test_qc.py`, 5 forensics cases in
+  `audio_suite_shared/tests/test_audio_probe.py`, 7 in `test_playlist_export.py`
+  and 6 in `test_cli.py`.
+
 - **The album table reaches the Results tab through the completion payload.**
   `run_pipeline` publishes `album_rows` (the plan's `album_csv_rows`, empty for a
   per-file run) alongside `log_entries`, so the window tabulates what the plan

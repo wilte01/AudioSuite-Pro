@@ -9,6 +9,10 @@ Every assertion here decodes a real file and measures it.  A test that re-read
 a value the probe parsed from its own output would pass with FFmpeg given the
 wrong arguments, so the expected numbers come from the signal that was written:
 0.5 of full scale is -6.02 dBFS, and a pure sine's crest factor is 3.01 dB.
+
+Changed in 2.7.0: locks ``measure_forensics`` - the per-channel DC offsets the
+probe now keeps instead of discarding with the per-channel ``astats`` blocks
+(PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S7).
 """
 
 from __future__ import annotations
@@ -67,6 +71,49 @@ def write_tone(
         frames_bytes += sample.to_bytes(sample_width, "little", signed=True) * channels
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(channels)
+        handle.setsampwidth(sample_width)
+        handle.setframerate(SAMPLE_RATE)
+        handle.writeframes(bytes(frames_bytes))
+    return str(path)
+
+
+def write_dc_tone(
+    path: Path,
+    *,
+    seconds: float = 1.0,
+    amplitude: float = 0.5,
+    frequency: float = 440.0,
+    dc_left: float = 0.05,
+    sample_width: int = 2,
+) -> str:
+    """Write a stereo tone with a DC offset on the left channel only.
+
+    A whole-file average hides this signal: the right channel has none, so a
+    figure that mixed the two would report half of ``dc_left`` and a figure read
+    from the wrong block would report zero.
+
+    Args:
+        path: Destination path.
+        seconds: Length in seconds.
+        amplitude: Sine peak as a fraction of full scale.
+        frequency: Tone frequency in Hz.
+        dc_left: Offset added to every left-channel sample.
+        sample_width: Bytes per sample.
+
+    Returns:
+        The path as a string.
+    """
+    frames = int(SAMPLE_RATE * seconds)
+    full_scale = 2 ** (8 * sample_width - 1) - 1
+    frames_bytes = bytearray()
+    for index in range(frames):
+        wave_value = amplitude * math.sin(2 * math.pi * frequency * index / SAMPLE_RATE)
+        left = int(round((wave_value + dc_left) * full_scale))
+        right = int(round(wave_value * full_scale))
+        frames_bytes += left.to_bytes(sample_width, "little", signed=True)
+        frames_bytes += right.to_bytes(sample_width, "little", signed=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(2)
         handle.setsampwidth(sample_width)
         handle.setframerate(SAMPLE_RATE)
         handle.writeframes(bytes(frames_bytes))
@@ -170,6 +217,76 @@ class TestMeasureLevels:
         assert levels.sample_peak_dbfs == pytest.approx(
             20.0 * math.log10(0.05), abs=0.2
         )
+
+
+class TestMeasureForensics:
+    """The one pass a QC report reads: per channel, not per file."""
+
+    def test_one_channel_dc_is_reported_on_that_channel(self, tmp_path: Path) -> None:
+        path = write_dc_tone(tmp_path / "dc.wav")
+
+        forensic = audio_probe.measure_forensics(path)
+
+        assert len(forensic.dc_offset) == 2, "one offset per channel"
+        assert len(forensic.channel_peaks_dbfs) == 2
+        assert forensic.dc_offset[0] == pytest.approx(0.05, abs=1e-3)
+        assert abs(forensic.dc_offset[1]) < 1e-3, (
+            f"the clean channel reported {forensic.dc_offset[1]}, so the per-channel "
+            "blocks are not being read in order"
+        )
+
+    def test_a_mono_file_reports_one_channel(self, tmp_path: Path) -> None:
+        path = write_tone(tmp_path / "mono.wav", channels=1)
+
+        forensic = audio_probe.measure_forensics(path)
+
+        assert len(forensic.dc_offset) == 1
+        assert forensic.dc_offset[0] == pytest.approx(0.0, abs=1e-3)
+
+    def test_loudness_and_levels_agree_with_the_single_question_calls(
+        self, tone: str
+    ) -> None:
+        """One pass reports what the two narrower calls report."""
+        forensic = audio_probe.measure_forensics(tone)
+        levels = audio_probe.measure_levels(tone)
+        loudness = audio_probe.measure_loudness(tone)
+
+        assert forensic.sample_peak_dbfs == pytest.approx(
+            levels.sample_peak_dbfs, abs=0.01
+        )
+        assert forensic.crest_factor_db == pytest.approx(
+            levels.crest_factor_db, abs=0.01
+        )
+        assert forensic.integrated_lufs == pytest.approx(
+            loudness.integrated_lufs, abs=0.01
+        )
+        assert forensic.true_peak_dbtp == pytest.approx(levels.true_peak_dbtp, abs=0.01)
+
+    def test_a_short_file_reports_the_zero_range_ffmpeg_prints(
+        self, tmp_path: Path
+    ) -> None:
+        """A stream too short to gate gets FFmpeg's ``0.0`` LU, not ``None``.
+
+        ``None`` means the summary carried no range line at all, which is a
+        different thing from a range FFmpeg measured as zero: passing ``0.0``
+        through is what the probe does, so a consumer that wants "no usable
+        range" has to decide that itself rather than reading ``None``.
+        """
+        path = write_tone(tmp_path / "brief.wav", seconds=0.1)
+
+        forensic = audio_probe.measure_forensics(path)
+
+        assert forensic.integrated_lufs <= -70.0, (
+            "a 0.1 s tone measures at the gate floor"
+        )
+        assert forensic.loudness_range_lu == pytest.approx(0.0, abs=1e-6)
+
+    def test_an_unreadable_file_raises(self, tmp_path: Path) -> None:
+        path = tmp_path / "notes.txt"
+        path.write_text("not audio", encoding="utf-8")
+
+        with pytest.raises(AudioFormatError):
+            audio_probe.measure_forensics(str(path))
 
 
 @pytest.mark.integration

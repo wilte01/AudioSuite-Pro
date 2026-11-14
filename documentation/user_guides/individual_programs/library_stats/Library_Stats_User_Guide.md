@@ -145,6 +145,16 @@ The Camelot code is a pure mapping from the key the Key Detector already wrote, 
 
 Both spellings of an enharmonic pair map to the same code (G#/Ab, D#/Eb, A#/Bb), and a file with no key — including one the Key Detector deliberately left untagged — gets an empty code rather than a plausible one.
 
+### Quality Control
+
+The export can also measure each file's audio and add nine QC columns: integrated loudness, loudness range, true peak, sample peak, crest factor, DC offset, phase correlation, clipped samples and dropouts. Ask for them with `--qc`; asking costs a real measurement per file, so nothing is measured unless you ask.
+
+Two of those figures are worth reading carefully. **Phase correlation** near +1 means the channels are in phase, near -1 means one is inverted; a mono file has no correlation at all and shows blank, because a file with one channel cannot be out of phase with itself. **Crest factor** is peak-to-loudness in dB, not a "dynamic range" figure in the loudness-war sense - a squashed master sits near 6-8 dB and a wide one well above 12, but the number is only comparable between files measured the same way.
+
+A figure that could not be measured is blank, never zero: a file shorter than three seconds has no gated loudness range to report, and a mono file has no phase correlation. A file the measurement refused keeps its row and shows why in the QC table's `qc_error` column, so a QC pass never loses a track because its audio could not be read.
+
+Use `--qc-csv` and `--qc-json` to write the per-file QC table on its own, without an export. The JSON payload also lists the worst offenders, so a script can name them without re-deriving the order, and `--qc-workers` reads that many files at once (the default, 1, measures them one at a time).
+
 ### Choosing Columns
 
 The command line can choose the columns (`--export-columns path,artist,title,camelot,has_art`) and adds the Camelot column with `--camelot`. The CSV export keeps its original columns unless you ask for a set; `--camelot` alone appends one column to that original set rather than replacing it. The M3U export has no columns to choose, and asking for them is an error rather than a silently ignored flag.
@@ -161,9 +171,11 @@ python -m audio_suite_shared.cli_app stats <folder> --trend --history-limit 24\
 python -m audio_suite_shared.cli_app stats <folder> --export-json report.json\
 python -m audio_suite_shared.cli_app stats <folder> --export m3u\
 python -m audio_suite_shared.cli_app stats <folder> --export csv --export-columns path,artist,title,key,camelot\
-python -m audio_suite_shared.cli_app stats <folder> --export html --camelot --export-path report.html
+python -m audio_suite_shared.cli_app stats <folder> --export html --camelot --export-path report.html\
+python -m audio_suite_shared.cli_app stats <folder> --export csv --qc --qc-workers 4\
+python -m audio_suite_shared.cli_app stats <folder> --qc-csv qc.csv --qc-json qc.json
 
-Options include --incremental, --refresh, --export-csv, --export-json, --export m3u|csv|html, --export-path, --export-columns, --camelot, --completeness, --detail title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain, --trend, --history-limit, --no-history, and --json. The CLI prints aggregate counts, format breakdown, missing-data percentages, optional completeness, and the recorded trend when asked for it.
+Options include --incremental, --refresh, --export-csv, --export-json, --export m3u|csv|html, --export-path, --export-columns, --camelot, --qc, --qc-csv, --qc-json, --qc-workers, --completeness, --detail title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain, --trend, --history-limit, --no-history, and --json. The CLI prints aggregate counts, format breakdown, missing-data percentages, optional completeness, and the recorded trend when asked for it.
 
 --export writes one artefact per run: the M3U playlist, the column-aware CSV, or the HTML page. Without --export-path it is written inside the scanned folder as <folder-name>_library.<ext>, and the written path is reported. The export runs before the --json branch, so --json and --export can be combined.
 
@@ -177,6 +189,8 @@ Options include --incremental, --refresh, --export-csv, --export-json, --export 
 - **A playlist is in the wrong order: **Order is album artist, album, track number, then filename. A file with a missing or non-numeric track number sorts after its numbered siblings; tagging the track numbers fixes the order.
 - **A Camelot column is empty: **The file has no key tag, or the Key Detector found none worth tagging. Run the Key Detector first.
 - **An export column is rejected: **Only the documented columns exist. A misspelt name fails with the list rather than producing a file missing the column you asked for.
+- **A QC column is empty: **Either `--qc` was not given (nothing is measured without it) or that figure does not exist for the file: a mono file has no phase correlation, a file under three seconds has no loudness range. Check the QC table's `qc_error` column for a file that could not be measured at all.
+- **The QC export is slow: **It decodes and measures every file, which the other columns do not. Raise `--qc-workers` to measure several at once, or write the table once with `--qc-csv` and read it instead of re-measuring.
 
 ## Read-Only Safety
 

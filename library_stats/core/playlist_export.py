@@ -26,6 +26,10 @@ separators, but some players (and every POSIX one) reject a backslash path, and
 inheriting the host's.
 
 Changed in 2.2.0: new - the export surface and Camelot mapping of F-05/F-06.
+
+Changed in 2.7.0: the QC columns (F-S7).  Asking for one measures the file,
+because the export re-reads the tree rather than reading the scan's cache - so
+nothing is measured unless a QC column was actually requested.
 """
 
 from __future__ import annotations
@@ -35,8 +39,10 @@ import html
 import logging
 import os
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 
@@ -207,6 +213,32 @@ EXPORT_COLUMNS: tuple[str, ...] = (
     "art_bytes",
     "art_width",
     "art_height",
+    # Changed in 2.7.0: the QC group (F-S7).  Opt-in like the artwork columns,
+    # and the only columns whose values cost an FFmpeg pass plus a decode.
+    "qc_lufs",
+    "qc_lra",
+    "qc_true_peak",
+    "qc_sample_peak",
+    "qc_crest",
+    "qc_dc_offset",
+    "qc_phase",
+    "qc_clipped",
+    "qc_dropouts",
+)
+
+#: The QC columns, as one group.  A caller asks for this group or for none of
+#: it: half a QC row is a number whose siblings are blank, which reads as an
+#: unmeasured file rather than a partial one.
+QC_COLUMNS: tuple[str, ...] = (
+    "qc_lufs",
+    "qc_lra",
+    "qc_true_peak",
+    "qc_sample_peak",
+    "qc_crest",
+    "qc_dc_offset",
+    "qc_phase",
+    "qc_clipped",
+    "qc_dropouts",
 )
 
 #: The column set used when a caller does not ask for one.  It is the
@@ -274,6 +306,9 @@ class ExportRow:
     art_bytes: int | None = None
     art_width: int | None = None
     art_height: int | None = None
+    #: Changed in 2.7.0: the file's QC figures, when the caller asked for them
+    #: (F-S7).  ``None`` means "not measured for this export", never "zero".
+    qc: Any = None
 
     @property
     def camelot(self) -> str | None:
@@ -319,10 +354,53 @@ class ExportRow:
             return "yes" if self.has_art else "no"
         if column == "bpm":
             return "" if self.bpm is None else str(self.bpm)
+        if column in QC_COLUMNS:
+            return self._qc_value(column)
         if column not in EXPORT_COLUMNS:
             raise KeyError(f"unknown export column: {column}")
         raw = getattr(self, column)
         return "" if raw is None else str(raw)
+
+    def _qc_value(self, column: str) -> str:
+        """Return one QC column's text, with an unmeasured figure as ``""``.
+
+        Args:
+            column: A member of :data:`QC_COLUMNS`.
+
+        Returns:
+            The figure at the precision a reader can check against a meter, or
+            ``""`` when the export did not measure the file or the figure itself
+            is absent (a mono file's phase correlation, a too-short file's LRA).
+        """
+        qc = self.qc
+        if qc is None:
+            return ""
+        if column == "qc_lufs":
+            return _fmt(qc.integrated_lufs, 2)
+        if column == "qc_lra":
+            return _fmt(qc.lra_lu, 1)
+        if column == "qc_true_peak":
+            return _fmt(qc.true_peak_dbtp, 2)
+        if column == "qc_sample_peak":
+            return _fmt(qc.sample_peak_dbfs, 2)
+        if column == "qc_crest":
+            return _fmt(qc.crest_factor_db, 1)
+        if column == "qc_dc_offset":
+            if not qc.dc_offset:
+                return ""
+            return f"{max(abs(value) for value in qc.dc_offset):.4f}"
+        if column == "qc_phase":
+            return _fmt(qc.phase_correlation, 2)
+        if column == "qc_clipped":
+            return "" if qc.clipped_samples is None else str(qc.clipped_samples)
+        if column == "qc_dropouts":
+            return "" if qc.dropouts is None else str(qc.dropouts)
+        raise KeyError(f"unknown QC column: {column}")
+
+
+def _fmt(value: float | None, digits: int) -> str:
+    """Format *value* to *digits* places, or ``""`` when it is absent."""
+    return "" if value is None else f"{value:.{digits}f}"
 
 
 def resolve_columns(
@@ -395,7 +473,36 @@ def _order_key(row: ExportRow) -> tuple[str, str, int, str]:
     return (album_artist, album, _track_position(row), Path(row.path).name.casefold())
 
 
-def collect_export_rows(scan_path: str) -> list[ExportRow]:
+def _with_qc(rows: Sequence[ExportRow], *, workers: int) -> list[ExportRow]:
+    """Measure each row's QC figures and return the rows carrying them.
+
+    The measurement is the expensive half of a QC export - one FFmpeg pass and
+    one decode per file - so it happens only here, only when asked for, and in
+    parallel when the caller offers more than one worker.  A file the probe
+    refuses still yields a row: its ``qc_error`` says why, and the export does
+    not lose the track because its audio could not be measured.
+
+    Args:
+        rows: Rows in playlist order.
+        workers: Threads to measure with; ``1`` measures in order.
+
+    Returns:
+        The rows with ``qc`` set, in the same order.
+    """
+    from library_stats.core.qc import measure_file
+
+    paths = [row.path for row in rows]
+    if workers <= 1 or len(paths) < 2:
+        measured = [measure_file(path) for path in paths]
+    else:
+        with ThreadPoolExecutor(max_workers=min(workers, len(paths))) as pool:
+            measured = list(pool.map(measure_file, paths))
+    return [replace(row, qc=metrics) for row, metrics in zip(rows, measured)]
+
+
+def collect_export_rows(
+    scan_path: str, *, qc: bool = False, qc_workers: int = 1
+) -> list[ExportRow]:
     """Read every supported file under *scan_path* into album-ordered rows.
 
     A file whose tags cannot be read is skipped with a debug log rather than
@@ -404,6 +511,9 @@ def collect_export_rows(scan_path: str) -> list[ExportRow]:
 
     Args:
         scan_path: Root directory to walk recursively.
+        qc: Whether to measure each file's QC figures.  Off by default: a
+            playlist or a plain CSV must not pay for a decode per file.
+        qc_workers: Threads to measure with when *qc* is set.
 
     Returns:
         The rows, sorted by :func:`_order_key`.
@@ -453,6 +563,8 @@ def collect_export_rows(scan_path: str) -> list[ExportRow]:
                     art_height=tags.art_height,
                 )
             )
+    if qc:
+        rows = _with_qc(rows, workers=qc_workers)
     rows.sort(key=_order_key)
     return rows
 
@@ -503,13 +615,71 @@ def export_m3u(scan_path: str, output_path: str) -> int:
     return len(rows)
 
 
-def _html_page(rows: Sequence[ExportRow], columns: Sequence[str], heading: str) -> str:
+def _html_qc_section(rows: Sequence[ExportRow]) -> str:
+    """Render the QC block: what could not be measured, then the worst files.
+
+    A report that listed only the offenders would leave a reader assuming every
+    unlisted file is clean, which is false when a file could not be measured at
+    all.  So the refusals are named first, in their own list.
+
+    Args:
+        rows: Rows that were measured for this page (``qc`` set).
+
+    Returns:
+        HTML for the section, or ``""`` when the page has no QC figures.
+    """
+    from library_stats.core.qc import worst_offenders
+
+    measured = [row.qc for row in rows if row.qc is not None]
+    if not measured:
+        return ""
+    refused = [item for item in measured if not item.measured]
+    offenders = worst_offenders(measured)
+    parts = ["<h2>Quality control</h2>"]
+    if refused:
+        parts.append(f"<p>{len(refused)} file(s) could not be measured:</p>\n<ul>")
+        parts.extend(
+            f"<li>{html.escape(item.file)}: {html.escape(item.qc_error)}</li>"
+            for item in refused
+        )
+        parts.append("</ul>")
+    if offenders:
+        parts.append(
+            "<p>Worst offenders, clipping first:</p>\n"
+            "<table>\n<thead><tr><th>file</th><th>clipped</th>"
+            "<th>dropouts</th><th>phase</th><th>crest</th></tr></thead>\n<tbody>"
+        )
+        for item in offenders:
+            clipped = "" if item.clipped_samples is None else str(item.clipped_samples)
+            dropouts = "" if item.dropouts is None else str(item.dropouts)
+            parts.append(
+                "<tr>"
+                f"<td>{html.escape(item.file)}</td>"
+                f"<td>{clipped}</td>"
+                f"<td>{dropouts}</td>"
+                f"<td>{_fmt(item.phase_correlation, 2)}</td>"
+                f"<td>{_fmt(item.crest_factor_db, 1)}</td>"
+                "</tr>"
+            )
+        parts.append("</tbody>\n</table>")
+    return "\n".join(parts) + "\n"
+
+
+def _html_page(
+    rows: Sequence[ExportRow],
+    columns: Sequence[str],
+    heading: str,
+    *,
+    qc: bool = False,
+) -> str:
     """Render the self-contained HTML document for *rows*.
 
     Args:
         rows: Export rows in playlist order.
         columns: Column names to render.
         heading: Page heading text.
+        qc: Whether the rows carry QC figures, and so whether to render the QC
+            section.
 
     Returns:
         A complete HTML document with inline styling and no external assets.
@@ -536,8 +706,11 @@ def _html_page(rows: Sequence[ExportRow], columns: Sequence[str], heading: str) 
         f"<p>{len(rows)} file(s)</p>\n"
         "<table>\n"
         f"<thead><tr>{headers}</tr></thead>\n"
-        "<tbody>\n" + "\n".join(body) + "\n</tbody>\n</table>\n"
-        "</body>\n</html>\n"
+        "<tbody>\n"
+        + "\n".join(body)
+        + "\n</tbody>\n</table>\n"
+        + (_html_qc_section(rows) if qc else "")
+        + "</body>\n</html>\n"
     )
 
 
@@ -548,6 +721,8 @@ def export_html(
     columns: Sequence[str] | None = None,
     camelot: bool = False,
     heading: str = "Library export",
+    qc: bool = False,
+    qc_workers: int = 1,
 ) -> int:
     """Write a self-contained HTML report of the library under *scan_path*.
 
@@ -558,6 +733,8 @@ def export_html(
             :data:`DEFAULT_EXPORT_COLUMNS`.
         camelot: Add the ``camelot`` column.
         heading: Page heading and ``<title>`` text.
+        qc: Measure every file and add the QC section.  Off by default.
+        qc_workers: Threads to measure with when *qc* is set.
 
     Returns:
         The number of rows written.
@@ -568,8 +745,8 @@ def export_html(
         OSError: If the page cannot be written.
     """
     resolved = resolve_columns(columns, camelot=camelot)
-    rows = collect_export_rows(scan_path)
-    document = _html_page(rows, resolved, heading)
+    rows = collect_export_rows(scan_path, qc=qc, qc_workers=qc_workers)
+    document = _html_page(rows, resolved, heading, qc=qc)
     Path(output_path).write_text(document, encoding="utf-8")
     return len(rows)
 

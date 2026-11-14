@@ -16,6 +16,12 @@ Changed in 2.2.0: ``--export {m3u,csv,html}`` adds the playlist/HTML export
 surface, with ``--export-columns`` and ``--camelot`` (functional backlog
 F-05/F-06).  The export runs before the ``--json`` branch so the two are not
 mutually exclusive.
+
+Changed in 2.7.0: ``--qc`` adds the QC columns to a CSV/HTML export, while
+``--qc-csv`` / ``--qc-json`` write the QC table on its own and ``--qc-workers``
+sets how many files are measured at once (PLAN_2026-11-03_2.7.0_feature_wave_3
+F-S7).  Measurement costs a decode per file, so nothing is measured unless one
+of the three QC switches asks for it.
 """
 
 from __future__ import annotations
@@ -136,6 +142,31 @@ from library_stats.library_cache import LibraryCache
     default=False,
     help="Add a Camelot key column to the CSV/HTML export.",
 )
+@click.option(
+    "--qc",
+    is_flag=True,
+    default=False,
+    help="Add the QC columns and section to the CSV/HTML export (measures files).",
+)
+@click.option(
+    "--qc-csv",
+    default=None,
+    type=click.Path(writable=True),
+    help="Write the per-file QC table as CSV to this path.",
+)
+@click.option(
+    "--qc-json",
+    default=None,
+    type=click.Path(writable=True),
+    help="Write the per-file QC table as JSON to this path.",
+)
+@click.option(
+    "--qc-workers",
+    type=click.IntRange(min=1, max=32),
+    default=1,
+    show_default=True,
+    help="How many files the QC measurement reads at once.",
+)
 # Changed in 2.4.3: SS3.3 complexity ceiling — the command is split into cache
 # selection, scan/history execution and report rendering; its output order and
 # its JSON schema are unchanged.
@@ -156,6 +187,10 @@ def stats(
     export_path: str | None,
     export_columns: str | None,
     camelot: bool,
+    qc: bool,
+    qc_csv: str | None,
+    qc_json: str | None,
+    qc_workers: int,
 ) -> None:
     """Scan library and show aggregate tag statistics (read-only).
 
@@ -170,6 +205,10 @@ def stats(
     extended M3U a player opens, the same column-aware CSV, or a
     self-contained HTML page.  --export-columns picks the columns and
     --camelot adds the harmonic-mixing (Camelot) key column.
+
+    Add --qc to that export for the QC columns and its worst-offender section;
+    --qc-csv / --qc-json write the per-file QC table on its own, and
+    --qc-workers sets how many files are measured at once.
 
     Use --completeness to additionally report what percentage of files carry
     each tag.  Add --detail <tag> to list the specific files missing a tag.
@@ -213,6 +252,16 @@ def stats(
     )
 
     columns = _parse_columns(export_columns)
+    if qc:
+        if export_format not in ("csv", "html"):
+            raise click.UsageError(
+                "--qc applies to --export csv or --export html; use --qc-csv / "
+                "--qc-json for a QC table on its own."
+            )
+        columns = _with_qc_columns(columns)
+    if qc_csv or qc_json:
+        _run_qc_table(directory, qc_csv=qc_csv, qc_json=qc_json, workers=qc_workers)
+
     if export_format is not None:
         _run_export(
             scan.report,
@@ -221,6 +270,8 @@ def stats(
             directory=directory,
             columns=columns,
             camelot=camelot,
+            qc=qc,
+            qc_workers=qc_workers,
         )
     elif camelot:
         click.echo("  Warning: --camelot applies to --export csv/html only.", err=True)
@@ -447,6 +498,8 @@ def _run_export(
     directory: str,
     columns: tuple[str, ...] | None,
     camelot: bool,
+    qc: bool,
+    qc_workers: int,
 ) -> None:
     """Write one ``--export`` artefact and report it on stderr.
 
@@ -457,6 +510,8 @@ def _run_export(
         directory: The scanned folder (used for the default name).
         columns: Requested CSV/HTML columns, or None for the default set.
         camelot: Whether to add the Camelot column.
+        qc: Whether the caller asked for the QC columns and section.
+        qc_workers: Threads for the QC measurement.
 
     Raises:
         click.UsageError: If columns are requested for a playlist export, which
@@ -466,9 +521,9 @@ def _run_export(
     from library_stats.core.playlist_export import export_html, export_m3u
     from library_stats.library_stats import export_csv as _export_csv
 
-    if export_format == "m3u" and (columns is not None or camelot):
+    if export_format == "m3u" and (columns is not None or camelot or qc):
         raise click.UsageError(
-            "--export-columns/--camelot apply to csv and html exports, not to m3u."
+            "--export-columns/--camelot/--qc apply to csv and html exports, not to m3u."
         )
 
     destination = export_path or _default_export_path(directory, export_format)
@@ -477,16 +532,122 @@ def _run_export(
             count = export_m3u(report.scan_path, destination)
         elif export_format == "html":
             count = export_html(
-                report.scan_path, destination, columns=columns, camelot=camelot
+                report.scan_path,
+                destination,
+                columns=columns,
+                camelot=camelot,
+                qc=qc,
+                qc_workers=qc_workers,
             )
         else:
             # The writer's own count, not the scan's total: an unreadable file
             # is skipped by the export, so quoting the total would overstate it.
-            count = _export_csv(report, destination, columns=columns, camelot=camelot)
+            count = _export_csv(
+                report,
+                destination,
+                columns=columns,
+                camelot=camelot,
+                qc=qc,
+                qc_workers=qc_workers,
+            )
     except (OSError, ValueError) as exc:
         click.echo(f"  Export failed: {exc}", err=True)
         return
     click.echo(f"\n  Exported {count} file(s) to: {destination}", err=True)
+
+
+def _with_qc_columns(columns: tuple[str, ...] | None) -> tuple[str, ...]:
+    """Return *columns* with the QC group appended, without duplicates.
+
+    ``--qc`` with no ``--export-columns`` starts from the default column set:
+    otherwise the switch would add the QC group to nothing.
+
+    Args:
+        columns: Requested columns, or None when the caller named none.
+
+    Returns:
+        The columns in request order, then any QC column not already there.
+    """
+    from library_stats.core.playlist_export import DEFAULT_EXPORT_COLUMNS, QC_COLUMNS
+
+    base = columns if columns is not None else DEFAULT_EXPORT_COLUMNS
+    return tuple(dict.fromkeys((*base, *QC_COLUMNS)))
+
+
+def _run_qc_table(
+    directory: str, *, qc_csv: str | None, qc_json: str | None, workers: int
+) -> None:
+    """Write the per-file QC table as CSV and/or JSON and report it.
+
+    The table is measured once for both destinations: two formats of the same
+    report must not measure the library twice and then disagree.
+
+    Args:
+        directory: The scanned folder.
+        qc_csv: Destination CSV path, or None.
+        qc_json: Destination JSON path, or None.
+        workers: Threads for the measurement.
+    """
+    import csv as csv_mod
+    import json as json_mod
+    from pathlib import Path
+
+    from library_stats.core.playlist_export import collect_export_rows
+    from library_stats.core.qc import worst_offenders
+
+    try:
+        rows = collect_export_rows(directory, qc=True, qc_workers=workers)
+    except (OSError, ValueError) as exc:
+        click.echo(f"  QC pass failed: {exc}", err=True)
+        return
+    measured = [row.qc for row in rows if row.qc is not None]
+    if not measured:
+        click.echo("  No audio files to measure for QC.", err=True)
+        return
+
+    if qc_csv:
+        fieldnames = [
+            "file",
+            "integrated_lufs",
+            "lra_lu",
+            "lra_note",
+            "true_peak_dbtp",
+            "sample_peak_dbfs",
+            "crest_factor_db",
+            "phase_correlation",
+            "phase_note",
+            "clipped_samples",
+            "dropouts",
+            "qc_error",
+        ]
+        try:
+            with open(qc_csv, "w", encoding="utf-8", newline="") as handle:
+                writer = csv_mod.DictWriter(
+                    handle, fieldnames=fieldnames, extrasaction="ignore"
+                )
+                writer.writeheader()
+                for item in measured:
+                    writer.writerow(item.as_dict())
+        except OSError as exc:
+            click.echo(f"  QC CSV failed: {exc}", err=True)
+        else:
+            click.echo(
+                f"\n  QC table for {len(measured)} file(s) to: {qc_csv}", err=True
+            )
+
+    if qc_json:
+        payload = {
+            "files": [item.as_dict() for item in measured],
+            "worst_offenders": [item.file for item in worst_offenders(measured)],
+        }
+        try:
+            Path(qc_json).write_text(
+                json_mod.dumps(payload, indent=2), encoding="utf-8"
+            )
+        except OSError as exc:
+            click.echo(f"  QC JSON failed: {exc}", err=True)
+        else:
+            click.echo(f"  QC JSON for {len(measured)} file(s) to: {qc_json}", err=True)
 
 
 def _echo_completeness(report: Any, detail: str | None = None) -> None:

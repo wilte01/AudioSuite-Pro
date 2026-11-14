@@ -889,6 +889,8 @@ def export_csv(
     *,
     columns: Sequence[str] | None = None,
     camelot: bool = False,
+    qc: bool = False,
+    qc_workers: int = 1,
 ) -> int:
     """Export per-file metadata as CSV (one row per file).
 
@@ -905,6 +907,9 @@ def export_csv(
         columns: Column names to write; None keeps the original column set.
         camelot: Append a ``camelot`` column to the original set (ignored when
             *columns* names its own set).
+        qc: Measure each file's QC figures for the column-aware writer
+            (F-S7).  Costs an FFmpeg pass and a decode per file, so it is off
+            unless asked for, and it needs *columns* to name a QC column.
 
     Returns:
         The number of rows written.  A caller that only wants the file ignores
@@ -930,7 +935,7 @@ def export_csv(
         )
 
         resolved = resolve_columns(columns, camelot=camelot)
-        rows = collect_export_rows(report.scan_path)
+        rows = collect_export_rows(report.scan_path, qc=qc, qc_workers=qc_workers)
         write_csv_rows(rows, output_path, resolved)
         return len(rows)
 
