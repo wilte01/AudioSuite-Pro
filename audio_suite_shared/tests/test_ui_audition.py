@@ -6,13 +6,19 @@ Strategy
 Node: all widget construction (``add_audition_buttons``) is gated behind
 ``requires_display``.  The ``AuditionMixin`` state machine is tested with a
 Mock-based root window so no real Tk is needed.
+
+Changed in 2.7.0: ``TestMatchGains`` locks the attenuation-only arithmetic and
+``TestMatchedAudition`` renders real tones and measures the previews it gets
+back, rather than trusting the gain the code reports (F-S9).
 """
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import tkinter as tk
+import wave
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -25,6 +31,7 @@ from audio_suite_shared.ui_audition import (
     _READY_MSG,
     AuditionMixin,
     add_audition_buttons,
+    match_gains,
     set_result_available,
 )
 
@@ -58,7 +65,15 @@ class TestAddAuditionButtons:
             "play_original_btn",
             "play_result_btn",
             "caption_var",
+            "level_match_var",
+            "blind_var",
         }
+
+    def test_the_match_switches_start_off(self, tk_root: Any) -> None:
+        widgets = self._build(tk_root, with_match_options=True)
+
+        assert widgets["level_match_var"].get() is False
+        assert widgets["blind_var"].get() is False
 
     def test_play_result_disabled_by_default(self, tk_root: Any) -> None:
         widgets = self._build(tk_root)
@@ -85,6 +100,37 @@ class TestAddAuditionButtons:
         assert str(widgets["play_result_btn"]["state"]) == "normal"
         set_result_available(widgets["play_result_btn"], False)
         assert str(widgets["play_result_btn"]["state"]) == "disabled"
+
+
+def _write_tone(path: Path, amplitude: float, *, seconds: float = 2.0) -> Path:
+    """Write a real stereo tone at *amplitude* of full scale.
+
+    Args:
+        path: Destination ``.wav`` path.
+        amplitude: Peak as a fraction of full scale (0.5 is -6.02 dBFS).
+        seconds: Length in seconds.
+    """
+    rate = 44100
+    frames = bytearray()
+    for index in range(int(rate * seconds)):
+        sample = int(amplitude * 32767 * math.sin(2 * math.pi * 440 * index / rate))
+        frames += sample.to_bytes(2, "little", signed=True) * 2
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(2)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(bytes(frames))
+    return path
+
+
+class _Flag:
+    """A stand-in for a Tk BooleanVar: only ``get`` is used."""
+
+    def __init__(self, value: bool) -> None:
+        self._value = value
+
+    def get(self) -> bool:
+        return self._value
 
 
 class _StubApp(AuditionMixin):
@@ -368,3 +414,213 @@ class TestAuditionClose:
         mock_stop.assert_called_once()
         mock_clean.assert_called_once()
         app.root.destroy.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# F-S9 — level-matched and blind A/B
+# ---------------------------------------------------------------------------
+
+
+class TestMatchGains:
+    """The arithmetic of a fair A/B: attenuate the louder, never boost."""
+
+    def test_the_louder_original_is_attenuated(self) -> None:
+        assert match_gains(-10.0, -16.0) == (-6.0, 0.0)
+
+    def test_the_louder_result_is_attenuated(self) -> None:
+        assert match_gains(-16.0, -10.0) == (0.0, -6.0)
+
+    def test_an_equal_pair_is_left_alone(self) -> None:
+        assert match_gains(-14.0, -14.0) == (0.0, 0.0)
+
+    def test_no_gain_is_ever_positive(self) -> None:
+        for original, result in ((-3.0, -30.0), (-30.0, -3.0), (-9.0, -9.5)):
+            gains = match_gains(original, result)
+            assert max(gains) <= 0.0, (original, result, gains)
+
+    def test_a_silent_file_is_refused(self) -> None:
+        with pytest.raises(ValueError):
+            match_gains(float("-inf"), -14.0)
+
+
+class TestMatchedAudition:
+    """The previews are measured, not the gain the code says it applied."""
+
+    def test_the_two_previews_measure_within_a_tenth_of_a_lu(
+        self, app: _StubApp, tmp_path: Path
+    ) -> None:
+        from audio_suite_shared.audio_probe import measure_loudness
+
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+
+        matched = app.prepare_matched_audition(original, result)
+
+        assert matched is not None
+        original_lufs = measure_loudness(str(matched.original)).integrated_lufs
+        result_lufs = measure_loudness(str(matched.result)).integrated_lufs
+        assert abs(original_lufs - result_lufs) <= 0.1
+        assert matched.gain_original_db == pytest.approx(-6.02, abs=0.2)
+        assert matched.gain_result_db == 0.0
+
+    def test_the_sources_are_not_modified(self, app: _StubApp, tmp_path: Path) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+        before = [
+            (path.stat().st_size, path.stat().st_mtime_ns)
+            for path in (original, result)
+        ]
+
+        app.prepare_matched_audition(original, result)
+
+        after = [
+            (path.stat().st_size, path.stat().st_mtime_ns)
+            for path in (original, result)
+        ]
+        assert after == before
+
+    def test_unmeasurable_audio_reports_why(
+        self, app: _StubApp, tmp_path: Path
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        broken = tmp_path / "notes.txt"
+        broken.write_text("not audio", encoding="utf-8")
+
+        matched = app.prepare_matched_audition(original, broken)
+
+        assert matched is None
+        assert _scheduled(app)[-1][2].startswith("Level match unavailable")
+
+    def test_blind_labels_do_not_reveal_the_mapping(
+        self, app: _StubApp, tmp_path: Path
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+
+        matched = app.prepare_matched_audition(original, result, blind=True)
+
+        assert matched is not None and matched.blind
+        assert app._play_original_btn.config.call_args.kwargs["text"].endswith("Play A")
+        assert app._play_result_btn.config.call_args.kwargs["text"].endswith("Play B")
+        caption = _scheduled(app)[-1][2].lower()
+        assert caption.startswith("blind a/b"), caption
+        assert "original" not in caption and "result" not in caption
+        mapping = app.reveal_blind()
+        assert mapping is not None
+        assert sorted(mapping) == ["A", "B"]
+        assert sorted(mapping.values()) == ["original", "result"]
+
+    def _fake_matched(self, tmp_path: Path, *, blind: bool = False) -> Any:
+        from audio_suite_shared.ui_audition import MatchedAudition
+
+        preview_original = _write_tone(tmp_path / "matched_original.wav", 0.5)
+        preview_result = _write_tone(tmp_path / "matched_result.wav", 0.5)
+        return MatchedAudition(
+            original=preview_original,
+            result=preview_result,
+            original_lufs=-9.7,
+            result_lufs=-9.7,
+            gain_original_db=0.0,
+            gain_result_db=0.0,
+            blind=blind,
+        )
+
+    def _played(self, app: _StubApp, monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+        played: list[Path] = []
+        monkeypatch.setattr(
+            "audio_suite_shared.ui_audition.audio_playback.play_audio",
+            lambda path: played.append(Path(path)) or True,
+        )
+        return played
+
+    def test_unchecked_plays_the_source_file(
+        self, app: _StubApp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+        app._audition_original = original
+        app._audition_result = result
+        app._source_pair = (original, result)
+        app._level_match_var = None
+        played = self._played(app, monkeypatch)
+
+        app._play_original()
+
+        assert played == [original], "an unticked switch must change nothing"
+
+    def test_checked_plays_the_matched_preview(
+        self, app: _StubApp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+        matched = self._fake_matched(tmp_path)
+        app._audition_original = original
+        app._audition_result = result
+        app._source_pair = (original, result)
+        app._level_match_var = _Flag(True)
+        app._blind_var = _Flag(False)
+        monkeypatch.setattr(
+            app, "prepare_matched_audition", lambda *a, **k: matched, raising=False
+        )
+        played = self._played(app, monkeypatch)
+
+        app._play_original()
+
+        assert played == [matched.original]
+        assert "level matched" in _last_caption(app)
+
+    def test_the_matched_pair_is_prepared_once(
+        self, app: _StubApp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+        matched = self._fake_matched(tmp_path)
+        calls: list[Any] = []
+        app._audition_original = original
+        app._audition_result = result
+        app._source_pair = (original, result)
+        app._level_match_var = _Flag(True)
+        app._blind_var = _Flag(False)
+        monkeypatch.setattr(
+            app,
+            "prepare_matched_audition",
+            lambda *a, **k: calls.append(a) or matched,
+            raising=False,
+        )
+        self._played(app, monkeypatch)
+
+        app._play_original()
+        app._play_result()
+
+        assert len(calls) == 1, "a blind pair must not be re-randomised per click"
+
+    def test_a_blind_click_uses_the_lettered_preview(
+        self, app: _StubApp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+        result = _write_tone(tmp_path / "result.wav", 0.25)
+        matched = self._fake_matched(tmp_path, blind=True)
+        app._audition_original = original
+        app._audition_result = result
+        app._source_pair = (original, result)
+        app._level_match_var = _Flag(True)
+        app._blind_var = _Flag(True)
+        app._blind_mapping = {"A": "result", "B": "original"}
+        monkeypatch.setattr(
+            app, "prepare_matched_audition", lambda *a, **k: matched, raising=False
+        )
+        played = self._played(app, monkeypatch)
+
+        app._play_original()
+
+        assert played == [matched.result], "A is the result in this mapping"
+        assert "Playing B" in _last_caption(app)
+
+    def test_a_plain_pair_has_nothing_to_reveal(
+        self, app: _StubApp, tmp_path: Path
+    ) -> None:
+        original = _write_tone(tmp_path / "original.wav", 0.5)
+
+        app.prepare_matched_audition(original, original)
+
+        assert app.reveal_blind() is None

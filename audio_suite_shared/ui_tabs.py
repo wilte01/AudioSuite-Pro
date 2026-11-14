@@ -5,6 +5,10 @@ Split out of :mod:`audio_suite_shared.ui_common` in 2.4.3 (WP-9).
 installer, and re-exports every name here, so an existing
 ``from audio_suite_shared.ui_common import build_results_tab`` keeps working.
 
+Changed in 2.7.0: the Results tab's audition row passes its two match switches
+("Level match", "Blind A/B") back to the app, so every DSP tool composing this
+builder gains the level-matched and blind A/B of F-S9 without its own wiring.
+
 Changed in 2.4.3: split out of ``audio_suite_shared.ui_common``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
 Changed in 2.5.0: ``_default_open_log`` reads the suite log through
@@ -169,10 +173,13 @@ def build_results_tab(
             on_play_result=(
                 on_play_result if on_play_result is not None else on_play_original
             ),
+            with_match_options=True,
         )
         result["play_original_btn"] = audition["play_original_btn"]
         result["play_result_btn"] = audition["play_result_btn"]
         result["audition_caption_var"] = audition["caption_var"]
+        result["level_match_var"] = audition["level_match_var"]
+        result["blind_var"] = audition["blind_var"]
 
     return result
 

@@ -381,6 +381,15 @@ Processing shows one worker slot per logical CPU (at most eight), progress, and 
 
 Results reports processed, succeeded, skipped, errors, and elapsed time. It can compare the original and result audio when a suitable pair exists; Dry Run has no result audio to play. **View Log** opens the run report described below, and **Open Folder** opens the folder the run wrote to.
 
+### Auditioning the result
+
+**Play Original** and **Play Result** play the two halves of the last run's first file. Two switches sit beside them, and both are off until you tick them:
+
+- **Level match** measures both files' loudness and attenuates the louder one to the quieter one, so the comparison is about the processing rather than about which file is louder. Nothing is ever boosted, so the previews cannot clip, and your own files are never rewritten - the matched versions are temporary previews. A file whose loudness cannot be measured says so in the caption instead of playing an unfair pair.
+- **Blind A/B** hands the two previews over as **A** and **B** in a random order, with the buttons relabelled, so you cannot know which is the processed one while you listen. The mapping is held back until the run is over rather than printed beside the buttons.
+
+The pair is prepared once per run: pressing Play again reuses the same previews, and a blind pair is not re-randomised between clicks.
+
 An album run adds the album report table under the counters: one row per track with the album's measured loudness, that track's measured loudness and true peak, the gain it was given, whether the True Peak ceiling limited it, and how far it ends from the album target. The figures are the ones the run planned and applied, and they are the same rows written to refinery_album.csv, so the window and the file agree. The table is not shown for a run that was not in album mode, because there is no album to report and an empty table would read as a measurement that failed.
 
 ## Logs and Recovery

@@ -18,6 +18,28 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **`AuditionMixin` gains a level-matched and blind A/B, wired through the
+  shared Results tab.** `prepare_matched_audition(original, result, blind=False)`
+  measures both files with `audio_probe.measure_loudness` (integrated LUFS), and
+  `match_gains` attenuates the louder side only - both gains are `<= 0`, so the
+  0 dBFS cap the plan expected has no case to report, and a `-inf` measurement
+  is refused rather than producing an infinite gain. Each half is rendered to a
+  WAV in `audition_snapshot_dir()` (pydub, already a playback dependency), so
+  neither source is touched; the existing `clear_snapshots()` cleans them.
+  `blind=True` hands the previews over as A/B in a random order, relabels the
+  buttons, keeps the mapping out of the caption, and exposes it only through
+  `reveal_blind()`. The mixin keeps the *source* pair separately from the
+  displayed pair, because preparing a match replaces the displayed paths, and
+  caches the matched pair so a blind run is not re-randomised between clicks.
+  `ui_tabs.build_results_tab` passes `with_match_options=True`, so every DSP tool
+  composing the shared builder gains the two switches without per-tool wiring;
+  `add_audition_buttons` always returns `level_match_var`/`blind_var`. Tests: 12
+  new cases - the gain arithmetic (attenuate the louder, equal pair untouched,
+  no positive gain, `-inf` refused), previews decoded and measured within 0.1 LU
+  of each other, sources unchanged by size and `st_mtime_ns`, a refusal caption,
+  blind labels that name neither role, one preparation per pair, and the
+  untouched default of playing the source file.
+
 - **`measure_forensics` reads the per-channel figures one FFmpeg pass already
   produces.** `audio_suite_shared/audio_probe.py` gains `ForensicMetrics`
   (integrated LUFS, LRA, true peak, sample peak, crest, per-channel DC offset and

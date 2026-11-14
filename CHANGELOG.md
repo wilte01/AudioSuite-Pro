@@ -24,6 +24,14 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The before/after audition can now compare at the same loudness, blind.** Two
+  switches sit beside Play Original and Play Result: **Level match** measures both
+  files and turns down the louder one, so a louder master cannot win an A/B it
+  should not; **Blind A/B**, which relabels the pair as A and B in a random order
+  and holds the mapping back while you listen. Nothing is ever boosted, your files
+  are never rewritten - the matched pair is a temporary preview - and a file whose
+  loudness cannot be measured says so instead of playing an unfair comparison.
+
 - **The library export can now tell you how the audio itself sounds, not just how
   it is tagged.** `--qc` adds nine quality-control columns to a CSV or HTML
   export - integrated loudness, loudness range, true peak, sample peak, crest
