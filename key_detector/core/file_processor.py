@@ -160,9 +160,7 @@ def detect_key_for_file(file_path: str, analysis_duration: int) -> str:
         )
         second: npt.NDArray[np.float64] = second_raw.astype(np.float64)
         check_analysable(second, int(second_rate))
-    # BLE001 boundary: the extra look is best-effort, so a decode or guard
-    # failure here is not a new failure to report - the first window's verdict
-    # stands and the file is reported as before.
+    # BLE001 boundary: the extra look is best-effort, its failure silent
     except Exception:  # noqa: BLE001
         logger.debug(
             "Second analysis window at %.1f s failed for '%s'", offset, file_path
