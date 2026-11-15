@@ -17,10 +17,15 @@ everywhere and there is nothing to configure.
 - **Scripts must be first-party.** Script paths must end in `.py` or `.pyw` and
   must exist; the path is resolved first, so a symlink or `..` segment cannot
   redirect the suite to another file.
-- **Arguments are screened.** The shell metacharacters `;`, `|`, `` ` ``,
-  `<`, `>` and `"` are refused inside an argument, because the suite never runs
-  a shell: a character that would only mean something to `cmd.exe` or `sh` is
-  a sign that the value did not come from where it should have.
+- **No shell runs, and arguments are screened for what argv cannot carry.**
+  Every program is launched from a list of arguments with no `cmd.exe` or `sh`
+  in between, so `;`, `|`, `` ` ``, `<`, `>`, `"` and `&` in a filename are
+  ordinary text and are accepted - a file named `Shanks & Bigfoot - Sweet Like
+  Chocolate.mp3` or a title storing `&amp;` is measured like any other. What a
+  list cannot represent is refused: a NUL character, which would truncate the
+  value. The wider shell-metacharacter rule is still enforced in the wrapper's
+  shell mode, and the wrappers refuse a `shell` option outright, so no code path
+  can change the assumption the screen rests on.
 - **Paths are length-checked** against the platform limit (260 characters on
   Windows, 4096 on Linux and macOS), and directory traversal is refused.
 
@@ -107,7 +112,7 @@ for where the files live.
 | Message | Cause | Fix |
 |---|---|---|
 | `Executable not allowed` | something tried to launch a program outside the allow-list | run the suite's own programs; if a first-party tool triggers this, report it |
-| `Dangerous character in argument` | a value contained a shell character (semicolon, pipe, backtick, angle bracket or double quote) | rename the file or album so the name has no shell syntax |
+| `Control character in argument` | a value contained a NUL character, which an argument cannot carry | rename the file; semicolons, pipes, angle brackets, backticks, quotes and `&` are all fine |
 | `Path too long` | the full path exceeds the platform limit | shorten the folder name or move the library closer to the drive root |
 | `Directory traversal detected` | a path contained `..` | pick the folder with the browser instead of typing it |
 | `Script file does not exist` | a program file is missing or was moved | reinstall or repair the suite |

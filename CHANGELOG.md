@@ -177,6 +177,18 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **Files whose names contain a semicolon or an ampersand are measured instead
+  of refused.** The measurement pass rejected any path holding ``;``, ``|``,
+  ``<``, ``>``, a backtick or a double quote, with "Dangerous character in
+  argument" - so a downloaded track storing its title as "Shanks &amp; Bigfoot"
+  or "Feel The Love" in quotes never reached FFmpeg at all, and the export
+  reported it with no loudness, peak or range. The characters are ordinary in a
+  filename: no shell ever ran, so refusing them protected nothing and lost the
+  measurement. Those five files in a 405-track library now report their
+  loudness, true peak and range like any other. A NUL is still refused, because
+  an argument cannot carry one, and the internal wrappers now refuse a shell
+  outright rather than accepting one through an option.
+
 - **Key Detector names a key for dense mixes whose harmony is buried under the
   drums.** A file whose first analysis finds no defensible key is analysed a
   second time with the percussion removed, and gets a key when the harmony in

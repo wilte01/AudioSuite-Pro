@@ -12,6 +12,10 @@ absolute on the host running it. It passed ``C:/evil`` unconditionally, which is
 relative on POSIX, so ``validate_arguments`` never resolved it and nothing
 raised - a Windows-only assumption the POSIX smoke leg exposed (R-12,
 PLAN_audit_2026-10-24_deferred_p2p3.md).
+Changed in 2.7.0: the metacharacter rule moved to ``shell_mode``, so these
+tests split: metacharacters are literal arguments now (a filename may hold
+``;`` or ``&amp;``) while control characters and an explicit ``shell=True``
+are still refused.
 """
 
 import os
@@ -175,19 +179,38 @@ class TestValidateArguments:
     def test_empty_list_returns_empty(self):
         assert validate_arguments([]) == []
 
-    @pytest.mark.parametrize("bad_char", [";", "|", "`", "<", ">", '"'])
-    def test_dangerous_chars_raise(self, bad_char):
-        with pytest.raises(SubprocessSecurityError, match="[Dd]angerous"):
-            validate_arguments([f"--arg=value{bad_char}extra"])
+    @pytest.mark.parametrize("char", [";", "|", "`", "<", ">", '"', "&"])
+    def test_metacharacters_are_literal_arguments(self, char):
+        """No shell runs, so these are filename characters, not syntax."""
+        arg = f"D:\\Music\\Tom {char} Jerry.mp3"
+        assert validate_arguments([arg]) == [arg]
 
-    @pytest.mark.parametrize("pattern", ["&&", "||", "$(", "${", ">>", "2>", "<<"])
-    def test_shell_injection_patterns_raise(self, pattern):
-        with pytest.raises(SubprocessSecurityError):
-            validate_arguments([f"--source={pattern}/etc/passwd"])
+    def test_html_entity_in_a_title_is_accepted(self):
+        """The real refusal: a downloaded title storing ``&amp;`` as text."""
+        arg = "C:\\Music\\Shanks &amp; Bigfoot - Sweet Like Chocolate.mp3"
+        assert validate_arguments(["-i", arg]) == ["-i", arg]
 
-    def test_pipe_in_arg_raises(self):
+    @pytest.mark.parametrize(
+        "pattern", ["&&", "||", "$(", "${", ">>", "2>", "<<", ";", "|"]
+    )
+    def test_shell_metacharacters_raise_in_shell_mode(self, pattern):
         with pytest.raises(SubprocessSecurityError):
-            validate_arguments(["ffmpeg", "|", "cat"])
+            validate_arguments([f"--source={pattern}/etc/passwd"], shell_mode=True)
+
+    def test_nul_raises_in_every_mode(self):
+        """argv cannot carry a NUL, so a shell is not the issue."""
+        for shell_mode in (False, True):
+            with pytest.raises(SubprocessSecurityError, match="[Cc]ontrol"):
+                validate_arguments(["broken\x00name.mp3"], shell_mode=shell_mode)
+
+    def test_newline_is_accepted(self):
+        """``-c`` code and FFmpeg filter graphs carry newlines legitimately."""
+        code = "import sys\nsys.exit(0)"
+        assert validate_arguments(["-c", code]) == ["-c", code]
+
+    def test_pipe_in_arg_raises_in_shell_mode(self):
+        with pytest.raises(SubprocessSecurityError):
+            validate_arguments(["ffmpeg", "|", "cat"], shell_mode=True)
 
     def test_apostrophe_is_allowed(self):
         """Apostrophe is valid in file names like "Sam's Town"."""
@@ -214,7 +237,7 @@ class TestValidateArguments:
 
     def test_error_message_contains_offending_arg(self):
         with pytest.raises(SubprocessSecurityError) as exc_info:
-            validate_arguments(["--source=/evil|command"])
+            validate_arguments(["--source=/evil|command"], shell_mode=True)
         assert (
             "/evil|command" in str(exc_info.value)
             or "injection" in str(exc_info.value).lower()
@@ -225,6 +248,20 @@ class TestValidateArguments:
 
 
 class TestRunSecureSubprocess:
+    def test_filename_with_semicolon_measures(self, tmp_path):
+        """The end-to-end shape of the bug: a real file named with ``;``."""
+        source = tmp_path / "Tom &amp; Jerry; live.wav"
+        source.write_bytes(b"RIFF" + b"\x00" * 60)
+        result = run_secure_subprocess(
+            sys.executable, ["-c", "pass", str(source)], capture_output=True
+        )
+        assert result.returncode == 0
+
+    def test_shell_keyword_is_refused(self):
+        """A caller cannot quietly reintroduce the shell the rule depends on."""
+        with pytest.raises(SubprocessSecurityError, match="never use a shell"):
+            run_secure_subprocess(sys.executable, ["-c", "pass"], shell=True)
+
     def test_runs_allowed_executable(self, tmp_path):
         """Run python -c 'pass' — minimal safe execution."""
         result = run_secure_subprocess(
@@ -236,9 +273,10 @@ class TestRunSecureSubprocess:
         with pytest.raises(SubprocessSecurityError):
             run_secure_subprocess("bash", ["-c", "echo hi"])
 
-    def test_dangerous_argument_raises_before_spawn(self):
-        with pytest.raises(SubprocessSecurityError):
-            run_secure_subprocess(sys.executable, ["-c", "pass; rm -rf /"])
+    def test_unrepresentable_argument_raises_before_spawn(self):
+        """A NUL is refused before a process starts; ``;`` is just a filename."""
+        with pytest.raises(SubprocessSecurityError, match="[Cc]ontrol"):
+            run_secure_subprocess(sys.executable, ["-c", "pass\x00; rm -rf /"])
 
     def test_nonexistent_cwd_raises(self, tmp_path):
         missing_dir = str(tmp_path / "no_such_dir")
@@ -309,8 +347,8 @@ class TestRunSecurePopen:
             run_secure_popen("bash", ["-c", "echo hi"])
 
     def test_dangerous_arg_raises_before_spawn(self):
-        with pytest.raises(SubprocessSecurityError):
-            run_secure_popen(sys.executable, ["--evil|arg"])
+        with pytest.raises(SubprocessSecurityError, match="[Cc]ontrol"):
+            run_secure_popen(sys.executable, ["--evil\x00|arg"])
 
     def test_nonexistent_cwd_raises(self, tmp_path):
         with pytest.raises(SubprocessSecurityError):

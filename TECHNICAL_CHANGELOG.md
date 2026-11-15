@@ -438,6 +438,31 @@ used once, and every bullet belongs to exactly one of them.
   makes this distribution GPL-3 - and the buyer-facing deck, metrics sheet
   and valuation report live in `sale/`.
 
+### Fixed
+
+- **`validate_arguments` applies the metacharacter rule only in `shell_mode`.**
+  Every first-party call passes a list to `subprocess`, where `;`, `|`, `<`,
+  `>`, a backtick, `"`, `&&`, `$(`, `${`, `>>`, `<<` and `2>` are literal
+  text - the rule was written for a string handed to a shell and had no shell
+  to protect. It rejected real library files ("boy george &amp; culture club
+  - victims.mp3", "Wait For Me ～ Sara Smile (2002) - Hall &amp; Oates.mp3"),
+  and because `Library Stats` treats a refused path as an unmeasurable one, the
+  export reported them with null loudness and peak. `shell_mode` defaults to
+  `False`, so the same arguments now reach FFmpeg intact; the strict set is
+  unchanged and still enforced when a caller passes `shell_mode=True`.
+  `UNSAFE_ARGUMENT_CHARS` (a NUL alone) is refused in both modes - argv cannot
+  carry it - while a newline is accepted, since `-c` code and FFmpeg filter
+  graphs need it. `run_secure_subprocess` and `run_secure_popen` now pass
+  `shell=False` explicitly and raise `SubprocessSecurityError` for a `shell`
+  keyword instead of forwarding it, so the assumption the rule rests on is
+  structural rather than a convention. Tests: the six metacharacters plus `&`
+  pass through as literal arguments, `&amp;` in a title is accepted, the
+  sequence list and the error message still hold under `shell_mode=True`, a
+  NUL is refused in both modes, a newline is accepted, a real `python -c` run
+  receives a path containing `;` and `&amp;`, and a `shell=True` call is
+  refused. Measured after the fix: the five previously refused files in the
+  405-track library now report loudness (e.g. -13.9 LUFS) and true peak.
+
 ## [2.6.0] - 2026-11-11
 
 ### Added

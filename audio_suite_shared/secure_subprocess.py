@@ -16,6 +16,15 @@ Changed in 2.5.0: the refused character and sequence sets are declared once
 (``DANGEROUS_CHARS`` / ``DANGEROUS_SEQUENCES``) and ``sanitize_argument``
 removes exactly what ``validate_arguments`` refuses, so the CUE splitter no
 longer carries a private copy of the metacharacter set.
+
+Changed in 2.7.0: those sets are shell rules, so ``validate_arguments`` now
+applies them only in ``shell_mode``.  Every caller passes a list to
+``subprocess`` with no shell, where ``;``, ``|``, ``<``, ``>``, a backtick and
+``&&`` are ordinary characters; refusing them rejected real files ("9 to 5 &
+more.mp3", a title carrying an HTML entity such as ``&amp;``) from every
+measured path.  What argv genuinely cannot carry is still refused in both
+modes, and the wrapper now rejects a ``shell`` keyword instead of forwarding
+it.
 """
 
 import logging
@@ -82,6 +91,13 @@ ALLOWED_SCRIPT_EXTENSIONS = {".py", ".pyw"}
 #   the conservative cross-platform choice — paths containing ' are common
 #   (e.g. "Sam's Town.flac") while paths containing " are vanishingly rare.
 DANGEROUS_CHARS = {";", "|", "`", "<", ">", '"'}
+
+# Characters no argument may carry in any mode.  A NUL cannot be represented in
+# argv at all (the C runtime truncates at it, so the child would silently see a
+# different value).  Everything else - including a newline, which ``-c`` code
+# and FFmpeg filter graphs legitimately contain - is a shell rule, not a
+# subprocess rule: see ``validate_arguments``.
+UNSAFE_ARGUMENT_CHARS = {"\x00"}
 
 # Sequences that are refused even though no single character in them is a
 # metacharacter: a doubled ampersand or pipe chains a command, and ``$(`` /
@@ -199,12 +215,22 @@ def validate_script_path(script_path: str) -> bool:
     return True
 
 
-def validate_arguments(args: list[str]) -> list[str]:
+def validate_arguments(args: list[str], *, shell_mode: bool = False) -> list[str]:
     """
     Validate and sanitize subprocess arguments.
 
+    The wrapper runs every command as an argument list with no shell, so a
+    metacharacter inside an argument is a literal character, not syntax: a file
+    called ``Tom & Jerry; live.mp3`` reaches FFmpeg intact.  ``DANGEROUS_CHARS``
+    and ``DANGEROUS_SEQUENCES`` therefore apply only to ``shell_mode``, for a
+    caller that really does hand a string to a shell.  Characters that break
+    argv itself (a NUL) are refused in both modes; a newline is not one of them,
+    because ``python -c`` code and FFmpeg filter graphs contain it.
+
     Args:
         args: List of arguments to validate
+        shell_mode: Apply the shell-metacharacter rule as well. No first-party
+            caller uses a shell; the default matches ``subprocess``'s own.
 
     Returns:
         Sanitized arguments list
@@ -215,16 +241,21 @@ def validate_arguments(args: list[str]) -> list[str]:
     sanitized = []
 
     for arg in args:
-        # Check for dangerous characters
-        if any(char in arg for char in DANGEROUS_CHARS):
-            raise SubprocessSecurityError(f"Dangerous character in argument: {arg}")
+        # Characters that no argument can carry, shell or not
+        if any(char in arg for char in UNSAFE_ARGUMENT_CHARS):
+            raise SubprocessSecurityError(f"Control character in argument: {arg!r}")
 
-        # Check for shell injection patterns
-        for pattern in (*DANGEROUS_CHARS, *DANGEROUS_SEQUENCES):
-            if pattern in arg:
-                raise SubprocessSecurityError(
-                    f"Shell injection pattern detected: {arg}"
-                )
+        if shell_mode:
+            # Check for dangerous characters
+            if any(char in arg for char in DANGEROUS_CHARS):
+                raise SubprocessSecurityError(f"Dangerous character in argument: {arg}")
+
+            # Check for shell injection patterns
+            for pattern in (*DANGEROUS_CHARS, *DANGEROUS_SEQUENCES):
+                if pattern in arg:
+                    raise SubprocessSecurityError(
+                        f"Shell injection pattern detected: {arg}"
+                    )
 
         # Validate absolute file paths in arguments
         if os.path.isabs(arg):
@@ -294,6 +325,12 @@ def run_secure_subprocess(
     # Validate executable
     validate_executable(executable)
 
+    # A shell would make the metacharacter rule necessary again, and no caller
+    # may quietly reintroduce one through **kwargs.
+    if kwargs.get("shell"):
+        raise SubprocessSecurityError("the secure wrappers never use a shell")
+    kwargs.pop("shell", None)
+
     # Validate arguments
     safe_args = validate_arguments(args)
 
@@ -334,6 +371,7 @@ def run_secure_subprocess(
             capture_output=capture_output,
             check=check,
             text=text,
+            shell=False,
             startupinfo=get_startupinfo(),
             **kwargs,
         )
@@ -393,6 +431,12 @@ def run_secure_popen(
     # Validate executable
     validate_executable(executable)
 
+    # A shell would make the metacharacter rule necessary again, and no caller
+    # may quietly reintroduce one through **kwargs.
+    if kwargs.get("shell"):
+        raise SubprocessSecurityError("the secure wrappers never use a shell")
+    kwargs.pop("shell", None)
+
     # Validate arguments
     safe_args = validate_arguments(args)
 
@@ -425,6 +469,7 @@ def run_secure_popen(
             cmd,
             cwd=safe_cwd,
             text=True,
+            shell=False,
             creationflags=creation_flags(),
             startupinfo=get_startupinfo(),
             **kwargs,
