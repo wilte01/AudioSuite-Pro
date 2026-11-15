@@ -153,7 +153,9 @@ Two of those figures are worth reading carefully. **Phase correlation** near +1 
 
 A figure that could not be measured is blank, never zero: a file shorter than three seconds has no gated loudness range to report, and a mono file has no phase correlation. A file the measurement refused keeps its row and shows why in the QC table's `qc_error` column, so a QC pass never loses a track because its audio could not be read.
 
-Use `--qc-csv` and `--qc-json` to write the per-file QC table on its own, without an export. The JSON payload also lists the worst offenders, so a script can name them without re-deriving the order, and `--qc-workers` reads that many files at once. Without it, the pass uses half your CPU cores, capped at 8 - on a 20-core machine that was the point where more workers stopped paying (51 files ran 4.9x faster at eight and only 5.7x at sixteen).
+Use `--qc-csv` and `--qc-json` to write the per-file QC table on its own, without an export. The JSON payload also lists the worst offenders, so a script can name them without re-deriving the order, and `--qc-workers` reads that many files at once. Without it, the pass uses half your CPU cores, capped at 8.
+
+That cap comes from measurement, on album-length material rather than short test files. On a 405-track, 2.66 GB library the pass measured each track in about **3.1 s on one worker and 0.46 s on eight** - roughly seven times faster - and sixteen workers were no quicker: one run was 10% faster, the next 10% slower, so the difference was noise. Thirty-two workers took three times as long as eight, because past that point the extra threads only queue for the disk. On a 20-core machine, then, expect about half a second per track at the default, and a 400-track library to take a few minutes rather than the twenty it takes serially. Raise `--qc-workers` only if you have measured a gain on your own machine.
 
 ### Choosing Columns
 
