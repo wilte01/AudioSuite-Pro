@@ -22,6 +22,11 @@
       "match": "built without libsoxr",
       "max": 3,
       "why": "CI installs ffmpeg through chocolatey, and gyan.dev's essentials build omits --enable-libsoxr, so the three resampler-quality cases cannot configure aresample=resampler=soxr there. A developer build with libsoxr runs all three."
+    },
+    {
+      "match": "Windows drive-relative paths",
+      "max": 1,
+      "why": "A drive-relative path (C:folder, no separator) exists only on Windows, so the containment case cannot be constructed on POSIX. It runs on every Windows host including CI's Windows job, which is where the containment behaviour is asserted."
     }
   ]
 }

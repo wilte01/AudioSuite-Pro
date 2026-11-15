@@ -46,6 +46,30 @@ used once, and every bullet belongs to exactly one of them.
   after the fix: 13 of 13 M4A tracks in the real library now report all three
   figures, in 2.8 s each.
 
+### Fixed
+
+- **The two modules the Python 3.11 type-check leg rejected now pass it.**
+  CI's `Type Check` job runs bare `mypy .` on 3.11 with the analysis and
+  cd-ripping extras, and it had been red since 2026-11-12 while the 3.14 dev
+  host was clean. `library_stats/core/qc.py` annotated `_read_samples` and the
+  three sample helpers with a bare `np.ndarray`, which the 3.11 graph's numpy
+  stubs report as `type-arg` under `disallow_any_generics`, and
+  `pitch_time/core/engine.py::_pcm_bytes` returned numpy's `Any` straight from
+  a `bytes` function (`no-any-return`). Both are fixed at the cause: the four
+  annotations are `npt.NDArray[np.float32]`, and the packed arrays are bound
+  to `bytes` locals before returning. Verified by syncing a throwaway 3.11
+  environment with the CI's three extras and running `mypy .` in it - 650
+  files, no issues - so the dev host and the gating interpreter agree.
+
+- **`tag_editor`'s drive-relative containment case is in the skip budget.**
+  A drive-relative path (`C:folder`, with no separator) exists only on
+  Windows, so the case skips on the POSIX smoke leg, and `conftest.py` ended
+  that run with "Skip budget exceeded" because the reason was not listed. The
+  budget now admits one skip of "Windows drive-relative paths" with the
+  prerequisite named. The case still runs on every Windows host, including the
+  Windows job where the containment behaviour is asserted.
+
+
 ## [2.7.0] - 2026-11-15
 
 ### Added

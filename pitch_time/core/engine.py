@@ -113,9 +113,13 @@ def _pcm_bytes(interleaved: npt.NDArray[np.float64], width: int) -> bytes:
     clipped = np.clip(interleaved, -1.0, 1.0)
     if width == 3:
         wide = np.round(clipped * scale).astype(np.int32)
-        return wide.astype("<i4").view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
+        packed: bytes = (
+            wide.astype("<i4").view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
+        )
+        return packed
     dtype = {1: np.int8, 2: np.int16, 4: np.int32}[width]
-    return np.round(clipped * scale).astype(dtype).tobytes()
+    whole: bytes = np.round(clipped * scale).astype(dtype).tobytes()
+    return whole
 
 
 def _write(

@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import soundfile as sf
 
 from audio_suite_shared.audio_probe import (
@@ -269,7 +270,7 @@ def worst_offenders(
 
 def _read_samples(
     path: str, *, stream: StreamInfo | None = None
-) -> tuple[np.ndarray, int]:
+) -> tuple[npt.NDArray[np.float32], int]:
     """Decode *path* to a ``(frames, channels)`` float array and its rate.
 
     ``soundfile`` is tried first: it reads the containers libsndfile supports
@@ -306,12 +307,12 @@ def _read_samples(
     return data, int(samplerate)
 
 
-def _clipped_samples(samples: np.ndarray) -> int:
+def _clipped_samples(samples: npt.NDArray[np.float32]) -> int:
     """Return how many frames hold at least one sample at full scale."""
     return int(np.count_nonzero(np.any(np.abs(samples) >= CLIP_FLOOR, axis=1)))
 
 
-def _dropouts(samples: np.ndarray, samplerate: int) -> int:
+def _dropouts(samples: npt.NDArray[np.float32], samplerate: int) -> int:
     """Return how many runs of digital silence the file holds.
 
     A dropout is a run, not a sample: a zero crossing is one sample of near-zero
@@ -334,7 +335,7 @@ def _dropouts(samples: np.ndarray, samplerate: int) -> int:
     return count
 
 
-def _phase_correlation(samples: np.ndarray) -> float | None:
+def _phase_correlation(samples: npt.NDArray[np.float32]) -> float | None:
     """Return the two channels' correlation, or ``None`` when it is undefined."""
     if samples.shape[1] < 2:
         return None
