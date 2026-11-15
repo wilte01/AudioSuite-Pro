@@ -16,6 +16,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.7.0] - 2026-11-15
+
 ### Added
 
 - **`AuditionMixin` gains a level-matched and blind A/B, wired through the

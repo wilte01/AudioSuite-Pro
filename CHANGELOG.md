@@ -22,6 +22,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.7.0] - 2026-11-15
+
 ### Added
 
 - **The before/after audition can now compare at the same loudness, blind.** Two
