@@ -22,7 +22,18 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **M4A, WMA and WavPack files now report clipping, dropouts and phase.** Those
+  three QC columns were counted from samples the audio library read, and it
+  cannot open a lossy container: in one 405-track library 187 files reported
+  them blank while their loudness and true peak measured normally. The samples
+  now come from an FFmpeg decode when the library refuses the file, at the
+  file's own sample rate and channel count, so a whole share of a library stops
+  dropping out of three columns. Thirteen M4A tracks that had lost all three
+  now report them - one with 736 clipped frames and one silence run. For a
+  lossy file the figures describe what the decoder outputs, which is what a
+  player feeds to the converter.
 
 ## [2.7.0] - 2026-11-15
 

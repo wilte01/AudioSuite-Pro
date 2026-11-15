@@ -153,9 +153,19 @@ Two of those figures are worth reading carefully. **Phase correlation** near +1 
 
 A figure that could not be measured is blank, never zero: a file shorter than three seconds has no gated loudness range to report, and a mono file has no phase correlation. A file the measurement refused keeps its row and shows why in the QC table's `qc_error` column, so a QC pass never loses a track because its audio could not be read.
 
+Clipped samples, dropouts and phase correlation are counted from the file's own audio, which is read directly when the audio library can open the container and otherwise decoded by FFmpeg at the file's own sample rate and channel count. So an M4A, WMA or WavPack file reports all three like a WAV does, instead of leaving them blank while its loudness and peak still measured. For a lossy file the figures describe what the decoder outputs, which is what a player feeds to the converter; AAC overshoots slightly around full scale, so a hot master can show a few frames at full scale that the encoder never stored as clipped.
+
 Use `--qc-csv` and `--qc-json` to write the per-file QC table on its own, without an export. The JSON payload also lists the worst offenders, so a script can name them without re-deriving the order, and `--qc-workers` reads that many files at once. Without it, the pass uses half your CPU cores, capped at 8.
 
-That cap comes from measurement, on album-length material rather than short test files. On a 405-track, 2.66 GB library the pass measured each track in about **3.1 s on one worker and 0.46 s on eight** - roughly seven times faster - and sixteen workers were no quicker: one run was 10% faster, the next 10% slower, so the difference was noise. Thirty-two workers took three times as long as eight, because past that point the extra threads only queue for the disk. On a 20-core machine, then, expect about half a second per track at the default, and a 400-track library to take a few minutes rather than the twenty it takes serially. Raise `--qc-workers` only if you have measured a gain on your own machine.
+That cap comes from measurement, on album-length material rather than short test
+files. On a 405-track, 2.66 GB library the pass measured each track in about **3.1 s
+when it ran one at a time and 0.46 s at the default** - roughly seven times faster.
+Twice the cap measured no quicker: one run came in 10% faster than the cap and the
+next 10% slower, which is noise. Four times the cap took three times as long as the
+cap, because past that point the extra threads only queue for the disk. On a 20-core
+machine that is about half a second per track, and a few minutes for a 400-track
+library rather than the twenty it takes serially. Raise `--qc-workers` only after
+measuring a gain on your own machine.
 
 ### Choosing Columns
 

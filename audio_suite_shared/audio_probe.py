@@ -12,6 +12,13 @@ inferred.  ``audio.get(...) or audio.get(...)`` infers ``Any | None``, which
 truly is - unvalidated ffprobe JSON - instead of narrowing it, so the runtime
 behaviour and the ``in (None, "", "0")`` guard are unchanged.
 
+Changed in 2.7.0: :func:`decode_samples` decodes a whole file to float32
+frames for the figures no probe reports - clipped samples, silence runs,
+channel correlation - so a container libsndfile cannot read (``.m4a``,
+``.wma``, WavPack) still yields them.  It lives here because this module owns
+the suite's FFmpeg invocations; a second ``ffmpeg`` call site in
+``library_stats.core.qc`` is exactly what that module's lock forbids.
+
 Why one module
 --------------
 Six independent FFmpeg measurement implementations had grown up beside each
@@ -61,6 +68,9 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
+import numpy.typing as npt
 
 from .audio_formats import FORMAT_MATRIX
 from .constants import WORKER_TIMEOUT_SECS
@@ -199,14 +209,16 @@ def _require_readable(path: str) -> None:
 
 
 def _run(
-    executable: str, args: list[str], *, path: str
-) -> subprocess.CompletedProcess[str]:
+    executable: str, args: list[str], *, path: str, binary: bool = False
+) -> subprocess.CompletedProcess[Any]:
     """Run one FFmpeg-family command through the secure wrapper.
 
     Args:
         executable: Executable name, already resolved by the caller.
         args: Arguments, without the executable.
         path: The audio file being measured, for messages.
+        binary: Return raw ``bytes`` from stdout instead of decoded text,
+            for a sample decode.
 
     Returns:
         The completed process, with ``stdout``/``stderr`` decoded as text.
@@ -218,12 +230,13 @@ def _run(
             argument.
     """
     try:
-        result: subprocess.CompletedProcess[str] = run_secure_subprocess(
+        result: subprocess.CompletedProcess[Any] = run_secure_subprocess(
             executable,
             args,
             capture_output=True,
-            encoding="utf-8",
-            errors="ignore",
+            text=not binary,
+            encoding=None if binary else "utf-8",
+            errors=None if binary else "ignore",
             timeout=WORKER_TIMEOUT_SECS,
             check=False,
             log_failure=False,
@@ -985,3 +998,102 @@ def decoded_duration(path: str, *, ffmpeg: str | None = None) -> float:
             context={"file": path},
         )
     return metrics.duration_sec
+
+
+#: A sample decode is held in memory as float32, four bytes per channel per
+#: frame.  One GiB is about an hour and three quarters of 44.1 kHz stereo, past
+#: which refusing is better than taking the machine down with a QC pass.
+MAX_DECODED_BYTES = 1 << 30
+
+
+def decode_samples(
+    path: str, *, stream: StreamInfo | None = None, ffmpeg: str | None = None
+) -> tuple[npt.NDArray[np.float32], int]:
+    """Decode *path* to float32 frames, for the figures no probe reports.
+
+    ``soundfile`` covers what libsndfile reads.  A lossy container (``.m4a``,
+    ``.wma``) and WavPack are not among them, so a caller that counts clipped
+    samples, silence runs or channel correlation from the samples would get
+    nothing at all from such a file, while its loudness and peak still measured.
+    This decodes through FFmpeg at the stream's own rate and channel count:
+    nothing is resampled, downmixed or normalised, so the frames are what a
+    player would feed a converter.
+
+    Samples above full scale are returned as measured.  A lossy decoder
+    overshoots, and clamping here would hide the over-full output a QC pass is
+    looking for.
+
+    Args:
+        path: The audio file.
+        stream: Its probe result, when the caller already has one; saves the
+            second ``ffprobe``.
+        ffmpeg: Executable to use; defaults to ``ffmpeg`` on ``PATH``.
+
+    Returns:
+        ``(frames, samplerate)``, where *frames* is ``(samples, channels)``.
+
+    Raises:
+        AudioFormatError: The container is not readable, FFmpeg decoded no
+            audio, or the decode would not fit in memory.
+        AudioExternalToolError: FFmpeg could not be run.
+    """
+    _require_readable(path)
+    info = stream or probe_stream(path)
+    channels = max(1, info.channels)
+    samplerate = info.sample_rate
+    if samplerate <= 0:
+        raise AudioFormatError(
+            f"FFprobe reported no sample rate for '{_file_name(path)}'.",
+            context={"file": path},
+        )
+
+    expected = info.duration_sec * samplerate * channels * 4
+    if expected > MAX_DECODED_BYTES:
+        raise AudioFormatError(
+            f"'{_file_name(path)}' would decode to {expected / (1 << 20):.0f} MiB "
+            f"of samples, over the {MAX_DECODED_BYTES // (1 << 20)} MiB this pass "
+            "holds in memory.",
+            context={"file": path, "decoded_bytes": expected},
+        )
+
+    executable = ffmpeg or FFMPEG_EXECUTABLE
+    result = _run(
+        executable,
+        [
+            "-hide_banner",
+            "-v",
+            "error",
+            "-nostdin",
+            "-i",
+            path,
+            "-map",
+            "0:a:0",
+            "-f",
+            "f32le",
+            "-acodec",
+            "pcm_f32le",
+            "-",
+        ],
+        path=path,
+        binary=True,
+    )
+    payload = result.stdout
+    if result.returncode != 0 or not payload:
+        detail = (result.stderr or b"").decode("utf-8", "replace").strip()
+        raise AudioFormatError(
+            f"FFmpeg decoded no audio from '{_file_name(path)}'."
+            + (f" {detail}" if detail else ""),
+            context={"file": path, "returncode": result.returncode},
+        )
+
+    frames: npt.NDArray[np.float32] = np.frombuffer(payload, dtype="<f4")
+    usable = frames.size - frames.size % channels
+    if usable == 0:
+        raise AudioFormatError(
+            f"FFmpeg returned {frames.size} sample(s) for '{_file_name(path)}', "
+            f"not a whole frame of {channels} channel(s).",
+            context={"file": path, "samples": int(frames.size)},
+        )
+    return frames[:usable].reshape(-1, channels).astype(np.float32, copy=False), int(
+        samplerate
+    )

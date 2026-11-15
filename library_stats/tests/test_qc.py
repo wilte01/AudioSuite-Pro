@@ -376,6 +376,123 @@ class TestRefusals:
         assert metrics.clipped_samples is None
 
 
+def _encode(source: Path, target: Path, *codec: str) -> Path:
+    """Encode *source* to *target* with FFmpeg, or skip where it cannot."""
+    result = subprocess.run(
+        [
+            FFMPEG_EXECUTABLE,
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            *codec,
+            str(target),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if result.returncode != 0 or not target.is_file():
+        pytest.skip(
+            f"FFmpeg cannot encode {target.suffix}: {result.stderr.strip()[:80]}"
+        )
+    return target
+
+
+class TestFallbackDecode:
+    """A container libsndfile cannot read keeps its sample-level figures."""
+
+    def test_a_lossless_container_libsndfile_cannot_read_measures_exactly(
+        self, tmp_path: Path
+    ) -> None:
+        """WavPack round-trips the samples, so the counts can be exact."""
+        from library_stats.core.qc import measure_file
+
+        mono = _sine(2.0, dbfs=-9.0)
+        clipped_at = [4000, 4001, 4002, 9000, 9001]
+        mono[clipped_at] = 1.0
+        gap = int(SAMPLERATE * 0.020)
+        mono[30000 : 30000 + gap] = 0.0
+        source = _write(tmp_path / "damaged.wav", np.stack([mono, mono], axis=1))
+        packaged = _encode(source, tmp_path / "damaged.wv", "-c:a", "wavpack")
+
+        with pytest.raises(sf.LibsndfileError):
+            sf.read(str(packaged))
+
+        metrics = measure_file(str(packaged))
+
+        assert metrics.qc_error == ""
+        assert metrics.clipped_samples == len(clipped_at)
+        assert metrics.dropouts == 1
+        assert metrics.phase_correlation == pytest.approx(1.0, abs=0.01)
+
+    def test_an_m4a_reports_the_three_sample_figures(self, tmp_path: Path) -> None:
+        """The real-world case: AAC, which libsndfile cannot open at all."""
+        from library_stats.core.qc import measure_file
+
+        mono = _sine(2.0, dbfs=-12.0)
+        source = _write(tmp_path / "track.wav", np.stack([mono, mono], axis=1))
+        packaged = _encode(
+            source, tmp_path / "track.m4a", "-c:a", "aac", "-b:a", "192k"
+        )
+
+        metrics = measure_file(str(packaged))
+
+        assert metrics.qc_error == ""
+        assert metrics.clipped_samples is not None
+        assert metrics.dropouts is not None
+        assert metrics.phase_correlation is not None
+        assert metrics.phase_correlation == pytest.approx(1.0, abs=0.05)
+        assert metrics.integrated_lufs is not None
+
+    def test_a_readable_wav_never_reaches_the_fallback(self, tmp_path: Path) -> None:
+        """The fallback is a fallback: a WAV is read by soundfile alone."""
+        from library_stats.core import qc
+
+        path = _write(tmp_path / "plain.wav", np.stack([_sine(1.0)] * 2, axis=1))
+
+        def refuse(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("a readable WAV must not go through FFmpeg")
+
+        monkeypatched = pytest.MonkeyPatch()
+        monkeypatched.setattr(qc, "decode_samples", refuse)
+        try:
+            metrics = qc.measure_file(str(path))
+        finally:
+            monkeypatched.undo()
+
+        assert metrics.qc_error == ""
+        assert metrics.clipped_samples is not None
+
+    def test_both_decoders_failing_keeps_the_probe_figures(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A refused container costs three columns, never the whole row."""
+        from audio_suite_shared.exceptions import AudioFormatError
+        from library_stats.core import qc
+
+        mono = _sine(2.0, dbfs=-12.0)
+        source = _write(tmp_path / "track.wav", np.stack([mono, mono], axis=1))
+        packaged = _encode(
+            source, tmp_path / "track.m4a", "-c:a", "aac", "-b:a", "192k"
+        )
+
+        def refuse(*_args: Any, **_kwargs: Any) -> Any:
+            raise AudioFormatError("FFmpeg decoded no audio")
+
+        monkeypatch.setattr(qc, "decode_samples", refuse)
+        metrics = qc.measure_file(str(packaged))
+
+        assert metrics.qc_error == ""
+        assert metrics.integrated_lufs is not None
+        assert metrics.clipped_samples is None
+        assert metrics.dropouts is None
+        assert metrics.phase_correlation is None
+        assert metrics.phase_note == qc.PHASE_UNAVAILABLE
+
+
 class TestReadOnly:
     """The pass measures; it writes nothing and opens nothing for append."""
 

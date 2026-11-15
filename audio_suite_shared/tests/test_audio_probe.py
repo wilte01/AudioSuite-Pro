@@ -24,6 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from audio_suite_shared import audio_probe
@@ -468,6 +469,54 @@ class TestDecodedDuration:
         unsupported = write_tone(tmp_path / "song.webm")
         with pytest.raises(AudioFormatError):
             audio_probe.decoded_duration(unsupported)
+
+
+@pytest.mark.integration
+class TestDecodeSamples:
+    """A full float decode, for the figures no probe reports."""
+
+    def test_it_returns_the_pcm_the_file_holds(self, tone: str) -> None:
+        frames, samplerate = audio_probe.decode_samples(tone)
+
+        assert samplerate == SAMPLE_RATE
+        assert frames.shape[1] == 2
+        assert frames.dtype == np.float32
+        assert float(np.max(np.abs(frames))) == pytest.approx(0.5, abs=1e-3)
+
+    def test_channels_stay_unpacked(self, tone: str) -> None:
+        """A frame is one sample per channel, not one interleaved row."""
+        frames, _ = audio_probe.decode_samples(tone)
+
+        assert frames.shape[0] == SAMPLE_RATE
+        assert np.array_equal(frames[:, 0], frames[:, 1])
+
+    def test_an_over_full_sample_is_not_clamped(self, tmp_path: Path) -> None:
+        """A lossy decoder overshoots; clamping would hide it."""
+        sf = pytest.importorskip("soundfile")
+        path = tmp_path / "hot.wav"
+        loud = np.full((SAMPLE_RATE, 2), 1.25, dtype=np.float32)
+        sf.write(str(path), loud, SAMPLE_RATE, subtype="FLOAT")
+
+        frames, _ = audio_probe.decode_samples(str(path))
+
+        assert float(np.max(frames)) > 1.2
+
+    def test_a_decode_past_the_memory_budget_is_refused(self, tone: str) -> None:
+        stream = dataclasses.replace(
+            audio_probe.probe_stream(tone), duration_sec=4000.0
+        )
+
+        with pytest.raises(AudioFormatError, match="MiB"):
+            audio_probe.decode_samples(tone, stream=stream)
+
+    def test_a_file_ffmpeg_cannot_decode_is_refused(self, tmp_path: Path) -> None:
+        junk = tmp_path / "junk.wav"
+        junk.write_bytes(b"not audio at all" * 64)
+
+        with pytest.raises(
+            AudioFormatError, match="no audio stream|not readable|decoded no audio"
+        ):
+            audio_probe.decode_samples(str(junk))
 
 
 @pytest.mark.integration

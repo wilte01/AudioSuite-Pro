@@ -16,7 +16,35 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`audio_probe.decode_samples` decodes a whole file to float32 frames.**
+  `library_stats.core.qc` counted clipped samples, silence runs and phase
+  correlation with `soundfile`, so a container libsndfile cannot open (`.m4a`,
+  `.wma`, WavPack) lost those three figures while `measure_forensics` still
+  reported its own - 187 of 405 tracks in one real library. `_read_samples` now
+  falls back to `decode_samples`, which runs one `ffmpeg -f f32le` decode
+  through `run_secure_subprocess` at the stream's own rate and channel count
+  (no resample, downmix or normalisation) and unpacks the interleaved samples
+  into `(frames, channels)`. It lives in `audio_probe` because that module owns
+  the suite's FFmpeg invocations; `library_stats.core.qc` keeps its
+  `test_the_module_runs_no_process_of_its_own` lock, which asserts it imports no
+  `subprocess`. Samples above full scale are returned as measured rather than
+  clamped: a lossy decoder overshoots, and clamping would hide the over-full
+  output the pass is looking for - the guide says so where the columns are
+  explained. `MAX_DECODED_BYTES` (1 GiB, about 1h45 of 44.1 kHz stereo) refuses
+  a decode that would not fit rather than exhausting the machine, and both
+  decoders failing keeps the probe's own figures with `PHASE_UNAVAILABLE`
+  instead of losing the row. Tests: 5 in `test_audio_probe.py` (peak and channel
+  layout against a real PCM WAV, an over-full sample surviving unclamped, the
+  memory budget, a file FFmpeg cannot decode) and 4 in `test_qc.py` - a
+  WavPack file, which round-trips the samples, reporting exactly the 5 clipped
+  frames, the 1 silence run and the +1.0 correlation it was built with; an M4A
+  reporting all three; a readable WAV never reaching the fallback; and a refused
+  container keeping its loudness. The two substantive tests fail with the
+  fallback removed (verified by break-and-restore, SHA-256 checked). Measured
+  after the fix: 13 of 13 M4A tracks in the real library now report all three
+  figures, in 2.8 s each.
 
 ## [2.7.0] - 2026-11-15
 

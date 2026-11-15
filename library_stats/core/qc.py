@@ -8,6 +8,13 @@ and per-channel DC offset are FFmpeg's, read from the shared probe so this modul
 runs no process of its own.  Clipped samples, dropouts and phase correlation are
 not something FFmpeg reports, so they are counted from the decoded samples.
 
+Those samples come from ``soundfile`` when libsndfile reads the container,
+and otherwise from the shared :func:`audio_suite_shared.audio_probe.
+decode_samples`, which decodes through FFmpeg at the file's own rate and
+channel count.  A ``.m4a`` or WavPack file therefore keeps its clipping,
+silence-run and phase figures, where it used to lose three columns while
+its loudness and peak still measured.
+
 "DR" is deliberately not a column: the crest factor is what this module measures,
 and a user comparing it with a TT-DR meter would be comparing two different
 things.  The guide says so where the column is explained.
@@ -26,6 +33,7 @@ import soundfile as sf
 from audio_suite_shared.audio_probe import (
     ForensicMetrics,
     StreamInfo,
+    decode_samples,
     measure_forensics,
     probe_stream,
 )
@@ -259,26 +267,42 @@ def worst_offenders(
     return tuple(ranked[:limit])
 
 
-def _read_samples(path: str) -> tuple[np.ndarray, int]:
+def _read_samples(
+    path: str, *, stream: StreamInfo | None = None
+) -> tuple[np.ndarray, int]:
     """Decode *path* to a ``(frames, channels)`` float array and its rate.
+
+    ``soundfile`` is tried first: it reads the containers libsndfile supports
+    without starting a process, and it is the decoder the rest of this module
+    is calibrated against.  A container it cannot open - ``.m4a``, ``.wma``,
+    WavPack - is decoded by the shared probe instead, so a container the
+    library cannot read no longer costs three of the nine QC columns.
 
     Args:
         path: The audio file.
+        stream: The file's probe result, when the caller has one; the FFmpeg
+            decode needs the channel count and rate it reports.
 
     Returns:
         The samples and the sample rate.
 
     Raises:
-        AudioSuiteError: The file could not be decoded.  ``soundfile``'s own
-            exception is not part of this module's contract, so it is wrapped.
+        AudioSuiteError: Neither decoder could read the file.  ``soundfile``'s
+            own exception is not part of this module's contract, so it is
+            wrapped, and the FFmpeg failure is kept as the cause.
     """
     try:
         data, samplerate = sf.read(path, always_2d=True, dtype="float32")
     except (RuntimeError, ValueError, OSError) as exc:
-        raise AudioFormatError(
-            f"'{path}' could not be decoded for sample-level QC: {exc}",
-            context={"file": path},
-        ) from exc
+        try:
+            return decode_samples(path, stream=stream)
+        except AudioSuiteError as fallback:
+            raise AudioFormatError(
+                f"'{path}' could not be decoded for sample-level QC: "
+                f"soundfile could not read it ({exc}) and the FFmpeg decode "
+                f"failed too ({fallback})",
+                context={"file": path},
+            ) from fallback
     return data, int(samplerate)
 
 
@@ -401,7 +425,7 @@ def measure_file(path: str) -> QcMetrics:
 
     duration = stream.duration_sec
     try:
-        samples, samplerate = _read_samples(path)
+        samples, samplerate = _read_samples(path, stream=stream)
     except AudioSuiteError:
         return _from_probe(
             path,
