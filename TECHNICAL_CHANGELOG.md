@@ -46,6 +46,22 @@ used once, and every bullet belongs to exactly one of them.
   after the fix: 13 of 13 M4A tracks in the real library now report all three
   figures, in 2.8 s each.
 
+### Changed
+
+- **A cut refuses to tag a commit whose CI has not passed.** The procedure
+  could tag a red commit, and it did: `v2.7.0` was cut while CI had been
+  failing since 2026-11-12, because nothing in `utilities/release.py` shaped
+  or read that verdict. `publish_version` now asks `gh run list --commit`
+  before anything is tagged. A failed run, or one still going, prints the
+  next step and returns with no tag; the suite's own `CI` workflow is the
+  judge when it has a run, so a failing documentation or dependency job does
+  not block a green suite. A commit with no run (a local repository, an
+  unpushed cut) says so and continues, and `--offline` prints that CI was
+  not checked rather than implying it passed. `gh` is resolved before the
+  tag now, so a missing CLI can no longer leave one behind it. Six tests
+  drive the recorded `gh` stand-in: red, still running, green, a failing
+  sibling workflow, no run, and offline.
+
 ### Fixed
 
 - **The two modules the Python 3.11 type-check leg rejected now pass it.**

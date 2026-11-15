@@ -73,6 +73,12 @@ the same release differently.
 If you commit the cut and forget the second run, the release exists only as
 untagged code. Re-running the command is the fix; so is the backfill below.
 
+A tag cannot be moved, so the second run reads the commit's CI verdict first.
+A failed run, or one still going, is printed as the next step and nothing is
+tagged: push a fix, or wait for the run, then repeat the same command. A
+checkout with no run for the commit says so and continues, and `--offline`
+prints that CI was not checked instead of implying it passed.
+
 ## What each step checks
 
 * **Version** — read from `[project] version`, never a second constant, and
@@ -87,6 +93,8 @@ untagged code. Re-running the command is the fix; so is the backfill below.
   release, and fails the cut.
 * **Gate** — compile over the tracked file list, ruff check and format, mypy,
   bandit parsed for 0 High / 0 Medium, then the bare test suite.
+* **CI** — the release commit's `gh run` verdict must be green before the tag
+  is created; a failed or unfinished `CI` run stops the cut.
 * **Publishing** — only on a clean tree whose `HEAD` declares the version.
 
 Every step is idempotent: a second run of the same version reports `[SKIP]` and

@@ -78,12 +78,21 @@ already exist and ``--no-publish`` opts out. 2.3.1 shipped with no tag at
 all, and no release in this project had ever had a Releases-page entry,
 because that step lived only in the release checklist.
 
+Changed in 2.7.0: a cut refuses to tag a commit whose CI has not passed.
+The verdict is read through ``gh run list --commit`` before anything is
+tagged, so a failed run - or one still going - is reported as the next step
+and no tag is created; ``v2.7.0`` was tagged while CI had been red for three
+days because nothing in this module looked. Only the suite's own ``CI``
+workflow is judged when it has a run, and a commit with no run says so and
+continues, since a local repository has none to ask.
+
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import re
 import shutil
@@ -848,6 +857,90 @@ def _git_lines(root: Path, args: list[str], runner: Runner) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+#: `gh run` conclusions that make a commit unfit to tag.  A release cut from a
+#: red run is how 2.7.0 was published while CI had been failing since the 12th.
+CI_FAILURE_CONCLUSIONS = {
+    "failure",
+    "cancelled",
+    "timed_out",
+    "startup_failure",
+    "action_required",
+}
+
+#: Run states that mean the verdict is not in yet, so it is too early to tag.
+CI_PENDING_STATUSES = {
+    "queued",
+    "in_progress",
+    "requested",
+    "waiting",
+    "pending",
+}
+
+
+def ci_verdict(root: Path, sha: str, gh: str, runner: Runner = _run) -> tuple[str, str]:
+    """Return what CI says about *sha*, with a detail line for the message.
+
+    Only the suite's own ``CI`` workflow is consulted when it has a run for the
+    commit, because a documentation publish or dependency-graph job failing is
+    not the gate this check exists for; a repository whose workflow is named
+    something else is judged on all of its runs.
+
+    Args:
+        root: The repository root.
+        sha: The commit to ask about, normally ``HEAD``.
+        gh: GitHub CLI executable.
+        runner: The command runner, injected by tests.
+
+    Returns:
+        ``("green", "")``, ``("red", detail)``, ``("running", detail)``, or
+        ``("unknown", detail)`` when there is no run to judge - a repository with
+        no CI, a commit not yet pushed, or an answer that cannot be read.
+    """
+    result = runner(
+        [
+            gh,
+            "run",
+            "list",
+            "--commit",
+            sha,
+            "--limit",
+            "50",
+            "--json",
+            "workflowName,status,conclusion",
+        ],
+        root,
+    )
+    if result.returncode != 0:
+        return "unknown", (result.stderr or "").strip() or "gh could not list runs"
+    try:
+        runs = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return "unknown", "gh printed something that is not JSON"
+    if not isinstance(runs, list) or not runs:
+        return "unknown", "no run for this commit"
+    judged = [run for run in runs if run.get("workflowName") == "CI"] or runs
+    failed = [
+        run
+        for run in judged
+        if str(run.get("conclusion") or "") in CI_FAILURE_CONCLUSIONS
+    ]
+    if failed:
+        detail = ", ".join(
+            f"{run.get('workflowName') or 'a workflow'} {run.get('conclusion')}"
+            for run in failed
+        )
+        return "red", detail
+    pending = [
+        run
+        for run in judged
+        if str(run.get("status") or "") in CI_PENDING_STATUSES
+        or not run.get("conclusion")
+    ]
+    if pending:
+        return "running", f"{len(pending)} run(s) still going"
+    return "green", ""
+
+
 def tag_exists(root: Path, tag: str, runner: Runner) -> bool:
     """Whether *tag* exists in *root*'s repository."""
     return tag in _git_lines(root, ["tag", "--list", tag], runner)
@@ -939,6 +1032,12 @@ def publish_version(
     and re-running the same command after the commit does the publishing - the
     same idempotency contract every other step follows.
 
+    Before anything is tagged, the commit's CI verdict is read through ``gh``: a
+    failed run, or one still going, is reported as the next step and no tag is
+    created. A repository with no run to judge (no CI, an unpushed commit) says
+    so and continues; ``--offline`` skips the check, since a local tag is not
+    published anyway.
+
     Args:
         root: The repository root.
         version: The released version, e.g. ``"2.3.1"``.
@@ -980,6 +1079,40 @@ def publish_version(
     if notes is None:
         raise ReleaseError(f"CHANGELOG.md has no [{version}] section to publish")
 
+    gh = gh_executable()
+    if gh is None:
+        raise ReleaseError(
+            "gh is not on PATH, so the GitHub release cannot be created; install "
+            "GitHub's CLI (https://cli.github.com) or pass --no-publish"
+        )
+
+    # A tag cannot be moved, so the release point is only worth making on a commit
+    # CI has passed.  The 2.7.0 tag was cut while the suite had been failing since
+    # 12 November, and nothing in the procedure looked.
+    if offline:
+        print("[INFO] CI not checked (--offline)")
+    else:
+        head_sha = (_git_lines(root, ["rev-parse", "HEAD"], runner) or [""])[0]
+        verdict, detail = ci_verdict(root, head_sha, gh, runner)
+        if verdict == "red":
+            print(
+                f"[TODO] CI for {head_sha[:7]} failed ({detail}) - fix the run, push "
+                f"the fix and re-run `python utilities/release.py {version}`; "
+                "nothing was tagged"
+            )
+            return
+        if verdict == "running":
+            print(
+                f"[TODO] CI for {head_sha[:7]} has not finished ({detail}) - wait "
+                f"for it to pass, then re-run "
+                f"`python utilities/release.py {version}`; nothing was tagged"
+            )
+            return
+        if verdict == "unknown":
+            print(f"[INFO] no CI run for {head_sha[:7]} ({detail}) - not checked")
+        else:
+            print(f"[OK] CI for {head_sha[:7]} is green")
+
     tag = f"{TAG_PREFIX}{version}"
     if tag_exists(root, tag, runner):
         print(f"[SKIP] tag {tag} already exists")
@@ -1012,12 +1145,6 @@ def publish_version(
                 )
             print(f"[OK] tag {tag} pushed")
 
-    gh = gh_executable()
-    if gh is None:
-        raise ReleaseError(
-            "gh is not on PATH, so the GitHub release cannot be created; install "
-            "GitHub's CLI (https://cli.github.com) or pass --no-publish"
-        )
     if release_exists(root, tag, gh, runner):
         print(f"[SKIP] GitHub release {tag} already exists")
         return

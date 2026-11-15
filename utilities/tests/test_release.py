@@ -35,10 +35,16 @@ tests drive a recorded ``git``/``gh`` stand-in, so a dirty tree, a HEAD that
 declares another version, a missing ``gh`` and an already-published tag are
 each pinned without touching a real repository or the network.
 
+Changed in 2.7.0: a red or unfinished CI run on the release commit stops the
+tag. `FakeCommands` learned `gh run list` and `git rev-parse HEAD`, and six
+tests pin red, still running, green, a failing sibling workflow, no run and
+--offline - the last one so an offline cut cannot look like a checked one.
+
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import zipfile
@@ -787,6 +793,7 @@ class FakeCommands:
         git_repo: bool = True,
         tags: tuple[str, ...] = (),
         releases: tuple[str, ...] = (),
+        ci: tuple[tuple[str, str, str], ...] = (),
     ) -> None:
         self.head = head
         self.dirty = dirty
@@ -794,6 +801,7 @@ class FakeCommands:
         self.git_repo = git_repo
         self.tags = list(tags)
         self.releases = list(releases)
+        self.ci = list(ci)
         self.calls: list[list[str]] = []
 
     def __call__(self, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -806,6 +814,8 @@ class FakeCommands:
                 if self.untracked and "--untracked-files=no" not in args:
                     reported += "?? scratch.py\n"
                 return _completed(args, 0, reported)
+            if args[1:3] == ["rev-parse", "HEAD"]:
+                return _completed(args, 0, "0123456789abcdef0123456789abcdef01234567")
             if args[1] == "show":
                 return _completed(args, 0, f'[project]\nversion = "{self.head}"\n')
             if args[1:3] == ["tag", "--list"]:
@@ -819,12 +829,22 @@ class FakeCommands:
                 return _completed(args, 0)
             return _completed(args, 1, "", f"unexpected git call: {args}")
         if Path(args[0]).name.startswith("gh"):
+            if args[1:3] == ["run", "list"]:
+                runs = [
+                    {"workflowName": name, "status": status, "conclusion": concl}
+                    for name, status, concl in self.ci
+                ]
+                return _completed(args, 0, json.dumps(runs))
             if args[1:3] == ["release", "view"]:
                 return _completed(args, 0 if args[3] in self.releases else 1)
             if args[1:3] == ["release", "create"]:
                 self.releases.append(args[3])
                 return _completed(args, 0, "release created\n")
         return _completed(args, 1, "", f"unexpected call: {args}")
+
+    def released_nothing(self) -> bool:
+        """Return whether no release page was attempted."""
+        return self.releases == []
 
     def called(self, *prefix: str) -> list[list[str]]:
         """Return the recorded calls that start with *prefix*."""
@@ -1050,6 +1070,129 @@ class TestPublishing:
                 publish=True,
                 runner=fake,
             )
+
+    def test_a_red_ci_run_blocks_the_tag(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """2.7.0 was tagged while the suite had been red for three days."""
+        fake = FakeCommands(head="1.3.0", ci=(("CI", "completed", "failure"),))
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == [], out
+        assert fake.released_nothing(), out
+        assert "CI for 0123456 failed (CI failure)" in out
+        assert "nothing was tagged" in out
+
+    def test_a_run_still_going_blocks_the_tag(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Tagging a commit whose verdict is not in yet is the same mistake."""
+        fake = FakeCommands(head="1.3.0", ci=(("CI", "in_progress", ""),))
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == [], out
+        assert "has not finished (1 run(s) still going)" in out
+
+    def test_a_green_ci_run_is_said_out_loud(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A silent pass is indistinguishable from a check that never ran."""
+        fake = FakeCommands(head="1.3.0", ci=(("CI", "completed", "success"),))
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == ["v1.3.0"], out
+        assert "[OK] CI for 0123456 is green" in out
+
+    def test_a_docs_job_failing_does_not_block_a_green_ci(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The gate is CI, not every workflow on the commit."""
+        fake = FakeCommands(
+            head="1.3.0",
+            ci=(
+                ("CI", "completed", "success"),
+                ("Docs locks", "completed", "failure"),
+            ),
+        )
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        assert fake.tags == ["v1.3.0"], capsys.readouterr().out
+
+    def test_a_commit_with_no_run_is_reported_but_not_blocked(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A local repository has no CI to ask, and that is not a failure."""
+        fake = FakeCommands(head="1.3.0")
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == ["v1.3.0"], out
+        assert (
+            "[INFO] no CI run for 0123456 (no run for this commit) - not checked"
+        ) in out
+
+    def test_offline_does_not_pretend_to_have_checked_ci(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Nothing is pushed offline, so there is no run to read."""
+        fake = FakeCommands(head="1.3.0", ci=(("CI", "completed", "failure"),))
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=True,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == ["v1.3.0"], out
+        assert "[INFO] CI not checked (--offline)" in out
+        assert fake.called("/usr/bin/gh", "run", "list") == [], out
 
 
 class TestBackfillReleases:
