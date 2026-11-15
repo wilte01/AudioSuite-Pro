@@ -16,6 +16,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.7.1] - 2026-11-15
+
 ### Added
 
 - **`audio_probe.decode_samples` decodes a whole file to float32 frames.**
@@ -84,7 +88,6 @@ used once, and every bullet belongs to exactly one of them.
   budget now admits one skip of "Windows drive-relative paths" with the
   prerequisite named. The case still runs on every Windows host, including the
   Windows job where the containment behaviour is asserted.
-
 
 ## [2.7.0] - 2026-11-15
 
