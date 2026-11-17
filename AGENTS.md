@@ -349,6 +349,11 @@ five fields `False`, `has_active_stage` still returned `True`, and its
 "Output Not Found" on the dev host, none at all on the 3.11 CI leg. Build the
 dataclass with every stage off and assert the dialog's **title**, not merely
 that one appeared.
+A `MagicMock` also answers
+`noise_reduction_params.neural_selected()` with truthy, so the window reads
+it as a neural run and offers the model install before it reaches the guard
+under test - the same stand-in that made the output-folder test pass on a
+host with the `ml` extra and fail on CI without it.
 
 ## GUI Callback Contract (progress, complete, error)
 

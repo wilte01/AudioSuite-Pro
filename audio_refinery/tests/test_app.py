@@ -633,7 +633,7 @@ class TestStartGuardsD3:
         dialogs = MagicMock()
         monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
         app.source_path.get.return_value = ""
-        app.config = MagicMock(
+        app.config = StageConfig(
             declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
         )
 
@@ -691,7 +691,7 @@ class TestStartGuardsD3:
         dialogs = MagicMock()
         monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
         app.source_path.get.return_value = "D:/definitely_not_a_dir"
-        app.config = MagicMock(
+        app.config = StageConfig(
             declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
         )
 
@@ -709,8 +709,6 @@ class TestStartGuardsD3:
         ``has_active_stage`` returned ``True`` and the test passed on whichever
         dialog came next instead of this one.
         """
-        from audio_refinery.core.models import StageConfig
-
         app = self._shell()
         dialogs = MagicMock()
         monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
@@ -734,12 +732,18 @@ class TestStartGuardsD3:
     def test_invalid_output_dir_shows_error(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        """A non-existent output folder is refused by name.
+
+        The config is real: a ``MagicMock`` answers ``neural_selected()`` with
+        truthy, so a host without the model was asked to install it first and
+        the output guard never ran.
+        """
         app = self._shell()
         dialogs = MagicMock()
         monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
         app.source_path.get.return_value = str(tmp_path)
         (tmp_path / "a.wav").write_bytes(b"\x00" * 8)
-        app.config = MagicMock(
+        app.config = StageConfig(
             declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
         )
         app.output_path.get.return_value = "D:/no_such_output_dir"
@@ -747,6 +751,7 @@ class TestStartGuardsD3:
         app.start_processing()
 
         dialogs.showerror.assert_called_once()
+        assert dialogs.showerror.call_args.args[0] == "Output Not Found"
 
     def test_valid_start_threads_pipeline_with_audition(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -773,7 +778,7 @@ class TestStartGuardsD3:
         app.source_path.get.return_value = str(tmp_path)
         app.output_path.get.return_value = str(out_dir)
         app.run_mode.get.return_value = "Dry Run"
-        app.config = MagicMock(
+        app.config = StageConfig(
             declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
         )
         from audio_refinery.core.registry import CompletionRegistry
