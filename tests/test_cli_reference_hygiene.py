@@ -129,6 +129,8 @@ parser break or a gutted document, but no longer on a surface that no
 longer ships. It also reads the Refinery's absorbed normaliser options
 (``--true-peak``, ``--lra``, ``--normalise-mode``) after they were
 documented.
+
+Changed in 2.8.0: the reference no longer documents ``denoise``.
 """
 
 from __future__ import annotations
@@ -1420,10 +1422,6 @@ class TestSectionHeadingsNameTheirTool:
         assert by_command.get("stats") == "Library Statistics Dashboard", (
             "the library statistics section lost the manifest's own display "
             f"name: {by_command.get('stats')!r}"
-        )
-        assert by_command.get("denoise") == "ML Denoiser", (
-            "ML Denoiser is the manifest name that shares no word with its "
-            f"command; it now derives as {by_command.get('denoise')!r}"
         )
         assert by_command.get("cue parse") == "cue parse", (
             "a section documenting no manifest tool must be headed by its own "

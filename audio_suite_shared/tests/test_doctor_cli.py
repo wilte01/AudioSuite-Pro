@@ -62,7 +62,7 @@ def _broken_report() -> DoctorReport:
         launcher_from_venv=True,
         extras=(
             ExtraStatus(
-                tool="ml_denoiser",
+                tool="audio_refinery",
                 label="RNNoise",
                 module="pyrnnoise",
                 importable=False,
@@ -340,8 +340,11 @@ class TestInterpreterAndExtras:
         assert {
             (status.tool, status.module, status.importable) for status in statuses
         } == {
-            ("ml_denoiser", "pyrnnoise", True),
+            ("audio_refinery", "pyrnnoise", True),
             ("stem_separator", "demucs", True),
+            # Changed in 2.8.0: REFINE's Noise Reduction stage runs the same
+            # model, so the Refinery's extra is probed beside the program's.
+            ("audio_refinery", "pyrnnoise", True),
         }
         assert {python for _, python in calls} == {"C:/venv/python.exe"}
         assert {module for module, _ in calls} == {"demucs", "pyrnnoise"}
@@ -402,7 +405,7 @@ class TestDoctorPayload:
         assert payload["launcher_from_venv"] is True
         assert payload["extras"] == [
             {
-                "tool": "ml_denoiser",
+                "tool": "audio_refinery",
                 "requirement": "RNNoise",
                 "module": "pyrnnoise",
                 "extra": "ml",

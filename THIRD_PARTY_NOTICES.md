@@ -87,7 +87,7 @@ Installed only when asked for; a missing extra is reported, never fatal.
 | `cd-ripping` | `discid` (python-discid 1.3.0) | **LGPL-3.0-or-later** | MusicBrainz disc IDs (CD Ripper) |
 | `cd-ripping` | `musicbrainzngs` | BSD-2-Clause | MusicBrainz metadata lookup |
 | `ml` | `demucs` 4.1.0 | MIT | Stem Separator's separation engine |
-| `ml` | `pyrnnoise` 0.4.5 | Apache-2.0 | ML Denoiser's RNNoise model |
+| `ml` | `pyrnnoise` 0.4.5 | Apache-2.0 | Audio Refinery's RNNoise engine |
 | `ml` | `torch` (≥ 2.9, pinned by the extra) | BSD-3-Clause (PyTorch itself) | Demucs' tensor backend. The wheel bundles third-party components under their own terms (Apache-2.0, MIT, BSD, ISC, Zlib, BSL-1.0, LLVM exception); the wheel's own `LICENSE` files govern |
 
 ---

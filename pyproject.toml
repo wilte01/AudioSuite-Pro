@@ -1,3 +1,4 @@
+# Changed in 2.8.0: the package and marker lists drop the denoiser.
 # Changed in 2.5.0: registers the Track Splitter's tests and coverage source (F-E4).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 # Changed in 1.0.1: bumped [project] version 1.0.0 -> 1.0.1 (first maintenance
@@ -398,7 +399,6 @@ testpaths = [
     "silence_trimmer/tests",
     "spectral_viewer/tests",
     "stem_separator/tests",
-    "ml_denoiser/tests",
     "duplicate_finder/tests",
     "restoration/tests",
     "tag_editor/tests",
@@ -482,7 +482,6 @@ source = [
     "silence_trimmer",
     "spectral_viewer",
     "stem_separator",
-    "ml_denoiser",
     "duplicate_finder",
     "restoration",
     "tag_editor",

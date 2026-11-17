@@ -22,8 +22,6 @@ argv when its required output folder or stem selection is missing rather than
 launching a run that cannot write (Sprint 6, Item 6.1).  An empty builder
 result now stays empty: the driver display flags are appended only to a real
 argument list, so "cannot run as configured" is still readable by the caller.
-Changed in 2.0.0: adds the ``ml_denoiser`` entry, which has no required field —
-its amount always has a value — so it always emits a runnable argv (Item 6.2).
 
 Changed in 2.1.0: a plugin tool's arguments follow the command its manifest declares.
 Changed in 2.2.1: ``tag_field_updater`` emits the ``--start/--no-start`` and
@@ -38,6 +36,14 @@ window that writes the shared folder sheet (F-E8 follow-up).  The Duplicate
 Finder entry passes ``--exact``, so the card's exact-matching choice reaches
 the run (F-E9).
 
+Changed in 2.8.0: the refinery entry emits ``--broadband-engine neural`` and
+``--denoise-amount`` when the run selects the neural engine, so the child runs
+the denoise the Driver was configured for instead of its spectral default.  It
+also emits ``--hum-auto`` (or ``--hum-frequency`` for a manual override) when
+the hum stage is on, so the child measures the same hum the card shows, and
+``--profile-auto`` (or the card's ``--noise-start``/``--noise-end`` region) so
+the spectral gate measures the same profile window the card shows.
+
 Changed in 2.3.1 (U-03, released in 2.6.0): drops the five DSP tools' builders
 with their cards, and with them the one tool-specific display-flag exception.
 """
@@ -50,6 +56,7 @@ from typing import Any
 
 from audio_refinery.core.models import REFINERY_STAGES as REFINERY_STAGES
 from audio_suite_shared.tool_plugin import ToolManifest, get_registry
+from noise_reduction.core.models import NEURAL_ENGINE
 
 from ..state.app_state import AppState
 
@@ -445,9 +452,6 @@ def _build_utility_tool_args(
         "stem_separator": lambda: _build_stem_separator_args(
             path, mode_flag, start_flag, end_flag, state
         ),
-        "ml_denoiser": lambda: _build_ml_denoiser_args(
-            path, mode_flag, start_flag, end_flag, state
-        ),
         "duplicate_finder": lambda: _build_duplicate_finder_args(
             path, mode_flag, start_flag, end_flag, state
         ),
@@ -581,24 +585,52 @@ def build_refinery_args(
             args.append("--trim-copy")
     if nr.reduce_hum:
         args.append("--reduce-hum")
+        # Changed in 2.8.0: the Driver passes the hum mode it is configured for.
+        # Auto is the child's default, so only its two overrides are emitted;
+        # a fixed cascade sends --hum-frequency.
+        if getattr(nr, "hum_auto", False):
+            args.append("--hum-auto")
+        else:
+            args.extend(["--hum-frequency", str(nr.hum_frequency)])
     if nr.reduce_broadband:
         args.append("--reduce-broadband")
+        # Changed in 2.8.0: the profile window is measured per file unless the
+        # card names its own region - emitting the region unconditionally would
+        # turn detection off on every run.  Only a gating run carries them, the
+        # way only a hum run carries the hum mode.
+        if nr.profile_auto:
+            args.append("--profile-auto")
+        else:
+            args.extend(
+                [
+                    "--noise-start",
+                    str(nr.noise_start_ms),
+                    "--noise-end",
+                    str(nr.noise_end_ms),
+                ]
+            )
     args.extend(
         [
-            "--hum-frequency",
-            str(nr.hum_frequency),
             "--hum-harmonics",
             str(nr.hum_harmonics),
             "--hum-quality",
             str(nr.hum_quality),
-            "--noise-start",
-            str(nr.noise_start_ms),
-            "--noise-end",
-            str(nr.noise_end_ms),
             "--gate-threshold",
             str(nr.gate_threshold_db),
         ]
     )
+    # Changed in 2.8.0: the neural engine and its blend reach the child.  A
+    # spectral run emits neither flag, so its argument list is unchanged - the
+    # child's own defaults are the spectral gate at 100 %.  Without this a
+    # Driver run configured for the neural engine launched a spectral one and
+    # the denoise the user chose silently did not happen.
+    if nr.neural_selected():
+        args.extend(["--broadband-engine", NEURAL_ENGINE])
+        args.extend(["--denoise-amount", f"{nr.neural_amount * 100:g}"])
+        # Changed in 2.8.0: the 16-bit opt-in reaches the child as well, so a
+        # Driver run narrows the source its card showed as allowed.
+        if nr.allow_16bit_output:
+            args.append("--allow-16bit-output")
     # Changed in 2.7.0: EQ bands are emitted only when the stage is on and the
     # rack is not bypassed, so every existing run's argument list is unchanged
     # (F-S1).  A bypassed rack keeps its bands in a preset and sends none.
@@ -882,28 +914,6 @@ def _build_stem_separator_args(
     if state.stem_separator_mix.get():
         args.append("--mix")
     return args
-
-
-def _build_ml_denoiser_args(
-    path: str,
-    mode_flag: str,
-    start_flag: str,
-    end_flag: str,
-    state: AppState,
-) -> list[str]:
-    """Return the CLI argument list for the ML Denoiser.
-
-    ``--amount`` is the GUI's percentage (1-100), which is also the CLI's unit,
-    so the driver cannot pass a fraction the tool would read as 1 %.
-    """
-    return [
-        path,
-        mode_flag,
-        start_flag,
-        end_flag,
-        "--amount",
-        state.ml_denoiser_amount.get(),
-    ]
 
 
 def _build_mood_analysis_batch_args(

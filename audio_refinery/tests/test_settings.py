@@ -15,6 +15,9 @@ still reads as per-file normalisation (F-E1).
 
 Changed in 2.5.0: the exact trim range round-trips, and a file written before
 it existed still trims detected silence (F-E3).
+
+Changed in 2.8.0: the broadband engine and its blend round-trip, and an unknown
+stored engine reads as the spectral gate.
 """
 
 from __future__ import annotations
@@ -409,3 +412,84 @@ class TestDynamicsPersistence:
 
         assert loaded.dynamics is True
         assert loaded.compressor_params == CompressorSettings()
+
+
+class TestNoiseEngineSettings:
+    """The broadband engine and its blend round-trip (2.8.0)."""
+
+    def test_the_engine_round_trips(self, tmp_path: Path) -> None:
+        live = tmp_path / "live.json"
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            config = StageConfig()
+            config.noise_reduction_params.broadband_engine = "neural"
+            config.noise_reduction_params.neural_amount = 0.4
+            config.noise_reduction_params.allow_16bit_output = True
+            config.noise_reduction_params.hum_auto = False
+            config.noise_reduction_params.hum_frequency = 50
+            config.noise_reduction_params.profile_auto = False
+            refinery_settings.save(config)
+
+            loaded = refinery_settings.load()
+
+        assert loaded.noise_reduction_params.broadband_engine == "neural"
+        assert loaded.noise_reduction_params.neural_amount == pytest.approx(0.4)
+        assert loaded.noise_reduction_params.allow_16bit_output is True
+        # Changed in 2.8.0: the hum mode round-trips with the rest of the stage.
+        assert loaded.noise_reduction_params.hum_auto is False
+        assert loaded.noise_reduction_params.hum_frequency == 50
+        # Changed in 2.8.0: so does the profile-window mode.
+        assert loaded.noise_reduction_params.profile_auto is False
+
+    def test_a_settings_file_without_the_hum_mode_detects(self, tmp_path: Path) -> None:
+        """A file written before detection existed gets the measured cascade."""
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps({"noise_reduction_params": {"hum_frequency": 50}}),
+            encoding="utf-8",
+        )
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            loaded = refinery_settings.load()
+
+        assert loaded.noise_reduction_params.hum_auto is True
+        assert loaded.noise_reduction_params.hum_frequency == 50
+
+    def test_a_settings_file_without_the_profile_mode_measures(
+        self, tmp_path: Path
+    ) -> None:
+        """A file written before detection existed gets the measured window."""
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps({"noise_reduction_params": {"noise_end_ms": 900}}),
+            encoding="utf-8",
+        )
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            loaded = refinery_settings.load()
+
+        assert loaded.noise_reduction_params.profile_auto is True
+        assert loaded.noise_reduction_params.noise_end_ms == 900
+
+    def test_an_unknown_stored_engine_reads_as_spectral(self, tmp_path: Path) -> None:
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps({"noise_reduction_params": {"broadband_engine": "magic"}}),
+            encoding="utf-8",
+        )
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            loaded = refinery_settings.load()
+
+        assert loaded.noise_reduction_params.broadband_engine == "spectral"

@@ -63,6 +63,7 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the portable-core counts cover 29 tools (F-E4 splitter, F-E5 joiner).
 Changed in 2.7.0: the counts cover 33 tools / 30 with a subcommand (F-S4).
+Changed in 2.8.0: 32 tools / 29 with a subcommand; the denoiser is retired.
 """
 
 from __future__ import annotations
@@ -394,10 +395,10 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().first_party
-        # 33 since 2.7.0: F-S4 added Pitch / Time on top of the 32 the 2.6.0
+        # 32 since 2.8.0: the denoiser is retired; 33 before that.
         # wave left.  The five DSP tools REFINE runs as stages stopped
         # shipping their own launcher and command (U-04).
-        assert len(tools) == 33
+        assert len(tools) == 32
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -556,9 +557,9 @@ class TestPortableCoreCLI:
             "artwork",
             "undo_tag_edits",
         ]
-        assert len(with_cli) == 30
-        # 29 of the 30 are portable-core; cd-rip is the Windows-only one.
-        assert len(self._portable_commands()) == 29
+        assert len(with_cli) == 29
+        # 28 of the 29 are portable-core; cd-rip is the Windows-only one.
+        assert len(self._portable_commands()) == 28
 
     @pytest.mark.parametrize("command", _portable_commands())
     def test_portable_tool_help_resolves_under_a_non_windows_platform(

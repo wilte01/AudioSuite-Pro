@@ -46,6 +46,8 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the publisher table gains the Track Splitter (F-E4).
 Changed in 2.7.0: the publisher table gains ``pitch_time`` (F-S4).
+
+Changed in 2.8.0: the published-payload lock drops the denoiser window.
 """
 
 from __future__ import annotations
@@ -82,7 +84,6 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "genre_sync": "genre_sync.core.file_processor.run_processing",
     "lyrics_manager": "lyrics_manager.core.file_processor.run_fetch",
     "metadata_scrubber": "metadata_scrubber.core.scrubber.run_scrubbing",
-    "ml_denoiser": "ml_denoiser.core.file_processor.run_ml_denoise",
     "music_format_converter": (
         "music_format_converter.core.file_processor.run_conversion"
     ),

@@ -48,6 +48,11 @@ curve (F-S1). The curve is drawn by ``dsp_eq.response_curve``, which measures
 the very filters the pipeline renders, so the shape on screen cannot disagree
 with the sound; every table edit writes the rack back into ``config.eq_params``
 and a preset load reaches the same refresh through ``state["eq_refresh"]``.
+
+Changed in 2.8.0: the Noise Reduction panel gains an engine choice - the STFT
+gate or the RNNoise model - with the neural blend and the 16-bit acceptance.
+All three write through one update function, and ``state["noise_widgets"]``
+lets a preset or a Driver launch show the engine it restored.
 """
 
 from __future__ import annotations
@@ -84,6 +89,11 @@ from audio_suite_shared.dsp_models import (
 )
 from audio_suite_shared.exceptions import AudioConfigValueError
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+from noise_reduction.core.models import (
+    BROADBAND_ENGINES,
+    NEURAL_ENGINE,
+    SPECTRAL_ENGINE,
+)
 
 _MODE_VAR_IDS = itertools.count()
 
@@ -110,6 +120,7 @@ def build(
     parallel_var: "tk.BooleanVar | None" = None,
     driver_locked: bool = False,
     mode_var: "tk.StringVar | None" = None,
+    on_analyse_noise: "Callable[[], None] | None" = None,
 ) -> dict[str, Any]:
     """Populate the Setup tab.
 
@@ -122,6 +133,8 @@ def build(
         on_browse_out: Callback for the output Browse button.
         on_start: Callback for the Start button.
         on_reset: Callback for the Reset Progress button.
+        on_analyse_noise: Callback for the Noise Reduction panel's read-only
+            Analyse action; ``None`` leaves the button disabled.
         embedded: When True, hide the title and subtitle labels.
         after_paths: Optional callback injected after path rows.
         after_stages: Optional callback injected after stage panels.
@@ -271,7 +284,9 @@ def build(
     _state["trim_widgets"] = _build_trim_panel(
         stages_frame, config, embedded, stage_vars
     )
-    _build_noise_reduction_panel(stages_frame, config, embedded, stage_vars)
+    _state["noise_widgets"] = _build_noise_reduction_panel(
+        stages_frame, config, embedded, stage_vars, on_analyse_noise
+    )
     _build_eq_panel(stages_frame, config, _state, stage_vars)
     _build_dynamics_panel(stages_frame, config, _state, stage_vars)
     _build_enhance_panel(stages_frame, config, _state, stage_vars)
@@ -624,11 +639,57 @@ def _build_noise_reduction_panel(
     config: StageConfig,
     embedded: bool = False,
     stage_vars: dict[str, Any] | None = None,
-) -> None:
-    """Build the Noise Reduction stage panel with hum + broadband controls."""
+    on_analyse: "Callable[[], None] | None" = None,
+) -> dict[str, Any]:
+    """Build the Noise Reduction stage panel and return its engine controls.
+
+    Two independent halves: hum removal (always the same notch cascade) and a
+    broadband half whose engine the user picks.  The spectral engine needs the
+    profile region and gate threshold; the neural engine needs an amount, and
+    refuses a source wider than its 16-bit output.  Only the selected engine's
+    controls are shown, and both controls write through one update function, so
+    a value the panel shows is a value the run uses.
+    """
     p = config.noise_reduction_params
+    widgets: dict[str, Any] = {}
 
     def _extra(body: tk.Frame) -> None:
+        # Changed in 2.8.0: a read-only measurement of the loaded folder's first
+        # file, taken with the batch's own detectors, so the panel can be set up
+        # against numbers instead of guesses.  It starts no run and writes
+        # nothing - the report is the whole output.
+        analyse_row = tk.Frame(body, bg=styles.BG_WHITE)
+        analyse_row.pack(fill="x", pady=(0, 4))
+        analyse_button = tk.Button(
+            analyse_row,
+            text="Analyse noise",
+            font=styles.FONT_BODY,
+            bg=styles.BG_LIGHT,
+            fg=styles.FG_MAIN,
+            activebackground=styles.BG_LIGHT,
+            activeforeground=styles.FG_MAIN,
+            # The button is disabled when the host passes no action (the
+            # Master Driver's embedded tab), so its disabled text needs a
+            # themed colour like every other state.
+            disabledforeground=styles.FG_SUB,
+            relief="flat",
+        )
+        analyse_button.pack(side=tk.LEFT)
+        if on_analyse is None:
+            analyse_button.config(state="disabled")
+        else:
+            analyse_button.config(command=on_analyse)
+        analyse_var = tk.StringVar(value="")
+        tk.Label(
+            body,
+            textvariable=analyse_var,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 4))
+
         # Hum removal sub-section
         hum_var = tk.BooleanVar(value=p.reduce_hum)
 
@@ -659,19 +720,31 @@ def _build_noise_reduction_panel(
             width=12,
             anchor="w",
         ).pack(side=tk.LEFT)
-        freq_var = tk.IntVar(value=p.hum_frequency)
+        # Changed in 2.8.0: Auto is the default mode - the file says whether it
+        # carries 50 or 60 Hz and which partials are real - and 50/60 stay as the
+        # manual override that notches the fixed cascade.
+        hum_mode_var = tk.StringVar(
+            value="auto" if p.hum_auto else str(p.hum_frequency)
+        )
 
-        def _set_frequency(*_: object) -> None:
-            p.hum_frequency = int(freq_var.get())
+        def _set_hum_mode(*_: object) -> None:
+            value = str(hum_mode_var.get())
+            p.hum_auto = value == "auto"
+            if not p.hum_auto:
+                p.hum_frequency = int(value)
 
-        freq_var.trace_add("write", _set_frequency)
+        hum_mode_var.trace_add("write", _set_hum_mode)
 
-        for val in (50, 60):
+        for value, label in (
+            ("auto", "Auto (detect)"),
+            ("50", "50 Hz"),
+            ("60", "60 Hz"),
+        ):
             tk.Radiobutton(
                 freq_frame,
-                text=f"{val} Hz",
-                variable=freq_var,
-                value=val,
+                text=label,
+                variable=hum_mode_var,
+                value=value,
                 font=styles.FONT_BODY,
                 bg=styles.BG_WHITE,
                 fg=styles.FG_MAIN,
@@ -712,20 +785,162 @@ def _build_noise_reduction_panel(
             activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
+        engine_var = tk.StringVar(value=p.broadband_engine)
+        amount_var = tk.IntVar(value=max(int(round(p.neural_amount * 100)), 1))
+
+        engine_row = tk.Frame(body, bg=styles.BG_WHITE)
+        engine_row.pack(fill="x", pady=3)
+        tk.Label(
+            engine_row,
+            text="Engine:",
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            width=12,
+            anchor="w",
+        ).pack(side=tk.LEFT)
+
+        spectral_frame = tk.Frame(body, bg=styles.BG_WHITE)
+        neural_frame = tk.Frame(body, bg=styles.BG_WHITE)
+
+        def _apply_engine() -> None:
+            """Write the engine controls into the params and show that engine.
+
+            An edit and a programmatic pre-fill (a preset, a restored settings
+            file, a Driver launch) both arrive here: the variables are the
+            panel's state, so nothing writes the params behind their back.
+            """
+            engine = str(engine_var.get())
+            p.broadband_engine = (
+                engine if engine in BROADBAND_ENGINES else SPECTRAL_ENGINE
+            )
+            p.neural_amount = max(int(amount_var.get()), 1) / 100.0
+            if p.broadband_engine == NEURAL_ENGINE:
+                spectral_frame.pack_forget()
+                neural_frame.pack(fill="x", pady=(2, 0))
+            else:
+                neural_frame.pack_forget()
+                spectral_frame.pack(fill="x", pady=(2, 0))
+
+        for value, label in (
+            (SPECTRAL_ENGINE, "Spectral gate (profile)"),
+            (NEURAL_ENGINE, "Neural (RNNoise)"),
+        ):
+            tk.Radiobutton(
+                engine_row,
+                text=label,
+                variable=engine_var,
+                value=value,
+                font=styles.FONT_BODY,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_MAIN,
+                selectcolor=styles.BG_WHITE,
+                activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
+                command=_apply_engine,
+            ).pack(side=tk.LEFT, padx=5)
+
+        # Changed in 2.8.0: the profile window is measured from the file, and the
+        # region below is the override - the first 500 ms was an intro far more
+        # often than it was noise.
+        profile_var = tk.BooleanVar(value=p.profile_auto)
+
+        tk.Checkbutton(
+            spectral_frame,
+            text="Auto profile (quietest, flattest stretch)",
+            variable=profile_var,
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+        ).pack(anchor="w", pady=(2, 0))
+        profile_var.trace_add(
+            "write", lambda *_: setattr(p, "profile_auto", bool(profile_var.get()))
+        )
+        tk.Label(
+            spectral_frame,
+            text=(
+                "Auto measures each file and names the stretch in the run report; "
+                "untick it to keep the region below."
+            ),
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w")
+
         start_var = tk.IntVar(value=p.noise_start_ms)
-        ui_common.slider_row(body, "Noise Start (ms)", start_var, 0, 5000, 100)
+        ui_common.slider_row(
+            spectral_frame, "Noise Start (ms)", start_var, 0, 5000, 100
+        )
         start_var.trace_add(
             "write", lambda *_: setattr(p, "noise_start_ms", start_var.get())
         )
 
         end_var = tk.IntVar(value=p.noise_end_ms)
-        ui_common.slider_row(body, "Noise End (ms)", end_var, 100, 10000, 100)
+        ui_common.slider_row(spectral_frame, "Noise End (ms)", end_var, 100, 10000, 100)
         end_var.trace_add("write", lambda *_: setattr(p, "noise_end_ms", end_var.get()))
 
         gate_var = tk.DoubleVar(value=p.gate_threshold_db)
-        ui_common.slider_row(body, "Gate Threshold (dB)", gate_var, 0.0, 20.0, 0.5)
+        ui_common.slider_row(
+            spectral_frame, "Gate Threshold (dB)", gate_var, 0.0, 20.0, 0.5
+        )
         gate_var.trace_add(
             "write", lambda *_: setattr(p, "gate_threshold_db", gate_var.get())
+        )
+
+        ui_common.slider_row(neural_frame, "Neural Amount (%)", amount_var, 1, 100, 1)
+        # Changed in 2.8.0: the 16-bit rule is the default refusal; this is the
+        # explicit opt-in that lets a wider source be narrowed, and the run line
+        # then states the depth the written file carries.
+        allow_wide_var = tk.BooleanVar(value=p.allow_16bit_output)
+        tk.Checkbutton(
+            neural_frame,
+            text="Allow 16-bit output (narrow a wider source)",
+            variable=allow_wide_var,
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+        ).pack(anchor="w", pady=(2, 0))
+        allow_wide_var.trace_add(
+            "write",
+            lambda *_: setattr(p, "allow_16bit_output", bool(allow_wide_var.get())),
+        )
+        tk.Label(
+            neural_frame,
+            text=(
+                "The model is trained on speech, so it attenuates tonal content: "
+                "lower the amount to blend the source back in. It writes 16-bit "
+                "audio, so a wider source is refused unless the opt-in above is "
+                "ticked; the spectral engine keeps the source's bit depth."
+            ),
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+
+        for var in (engine_var, amount_var):
+            var.trace_add("write", lambda *_: _apply_engine())
+
+        _apply_engine()
+        widgets.update(
+            engine=engine_var,
+            amount=amount_var,
+            hum=hum_mode_var,
+            profile=profile_var,
+            analyse=analyse_button,
+            analyse_result=analyse_var,
+            spectral_frame=spectral_frame,
+            neural_frame=neural_frame,
+            allow_wide=allow_wide_var,
         )
 
     _stage_panel(
@@ -737,6 +952,7 @@ def _build_noise_reduction_panel(
         _extra,
         stage_vars=stage_vars,
     )
+    return widgets
 
 
 def _build_enhance_panel(

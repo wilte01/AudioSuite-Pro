@@ -267,10 +267,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: that window is closed and its notes are written, so only work after it does.
 #: Earlier work is documented in its own plans and the changelogs, so it does
 #: not require per-file notes here.
-BASE_COMMIT = "02785ea"
+# Changed in 2.8.0: re-baselined to a94c43d (the 2.7.1 cut) with the 2.8.0
+# marker. The 02785ea base sat at the v2.6.0 tag while the cut had moved to
+# 2.7.1, so the lock still demanded a 2.7.0 note from work landing after that
+# release - the misfiling its own history warns against. The closed window's
+# notes stay as each file's own history.
+BASE_COMMIT = "a94c43d"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.7.0"
+NOTE_MARKER = "Changed in 2.8.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

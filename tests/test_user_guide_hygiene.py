@@ -73,6 +73,8 @@ short of the window's bottom edge.
 
 Changed in 2.5.0: the registry parser returns the filename->folder mapping, so
 the manifest lock reads the same parse as the on-disk check.
+
+Changed in 2.8.0: the version-label scan skips a retired guide.
 """
 
 from __future__ import annotations
@@ -609,10 +611,12 @@ class TestGuideVersionLabels:
         from audio_suite_shared.project_version import declared_version
 
         expected = f"Version {declared_version()} \u2014 "
+        # A guide deleted in the worktree but not yet committed has no package
+        # to open; the retirement is the point.
         guides = [
             path
             for path in _under(tracked, GUIDE_ROOT)
-            if path.endswith("_User_Guide.docx")
+            if path.endswith("_User_Guide.docx") and (REPO_ROOT / path).is_file()
         ]
         assert guides, "no committed user guides found - the lock would pass vacuously"
 

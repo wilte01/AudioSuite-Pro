@@ -55,7 +55,6 @@ Usage::
     audiosuite stems /path/to/dir --output-dir DIR [--model htdemucs]
                            [--stems vocals,drums,bass,other] [--mix]
                            [--device auto] [--dry] [--json]
-    audiosuite denoise /path/to/dir [--amount 100] [--dry] [--json]
     audiosuite duplicates /path/to/dir [--threshold 0.10]
                            [--quarantine-dir DIR] [--dry] [--json]
     audiosuite declip /path/to/dir [--threshold 0.98] [--max-run-ms 50]
@@ -126,7 +125,6 @@ Changed in 2.0.0: registers and documents ``stems``, the ML stem separator
 (PLAN_feature_expansion.md Item 6.1).  It is registered like any other command:
 without the ``ml`` extra it fails with a named missing dependency rather than
 at import time, so ``audiosuite --help`` stays complete on a CPU-only install.
-Changed in 2.0.0: registers and documents ``denoise``, the ML denoiser
 (Item 6.2).  It shares the ``ml`` extra's import tolerance: the command imports,
 ``--help`` works, and a run without the extra exits 1 naming what to install.
 Changed in 2.1.0: registers the ``plugins`` group (list / enable / disable) and
@@ -142,6 +140,9 @@ Changed in 2.5.0: registers the Track Splitter's `split` command (F-E4).
 Changed in 2.7.0: registers and documents `licences`. It joins `doctor` and
 `plugins` as a command imported before the tool list, because it reads the
 installation itself and must stay usable when a tool package is missing.
+
+Changed in 2.8.0: the denoiser's subcommand leaves with the standalone tool; its engine
+runs inside ``refine`` now.
 """
 
 from __future__ import annotations
@@ -194,7 +195,6 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("library_stats.cli", "stats"),
     ("lyrics_manager.cli", "lyrics"),
     ("metadata_scrubber.cli", "scrub"),
-    ("ml_denoiser.cli", "denoise"),
     ("mood_analysis_batch_tagger.cli", "mood-analysis-batch"),
     ("mood_analyzer.cli", "mood-analyzer"),
     ("music_format_converter.cli", "convert"),

@@ -61,6 +61,8 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: EXPECTED_TOOLS gains the Track Splitter (F-E4).
 Changed in 2.6.0: EXPECTED_TOOLS gains the CUE Sheet Generator (F-E8).
+
+Changed in 2.8.0: the denoiser's payload tuple leaves with the window.
 """
 
 from __future__ import annotations
@@ -115,7 +117,6 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("genre_sync/app.py", "GenreSetterApp"),
         ("lyrics_manager/app.py", "LyricsManagerApp"),
         ("metadata_scrubber/app.py", "MetadataScrubberApp"),
-        ("ml_denoiser/app.py", "MlDenoiserApp"),
         ("music_format_converter/app.py", "MusicFormatConverterApp"),
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
         ("stem_separator/app.py", "StemSeparatorApp"),

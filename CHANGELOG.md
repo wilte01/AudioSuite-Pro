@@ -22,7 +22,97 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Audio Refinery can measure a folder before deciding to clean it.** The
+  Noise Reduction panel's new **Analyse noise** button reports the hum a file
+  carries (50 or 60 Hz, which partials and how far above the floor), the noise
+  floor, and the profile region a run would choose - measured with the same
+  detectors and on the same first file the run would take, and written nowhere.
+  It is a report rather than a preview of the sound, so it answers "is this
+  stage worth enabling, and where should its profile sit?" without changing a
+  byte. Fixed alongside it: white noise whose high partials happened to stand
+  out was reported as 60 Hz hum (one file measured order 6 at 9 dB), and the
+  detector now requires a partial at the mains frequency or its octave, so a
+  clean recording is reported as having no hum.
+
+- **Audio Refinery's Noise Reduction stage now says what it removed.** Each
+  file's line and the run report carry the hum it measured (`39 dB above
+  floor`, `none detected`, or `60 Hz manual` for a fixed setting), how much the
+  broadband half removed on its own, and the share of the spectrum it touched
+  (`bins=78%`) - so "20 dB off 2 % of the sound" no longer reads like "every
+  frequency thinned a little". A run that writes a file having removed under
+  0.5 dB warns instead of implying a result: `WARNING: removed under 0.5 dB, so
+  this run changed almost nothing`. A no-op and a clean file are now
+  distinguishable; a clean file still writes nothing at all.
+
+- **Audio Refinery works out each file's noise floor instead of assuming
+  it.** **Auto profile (quietest, flattest stretch)** is now on, so the floor
+  comes from a window the file chooses instead of the first 500 ms. That
+  default was an intro more often than it was noise: a hot intro set a floor
+  that pulled 4 dB out of the music while the real floor survived. The stage
+  keeps every 400 ms window within 12 dB of the quietest stretch in the file -
+  anything louder is content, not a floor - trials the flattest 12 against its
+  loudest stretch, drops any whose profile would take more than 1 dB out of it
+  (a
+  window of the music itself measured 22.9 dB there, a window 10 dB under a
+  noise bed 1.0-2.2 dB), then decides by flatness, with level breaking a
+  flatness tie. That order is what makes a musical rest safe. A rest can be the
+  quietest stretch in the file and still be music: its profile gates the rest
+  (23 dB measured) while removing 0.04 dB from the hiss the run exists to
+  remove. But on a music/rest/hiss file the rest's profile and the hiss's
+  profile both take 0.00 dB out of the loudest stretch, so the trial ties at
+  zero there and flatness - the hiss reads 0.85 against a tonal rest far below
+  it - picks the hiss, not the trial. The per-file line and the run report
+  name the window used and its reading
+  (`profile=auto 12.4-12.8 s at -62 dBFS, trial 0.0 dB`), and unticking the box
+  keeps the **Noise Start (ms)**/**Noise End (ms)** region as the override,
+  reported as `profile=manual 0-500 ms`.
+
+- **Audio Refinery's hum removal measures the file before it notches it.**
+  **Enable Hum Removal** now defaults to **Auto (detect)**: it decides whether
+  the mains hum is 50 or 60 Hz, finds which harmonics actually carry it and how
+  strong each is, and notches only those. A 50 Hz recording no longer loses
+  eight 60 Hz-spaced notches out of its bass, and a hum carrying only its
+  fundamental no longer loses seven silent ones. Each file's line and the run
+  report state the finding (`hum=on 50 Hz auto, 4 harmonics, 21 dB`), so what
+  was measured is visible; a manual **50 Hz**/**60 Hz** choice remains as the
+  override that notches the fixed cascade, so a known-hum catalogue behaves as
+  it did.
+
+- **Audio Refinery's Noise Reduction panel can run a neural model.**
+  The stage already removed mains hum and gated hiss against a noise profile it
+  measured from a region you picked. A new **Engine** choice beside
+  **Enable Broadband Noise Reduction** adds **Neural (RNNoise)** - the same
+  speech-trained model that needs no noise profile - so a file that needs hum
+  removed and broadband noise suppressed is cleaned in one pass and one encode
+  instead of a REFINE run followed by a denoise run. **Neural Amount (%)** blends
+  the model's output with the source, because the model is trained on speech and
+  attenuates tonal content. Its output carries 16-bit resolution whatever the
+  source's, so a file wider than 16 bits is refused with its name and depth
+  instead of being quietly lowered - the spectral gate handles those files at
+  full depth. **Allow 16-bit output** is the explicit opt-in for a run that does
+  want the downmix: the file is then written genuinely at 16 bits, not into a
+  wider container, and the per-file line names the depth it narrowed from.
+  `audiosuite
+  refine` gains `--broadband-engine`, `--denoise-amount` and
+  `--allow-16bit-output`, and the first run
+  that selects the neural engine offers to install it; a headless run without it
+  stops once with the install instruction instead of failing every file. The spectral
+  profile engine remains the default, so an existing preset, settings file or
+  command behaves exactly as it did.
+
+### Removed
+
+- **The standalone ML Denoiser program is retired.** Its RNNoise engine now
+  runs inside Audio Refinery's Noise Reduction stage (**Engine - Neural
+  (RNNoise)**), so the program, its launcher icon, its Master Driver card, the
+  `audiosuite denoise` command and its guide are gone and the suite ships one
+  fewer tool. Nothing is lost from a REFINE run: the same model, the same
+  **Neural Amount (%)** blend, the same 16-bit refusal with its opt-in, and the
+  per-file line that reports the attenuation it measured. A script that called
+  `audiosuite denoise` should run `audiosuite refine` with
+  `--broadband-engine neural` and `--denoise-amount` instead.
 
 ## [2.7.1] - 2026-11-15
 

@@ -732,12 +732,13 @@ class TestFullTreeContract:
             "worker_memory tests live in the script's own suite only"
         )
         assert real_ml_ids, "the real_ml opt-in collected nothing"
-        # Both ML tools carry real-model cases: the separator (Demucs) and the
-        # denoiser (RNNoise), each in its own suite (PLAN Item 6.2).
+        # Both model-backed paths carry real-model cases: the separator
+        # (Demucs) and REFINE's neural stage (RNNoise).  Changed in 2.8.0: the
+        # denoiser's engine moved into noise_reduction, so its cases live there.
         assert all(
-            node.startswith(("stem_separator/tests/", "ml_denoiser/tests/"))
+            node.startswith(("stem_separator/tests/", "noise_reduction/tests/"))
             for node in real_ml_ids
-        ), "real_ml tests live in the ML tools' own suites only"
+        ), "real_ml tests live in the model-backed suites only"
 
     @pytest.mark.parametrize("marker", ["hardware", "real_ml", "worker_memory"])
     def test_the_opt_in_sets_never_run_in_the_default_session(

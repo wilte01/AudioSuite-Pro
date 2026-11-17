@@ -19,7 +19,7 @@ manifest, so Duplicate Finder and Restoration (Declip) appear without a slide
 edit; the closing slide's count uses ``TOOL_COUNT`` instead of a literal.
 
 Changed in 2.1.5: the deck covers all 30 tools. Tag Editor, Stem Separator,
-Spectral Viewer and ML Denoiser were missing from every slide, the format
+Spectral Viewer was missing from every slide, the format
 matrix and the task chooser; they now have their own two slides plus matrix and
 chooser rows, and ``tests/test_suite_docs_tool_coverage.py`` fails if any
 first-party tool is missing from the deck again. The tool count the first two
@@ -45,6 +45,8 @@ Changed in 2.4.1: the format-matrix slide reports the sixteen suite
 containers.
 Changed in 2.5.0: the deck names the Track Splitter (F-E4).
 Changed in 2.6.0: the format matrix names the CUE Sheet Generator (F-E8).
+
+Changed in 2.8.0: the deck's tool prose and counts follow the 32-tool registry.
 """
 
 from __future__ import annotations
@@ -623,15 +625,6 @@ FORMAT_ROWS: list[list[str]] = [
         "Plus MP4, WAV, AIFF - reads any suite format, writes WAV stems",
     ],
     [
-        "ML Denoiser",
-        YES,
-        YES,
-        YES,
-        YES,
-        YES,
-        "Plus MP4, WAV, AIFF - RNNoise model, speech-trained",
-    ],
-    [
         "Restoration (Declip)",
         YES,
         YES,
@@ -699,10 +692,6 @@ CHOOSER_ROWS: list[list[str]] = [
     [
         "Pull out a vocal or make a karaoke track",
         "Stem Separator - vocals, drums, bass and other",
-    ],
-    [
-        "Clean up speech without picking a noise profile",
-        "ML Denoiser - RNNoise, with an amount blend for music",
     ],
 ]
 
@@ -1973,12 +1962,12 @@ def slide_maintenance(prs: Presentation, number: int) -> None:
 
 
 def slide_model_tools(prs: Presentation, number: int) -> None:
-    """Build the Stem Separator and ML Denoiser cards."""
+    """Build the Stem Separator's card."""
     slide = new_slide(prs)
     add_title(
         slide,
-        "Model-Based Tools: Separation & Neural Denoise",
-        "Both run a trained model, and both fetch it on first use",
+        "Model-Based Tools: Separation",
+        "It runs a trained model, fetched on first use",
         UTIL,
     )
     add_card(
@@ -2007,40 +1996,6 @@ def slide_model_tools(prs: Presentation, number: int) -> None:
             Line(
                 "Runs on CPU or CUDA; the 80 MB model downloads once and is "
                 "cached (audiosuite stems)",
-                marker="\u2022",
-            ),
-        ],
-        UTIL,
-        UTIL_LIGHT,
-        title_size=16,
-        body_size=13,
-    )
-    add_card(
-        slide,
-        6.75,
-        1.35,
-        6.0,
-        5.35,
-        "ML Denoiser",
-        [
-            Line(
-                "Removes broadband noise with RNNoise, a small recurrent "
-                "network trained on speech",
-                marker="\u2022",
-            ),
-            Line(
-                "No noise profile to pick: the model estimates speech frame "
-                "by frame and rebuilds the signal with the noise suppressed",
-                marker="\u2022",
-            ),
-            Line(
-                "Speech-oriented, so it attenuates musical content - the "
-                "amount blend keeps part of the source and suits music",
-                marker="\u2022",
-            ),
-            Line(
-                "Processed in place with tags preserved, each file written "
-                "only after its temporary copy is verified (audiosuite denoise)",
                 marker="\u2022",
             ),
         ],

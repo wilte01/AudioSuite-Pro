@@ -51,6 +51,8 @@ proved by a real artefact rather than left as an empty allowance.  Each capture
 also writes a ``.json`` sidecar beside its picture, so that suffix is approved
 *only* where it sits next to a PNG of the same name - a second category, not a
 blanket allowance for data files under ``documentation/``.
+
+Changed in 2.8.0: the tracked sweep skips paths a retirement deleted in the worktree.
 """
 
 from __future__ import annotations
@@ -154,7 +156,13 @@ def tracked_paths() -> list[str]:
         encoding="utf-8",
         check=True,
     )
-    return sorted(line.strip() for line in result.stdout.splitlines() if line.strip())
+    # A path deleted in the worktree but not yet committed is a retirement in
+    # progress, not a document the shipped tree contains.
+    return sorted(
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() and (REPO_ROOT / line.strip()).is_file()
+    )
 
 
 @pytest.fixture(scope="module")

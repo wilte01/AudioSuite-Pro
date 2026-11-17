@@ -22,13 +22,18 @@
   },
   "noise_reduction_params": {
     "reduce_hum": false,
+    "hum_auto": true,
     "hum_frequency": 60,
     "hum_harmonics": 8,
     "hum_quality": 30.0,
     "reduce_broadband": false,
+    "profile_auto": true,
     "noise_start_ms": 0,
     "noise_end_ms": 500,
-    "gate_threshold_db": 3.0
+    "gate_threshold_db": 3.0,
+    "broadband_engine": "spectral",
+    "neural_amount": 1.0,
+    "allow_16bit_output": false
   },
   "enhance_params": {
     "preset": "Moderate",

@@ -117,11 +117,19 @@ def _trim_result(audio: AudioSegment, damaged: bool) -> SimpleNamespace:
 
 
 def _noise_result(audio: AudioSegment, damaged: bool) -> SimpleNamespace:
+    # Changed in 2.8.0: the stage reads the hum measurement off the result, so
+    # this stand-in carries the field the real result always has.
     return SimpleNamespace(
         audio=audio,
         was_modified=damaged,
         energy_before_db=-30.0,
         energy_after_db=-42.0 if damaged else -30.0,
+        hum_profile=None,
+        # Changed in 2.8.0: the stage names the profile window it used.
+        noise_window=None,
+        # Changed in 2.8.0: and the gate's own attenuation and bin share.
+        gate_attenuation_db=None,
+        gated_bin_share=None,
     )
 
 

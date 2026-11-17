@@ -16,9 +16,6 @@ Changed in 1.4.1: the five utility-toggle property aliases say which
 ``module_toggles`` entry they return (PLAN D98).
 Changed in 2.0.0: adds the Stem Separator's destination, model, device, mix
 and per-stem selection variables (Sprint 6, Item 6.1).
-Changed in 2.0.0: adds the ML Denoiser's amount percentage (Item 6.2).  The
-module toggle itself comes from the registry, so a new tool needs no toggle line
-here (and ``test_app_state.py`` freezes the expected set).
 Changed in 2.1.0: toggles are generated for ``registry.driver_manifests`` rather
 than ``registry.all``, so a plugin tool that ships only a CLI entry point gets no
 toggle (Sprint 7, Item 7.1).
@@ -38,6 +35,8 @@ Changed in 2.3.1 (U-03, released in 2.6.0): the five DSP tools' option variables
 (``declick_*``, ``trimmer_*``, ``nr_*``, ``enhancer_*``, ``normalizer_*``) go with
 their cards; the toggles follow ``driver_manifests``, so they go too.
 Changed in 2.7.0: the Pitch / Time card's controls (F-S4).
+
+Changed in 2.8.0: the denoiser's amount variable is gone.
 """
 
 from __future__ import annotations
@@ -246,10 +245,6 @@ class AppState:
         self.stem_separator_drums = tk.BooleanVar(master, value=True)
         self.stem_separator_bass = tk.BooleanVar(master, value=True)
         self.stem_separator_other = tk.BooleanVar(master, value=True)
-
-        # ── ML Denoiser controls ─────────────────────────────────────────────
-        # A percentage, the same unit the tool's slider and CLI use.
-        self.ml_denoiser_amount = tk.StringVar(master, value="100")
 
         # ── Duplicate Finder controls ────────────────────────────────────────
         # The threshold is the measured default (0.10 bit-error rate), and the

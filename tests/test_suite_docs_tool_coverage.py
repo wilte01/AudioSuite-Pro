@@ -4,8 +4,8 @@ The README's table and ``documentation/docs/index.md`` are generated from the to
 manifest, so a new tool appears there by construction. Two artefacts are hand-written
 prose over the same population, and both silently drifted: the CLI reference
 documented 8 of the 30 tools' commands, and the new-user presentation named 26
-of them - a reader could not learn that Tag Editor, Stem Separator, Spectral
-Viewer or ML Denoiser existed at all. The same deck then stated "26 Windows
+of them - a reader could not learn that Tag Editor, Stem Separator or Spectral
+Viewer existed at all. The same deck then stated "26 Windows
 desktop tools" while the suite shipped 30, and the README's opening line still
 said 27.
 
@@ -34,6 +34,8 @@ which stages a copy of the root documents beside the site, the historical
 
 Changed in 2.1.7: the count-claim walk covers ``documentation/`` as one tree.
 
+
+Changed in 2.8.0: the count scan skips documents a retirement deleted in the worktree.
 """
 
 from __future__ import annotations
@@ -94,10 +96,14 @@ def _tracked_markdown_under(directory: str) -> list[Path]:
     Returns:
         Sorted paths of the tracked ``.md`` files beneath it.
     """
+    # A path deleted in the worktree but not yet committed is a retirement in
+    # progress; there is no prose left to scan.
     return sorted(
         REPO_ROOT / path
         for path in _tracked_paths()
-        if path.endswith(".md") and path.startswith(f"{directory}/")
+        if path.endswith(".md")
+        and path.startswith(f"{directory}/")
+        and (REPO_ROOT / path).is_file()
     )
 
 

@@ -29,8 +29,6 @@ Changed in 1.4.1: the usage block is literal, so the generated API reference
 renders it as code rather than a definition list (PLAN D98).
 Changed in 2.0.0: registers the ``stem_separator`` manifest, the suite's first
 optional-dependency (``ml`` extra) tool (PLAN_feature_expansion.md Item 6.1).
-Changed in 2.0.0: registers ``ml_denoiser``, which shares that extra but needs
-no torch: RNNoise is a 13 MB C library (Item 6.2).
 Changed in 2.1.0: the registry gains the plugin population. Manifests from
 ``plugins/*/MANIFEST.toml`` are discovered while the registry is built (so the
 freeze still means "no late registrations"), a plugin that cannot be registered
@@ -57,6 +55,9 @@ five sections and ``enrich_sections`` splits the population, so the splitter
 behind both tabs is one implementation (``grouped_sections``) and the enrich run
 order is untouched - the groups are contiguous runs of it
 (PLAN_2026-11-08_enrich_card_grouping.md).
+
+Changed in 2.8.0: the denoiser leaves the manifest, and the utility orders close its
+gap.
 """
 
 from __future__ import annotations
@@ -661,7 +662,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="split",
         standalone=True,
         group="organise",
-        order=210,
+        order=200,
     ),
     ToolManifest(
         id="audio_joiner",
@@ -672,7 +673,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="join",
         standalone=True,
         group="organise",
-        order=190,
+        order=180,
     ),
     # Changed in 2.7.0: registers the pitch/time tool (F-S4).  It joins the
     # repair block alphabetically, so the tools after it are renumbered into
@@ -687,7 +688,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="pitchtime",
         standalone=True,
         group="repair",
-        order=160,
+        order=150,
     ),
     # Changed in 2.5.0: registers the channel utility's manifest (F-E6).
     ToolManifest(
@@ -732,7 +733,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="reorganize",
         standalone=True,
         group="organise",
-        order=200,
+        order=190,
     ),
     ToolManifest(
         id="tag_field_updater",
@@ -754,18 +755,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="stems",
         standalone=True,
         group="repair",
-        order=180,
-    ),
-    ToolManifest(
-        id="ml_denoiser",
-        name="ML Denoiser",
-        category="utility",
-        pyw_filename="ML_Denoiser.pyw",
-        description="Neural noise reduction with RNNoise (speech-trained)",
-        cli_command="denoise",
-        standalone=True,
-        group="repair",
-        order=150,
+        order=170,
     ),
     ToolManifest(
         id="duplicate_finder",
@@ -790,7 +780,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="declip",
         standalone=True,
         group="repair",
-        order=170,
+        order=160,
     ),
     ToolManifest(
         id="tag_editor",

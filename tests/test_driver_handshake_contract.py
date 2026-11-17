@@ -34,6 +34,8 @@ is the four-flag grammar its own `parse()` reads, so the batch can schedule it
 because the Duplicate Finder builder now emits `--exact` and its parser
 validates the value (F-E9).
 Changed in 2.7.0: ``pitch_time`` is declared and driven (F-S4).
+
+Changed in 2.8.0: the handshake table and its exception count follow 32 tools.
 """
 
 from __future__ import annotations
@@ -215,7 +217,6 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "file_reorganizer": ToolSpec("file_reorganizer.utils.cli_args"),
     "tag_field_updater": ToolSpec("tag_field_updater.utils.cli_args"),
     "tag_editor": ToolSpec("tag_editor.utils.cli_args"),
-    "ml_denoiser": ToolSpec(reason=_UNCHANGED),
     "duplicate_finder": ToolSpec("duplicate_finder.utils.cli_args"),
     "restoration": ToolSpec("restoration.utils.cli_args"),
     "track_splitter": ToolSpec("track_splitter.utils.cli_args"),
@@ -284,10 +285,10 @@ class TestTheTableCoversTheRegistry:
         )
 
     def test_the_table_is_not_empty_and_records_its_exceptions(self) -> None:
-        assert len(HANDSHAKE_TOOLS) == 33
+        assert len(HANDSHAKE_TOOLS) == 32
         assert len(DRIVEN_TOOLS) == 15, DRIVEN_TOOLS
         excluded = {t for t, spec in HANDSHAKE_TOOLS.items() if spec.reason}
-        assert len(excluded) == 18
+        assert len(excluded) == 17
 
 
 class TestTheParserAgreesWithTheGrammar:

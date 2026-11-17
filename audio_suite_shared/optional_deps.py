@@ -1,8 +1,9 @@
 """
 optional_deps.py — install an optional extra the first time a tool needs it.
 
-The suite's ML tools (Stem Separator, ML Denoiser) run on Demucs and RNNoise,
-which live in the ``ml`` extra rather than the base dependencies: torch alone is
+The suite's ML tool (Stem Separator) runs on Demucs, and the Refinery's neural
+stage on RNNoise, which live in the ``ml`` extra rather than the base
+dependencies: torch alone is
 gigabytes, and the other tools must stay installable without it.  Asking the user
 to run ``uv sync --extra ml`` makes a working run depend on a command they have
 no reason to know — and it silently does nothing when the tool was started by a
@@ -25,6 +26,9 @@ This module owns no widgets and never blocks the caller's thread: the GUI layer
 :func:`ensure` on a worker thread and marshals the outcome back to Tk.
 
 Changed in 2.1.0: initial version.
+
+Changed in 2.8.0: RNNoise is required by Audio Refinery, which runs the denoiser's
+engine.
 """
 
 from __future__ import annotations
@@ -100,8 +104,8 @@ RNNOISE = Requirement(
 #: extra must add itself here; ``tests/test_optional_deps.py`` derives the same
 #: set from the tools' own call sites and fails if the two disagree.
 TOOL_REQUIREMENTS: Final[Mapping[str, Requirement]] = {
-    "ml_denoiser": RNNOISE,
     "stem_separator": DEMUCS,
+    "audio_refinery": RNNOISE,
 }
 
 

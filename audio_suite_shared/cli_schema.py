@@ -129,6 +129,8 @@ F-08a).
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: declares `split`'s payload fields (F-E4).
+
+Changed in 2.8.0: the schema drops the retired ``denoise`` command's rules.
 """
 
 from __future__ import annotations
@@ -177,7 +179,6 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "cue parse": "cue",
     "cue split": "cue",
     "declip": "restoration",
-    "denoise": "ml_denoiser",
     # ``doctor`` is the install check rather than a tool, so its id has no
     # ``ToolManifest`` entry; it is declared here the way ``cue`` is.
     "doctor": "doctor",

@@ -29,6 +29,8 @@ exec probe restores (Sprint 6, Item 6.1).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.8.0: the launcher stub lock drops the denoiser's entry point.
 """
 
 from __future__ import annotations
@@ -102,7 +104,6 @@ _FIRST_PARTY: tuple[str, ...] = (
     "lyrics_manager",
     "master_driver",
     "metadata_scrubber",
-    "ml_denoiser",
     "mood_analyzer",
     "mood_analysis_batch_tagger",
     "noise_reduction",

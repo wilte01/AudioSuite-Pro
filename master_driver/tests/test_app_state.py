@@ -52,6 +52,8 @@ Changed in 1.4.0: the worker default is read from default_max_workers().
 Changed in 2.1.0: plugin tools contribute their own toggle keys.
 Changed in 2.5.0: the frozen toggle set gains the Channel Tools utility (F-E6).
 Changed in 2.7.0: the pitch/time toggle and its controls (F-S4).
+
+Changed in 2.8.0: the state lock no longer expects the denoiser's amount.
 """
 
 import json
@@ -598,7 +600,6 @@ class TestModuleToggles:
         "undo_tag_edits",
         "spectral_viewer",
         "stem_separator",
-        "ml_denoiser",
         # F-02 / F-08a: the registry generates a toggle for every manifest with
         # a launcher, so a new tool appears here without an AppState edit.
         "duplicate_finder",

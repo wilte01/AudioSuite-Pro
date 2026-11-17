@@ -25,11 +25,18 @@ need a full suite installation are patched at the module boundary.
 
 Changed in 1.1.0: added _run_enhance tests asserting the effect
 fields flow from config.enhance_params into the enhancement params.
+
+Changed in 2.8.0: the Noise Reduction stage's two broadband engines are locked -
+the engine named in its message, a missing model, the batch refusing before any
+file, a 24-bit refusal, a 16-bit source written at 16-bit on disk, and a written
+file whose per-channel decodes prove the reduction happened.
 """
 
 from __future__ import annotations
 
 import inspect
+import sys
+import types
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1867,3 +1874,537 @@ class TestDynamicsStage:
 
         assert modified is True
         assert processed.max_dBFS <= -6.0 + 0.2
+
+
+# ── Neural broadband engine (2.8.0) ──────────────────────────────────────────
+
+
+def _install_fake_rnnoise(
+    monkeypatch: pytest.MonkeyPatch, *, gain: float = 0.5
+) -> None:
+    """Register a fake ``pyrnnoise`` that scales each frame by *gain*."""
+    module = types.ModuleType("pyrnnoise")
+
+    class _FakeRNNoise:
+        def __init__(self, sample_rate: int) -> None:
+            self.sample_rate = sample_rate
+
+        def denoise_chunk(self, chunk: Any, partial: bool = False) -> Any:
+            array = np.atleast_2d(np.asarray(chunk, dtype=np.int16))
+            processed = np.rint(array.astype(np.float64) * gain).astype(np.int16)
+            for start in range(0, processed.shape[1], 480):
+                frame = processed[:, start : start + 480]
+                yield np.zeros((array.shape[0], 1), dtype=np.float32), frame
+
+    module.RNNoise = _FakeRNNoise  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pyrnnoise", module)
+
+
+def _neural_stage_config() -> StageConfig:
+    """A run whose only stage is the neural broadband engine."""
+    from noise_reduction.core.models import NEURAL_ENGINE, NoiseReductionParams
+
+    return StageConfig(
+        declick=False,
+        trim=False,
+        enhance=False,
+        normalise=False,
+        reduce_noise=True,
+        noise_reduction_params=NoiseReductionParams(
+            reduce_broadband=True,
+            broadband_engine=NEURAL_ENGINE,
+        ),
+    )
+
+
+class TestNoiseReductionEngine:
+    """The stage names the engine it ran and states the neural output's depth."""
+
+    def test_the_neural_stage_names_the_engine_and_its_depth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+
+        _install_fake_rnnoise(monkeypatch)
+        audio = _sine(duration_ms=300)
+
+        out, msg, modified = _run_noise_reduction_stage(
+            audio, _neural_stage_config(), _noop_emit, Path("song.wav")
+        )
+
+        assert modified is True
+        assert out is not audio
+        assert "broadband=neural" in msg
+        assert "16-bit output" in msg
+        assert "Attenuated" in msg
+
+    def test_the_spectral_stage_reports_the_profile_engine(self) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(
+                reduce_hum=True,
+                hum_frequency=60,
+                hum_harmonics=3,
+            ),
+        )
+
+        _out, msg, modified = _run_noise_reduction_stage(
+            _sine(freq=60, duration_ms=400, amplitude=0.4),
+            config,
+            _noop_emit,
+            Path("hum.wav"),
+        )
+
+        assert modified is True
+        assert "hum=on" in msg
+        assert "broadband=off" in msg
+        assert "16-bit output" not in msg
+
+    def test_a_missing_model_fails_the_stage_by_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from audio_suite_shared.exceptions import AudioProcessingError
+
+        monkeypatch.setitem(sys.modules, "pyrnnoise", None)
+
+        with pytest.raises(AudioProcessingError) as excinfo:
+            _run_noise_reduction_stage(
+                _sine(duration_ms=100), _neural_stage_config(), _noop_emit
+            )
+        assert "pyrnnoise" in str(excinfo.value)
+
+    def test_a_24_bit_source_is_refused_with_both_depths(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from audio_suite_shared.exceptions import AudioProcessingError
+
+        source = tmp_path / "wide.wav"
+        _sine(duration_ms=200).export(
+            str(source), format="wav", parameters=["-c:a", "pcm_s24le"]
+        )
+
+        with pytest.raises(AudioProcessingError) as excinfo:
+            _run_noise_reduction_stage(
+                AudioSegment.from_file(str(source)),
+                _neural_stage_config(),
+                _noop_emit,
+                source,
+            )
+        message = str(excinfo.value)
+
+        assert "wide.wav" in message
+        assert "24-bit" in message
+        assert "16-bit" in message
+
+    def test_the_batch_refuses_a_missing_model_before_any_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from queue import Queue
+
+        from audio_refinery.core.file_processor import run_pipeline
+        from audio_refinery.core.registry import CompletionRegistry
+
+        monkeypatch.setitem(sys.modules, "pyrnnoise", None)
+        source = tmp_path / "one.wav"
+        _sine(duration_ms=200).export(str(source), format="wav")
+        before = source.read_bytes()
+        on_error = MagicMock()
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path,
+            config=_neural_stage_config(),
+            registry=CompletionRegistry(tmp_path),
+            slot_vars=[MagicMock()],
+            slot_queue=Queue(),
+            on_progress=on_progress,
+            on_complete=on_complete,
+            on_error=on_error,
+        )
+
+        on_error.assert_called_once()
+        assert "pyrnnoise" in on_error.call_args[0][0]
+        on_progress.assert_not_called()
+        on_complete.assert_not_called()
+        # "Before any file" means the source is untouched, not merely unreported.
+        assert source.read_bytes() == before
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["one.wav"]
+
+    def test_a_16_bit_source_is_written_at_16_bit_resolution(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A wider source is refused earlier, so the written file is decoded here.
+
+        The model works in 16-bit and REFINE's export preserves the source's
+        depth, so the only run that can reach the write is a 16-bit one.  Read
+        the depth back off the file rather than trusting the config that fed it.
+        """
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+
+        _install_fake_rnnoise(monkeypatch)
+        source = tmp_path / "song.wav"
+        _sine(duration_ms=300).export(
+            str(source), format="wav", parameters=["-c:a", "pcm_s16le"]
+        )
+
+        result = process_file(source, source, _neural_stage_config())
+
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is True
+        assert AudioSegment.from_file(str(source)).sample_width == 2
+
+    def test_a_neural_dry_run_measures_and_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A dry run runs the stage for its numbers, then leaves the file alone.
+
+        Everything the live path checks has passed here - the model is
+        installed and the source is 16-bit - so ``dry_run`` is the only
+        difference.  The source's bytes prove nothing was written, and the
+        stage line proves the neural engine really ran for its measurement
+        rather than being skipped and reported as an empty success.
+        """
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+
+        _install_fake_rnnoise(monkeypatch)
+        source = tmp_path / "song.wav"
+        _sine(duration_ms=300).export(
+            str(source), format="wav", parameters=["-c:a", "pcm_s16le"]
+        )
+        before = source.read_bytes()
+        config = _neural_stage_config()
+        config.dry_run = True
+
+        result = process_file(source, source, config)
+
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is False
+        message = next(s.message for s in result.stages if s.stage == "Noise Reduction")
+        assert "broadband=neural" in message
+        assert "16-bit output" in message
+        assert "dB" in message
+        assert source.read_bytes() == before
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["song.wav"]
+
+    def test_the_written_file_measures_the_reduction_on_each_channel(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Decode the file the run wrote and measure every channel's own RMS.
+
+        The result object is the code's own claim; the file on disk is the
+        outcome.  The source's two channels carry different levels, so a stage
+        that processed one channel, downmixed them or reported a figure it never
+        wrote changes the pair of measurements, not just the total: the fake
+        model halves every frame, and each channel's decoded RMS must show that
+        halving.
+        """
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+        from audio_suite_shared import audio_probe
+
+        _install_fake_rnnoise(monkeypatch, gain=0.5)
+        source = tmp_path / "song.wav"
+        written = tmp_path / "song - denoised.wav"
+        left = _sine(freq=440, duration_ms=400, amplitude=0.5)
+        right = _sine(freq=880, duration_ms=400, amplitude=0.25)
+        AudioSegment.from_mono_audiosegments(left, right).export(
+            str(source), format="wav", parameters=["-c:a", "pcm_s16le"]
+        )
+
+        before, rate = audio_probe.decode_samples(str(source))
+        result = process_file(source, written, _neural_stage_config())
+        after, written_rate = audio_probe.decode_samples(str(written))
+
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is True
+        assert written_rate == rate
+        assert before.shape == after.shape
+        assert before.shape[1] == 2
+
+        def _rms_channel(frames: Any, channel: int) -> float:
+            samples = np.asarray(frames[:, channel], dtype=np.float64)
+            return float(np.sqrt(np.mean(np.square(samples))))
+
+        rms_before = [_rms_channel(before, channel) for channel in range(2)]
+        rms_after = [_rms_channel(after, channel) for channel in range(2)]
+
+        # The fixture's channels differ by 6 dB, so a per-channel measurement is
+        # the only reading that can be right.
+        assert rms_before[0] > rms_before[1] * 1.8
+        for channel in range(2):
+            assert rms_after[channel] == pytest.approx(
+                rms_before[channel] * 0.5, rel=0.02
+            )
+            drop_db = 20.0 * np.log10(rms_after[channel] / rms_before[channel])
+            assert drop_db == pytest.approx(-6.02, abs=0.5)
+
+    def test_the_opt_in_narrows_a_wider_source_and_the_file_proves_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The opt-in is the only way a 24-bit source reaches the writer.
+
+        The report must not be the evidence: decode the file the run wrote and
+        read its own sample width, then check the stage line states the change.
+        """
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+
+        _install_fake_rnnoise(monkeypatch)
+        source = tmp_path / "wide.wav"
+        written = tmp_path / "wide - denoised.wav"
+        _sine(duration_ms=300).export(
+            str(source), format="wav", parameters=["-c:a", "pcm_s24le"]
+        )
+        config = _neural_stage_config()
+        config.noise_reduction_params.allow_16bit_output = True
+
+        result = process_file(source, written, config)
+
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is True
+        assert AudioSegment.from_file(str(written)).sample_width == 2
+        message = next(s.message for s in result.stages if s.stage == "Noise Reduction")
+        assert "16-bit output" in message
+        assert "narrowed from a 24-bit source" in message
+
+
+class TestHumMeasurementReport:
+    """The stage reports the measurement, not just that hum removal was on.
+
+    The run report is built from these stage lines, so a line that names the
+    mains frequency, the partial count and the strength is how the finding
+    reaches the file the Results tab opens.
+    """
+
+    def test_the_stage_line_states_the_measured_hum(self) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(reduce_hum=True),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            _sine(freq=60, duration_ms=2000, amplitude=0.4), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "hum=on 60 Hz auto" in message
+        assert "1 harmonic" in message
+        assert "dB" in message
+
+    def test_the_manual_override_reports_no_measurement(self) -> None:
+        """A fixed cascade measured nothing, so it claims nothing."""
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(
+                reduce_hum=True, hum_auto=False, hum_frequency=60
+            ),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            _sine(freq=60, duration_ms=2000, amplitude=0.4), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "hum=on" in message
+        assert "Hz auto" not in message
+        assert "60 Hz manual" in message
+
+
+class TestProfileWindowReport:
+    """The gate says which stretch it measured, so a verdict is inspectable.
+
+    The default window used to be the file's first 500 ms - an intro more often
+    than a floor - so the line has to name the window that was actually used.
+    """
+
+    @staticmethod
+    def _tone_then_hiss() -> AudioSegment:
+        """A loud tone, then a faint floor: the gate touches 91 % of bins and
+        removes 0.0 dB, which is a no-op wearing a result's clothes."""
+        noise_fn = np.random.default_rng(5)
+        time_axis = np.linspace(0.0, 2.0, FS * 2, endpoint=False)
+        samples = np.zeros(FS * 2)
+        samples[:FS] = 0.9 * np.sin(2 * np.pi * 1000 * time_axis[:FS])
+        samples[FS:] = 0.0005 * noise_fn.standard_normal(FS)
+        return AudioSegment(
+            data=(samples * 32767).astype(np.int16).tobytes(),
+            sample_width=2,
+            frame_rate=FS,
+            channels=1,
+        )
+
+    @staticmethod
+    def _hiss(duration_ms: int = 2000) -> AudioSegment:
+        rng = np.random.default_rng(3)
+        pcm = (rng.standard_normal(int(FS * duration_ms / 1000)) * 0.2 * 32767).astype(
+            np.int16
+        )
+        return AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=FS, channels=1
+        )
+
+    def test_the_stage_line_names_the_measured_window(self) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(reduce_broadband=True),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            self._hiss(), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "broadband=spectral" in message
+        assert "profile=auto" in message
+        assert " dBFS" in message
+
+    def test_an_auto_run_that_measured_nothing_names_the_fallback(self) -> None:
+        """A file below the analysis floor keeps the configured region.
+
+        The line must say that, not report a manual region: the user left Auto
+        on, and "profile=manual" would credit a choice nobody made.
+        """
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(reduce_broadband=True),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            self._hiss(200), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "profile=auto none measured, used 0-500 ms" in message
+
+    def test_the_manual_region_is_named_as_the_override(self) -> None:
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(
+                reduce_broadband=True,
+                profile_auto=False,
+                noise_start_ms=100,
+                noise_end_ms=900,
+            ),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            self._hiss(), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "profile=manual 100-900 ms" in message
+        assert "profile=auto" not in message
+
+    def test_the_line_states_the_gate_measurement(self) -> None:
+        """The gate's own attenuation and the share of bins it suppressed."""
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(reduce_broadband=True),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            self._hiss(), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "gate=" in message
+        assert "bins=" in message
+        assert "%" in message
+
+    def test_a_run_that_found_no_hum_says_so(self) -> None:
+        """\"hum=on\" alone would hide that the detector measured nothing."""
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(
+                reduce_hum=True, reduce_broadband=True
+            ),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            self._hiss(), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "hum=on none detected" in message
+
+    def test_a_stage_that_removed_nothing_audible_warns(self) -> None:
+        """A written-but-unchanged file must not read as a clean one."""
+        from audio_refinery.core.pipeline import _run_noise_reduction_stage
+        from noise_reduction.core.models import NoiseReductionParams
+
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(reduce_broadband=True),
+        )
+
+        _audio, message, modified = _run_noise_reduction_stage(
+            self._tone_then_hiss(), config, _noop_emit
+        )
+
+        assert modified is True
+        assert "WARNING: removed under 0.5 dB" in message
+        assert "bins=91%" in message

@@ -46,6 +46,8 @@ Changed in 2.5.0: the usage-error table gains `split` (F-E4) and `channels`
 (F-E6).
 Changed in 2.7.0: the usage-error table gains `licences`, which takes no input
 and so declares the two invocation-shape errors `doctor` does.
+
+Changed in 2.8.0: the usage table loses the ``denoise`` rows.
 """
 
 from __future__ import annotations
@@ -99,9 +101,6 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     # Both new tools bound their options in Click, so an out-of-type value is
     # rejected before the body touches the settings object.
     "declip": {"missing": [], "invalid": [LIBRARY, "--threshold", "bogus"]},
-    # ``denoise`` has no required option; ``--amount`` is a bounded float, so a
-    # percentage outside 1-100 is rejected before the body runs.
-    "denoise": {"missing": [], "invalid": [LIBRARY, "--amount", "0"]},
     # ``doctor`` takes no input, so the two reachable usage errors are the
     # invocation itself: an option it does not know and a positional it does
     # not accept.  Both must publish a document like every other command.

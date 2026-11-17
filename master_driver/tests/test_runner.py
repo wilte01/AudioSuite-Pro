@@ -114,7 +114,6 @@ def _make_state(
         "cd_ripper",
         "library_stats",
         "stem_separator",
-        "ml_denoiser",
         "tag_editor",
         # Changed in 2.5.0: the Track Splitter is a utility tool whose entry
         # reads its toggle and gap settings (F-E4).
@@ -201,7 +200,6 @@ def _make_state(
     state.stem_separator_drums = _bool_var(True)
     state.stem_separator_bass = _bool_var(True)
     state.stem_separator_other = _bool_var(True)
-    state.ml_denoiser_amount = _str_var("100")
 
     # Enrich params (noise reduction + fingerprinter)
     state.nr_reduce_hum = _bool_var(False)
@@ -252,14 +250,12 @@ def _make_refinery_config():
     config.trim_params.fade_out_ms = 1000
     config.normalise_params.target_lufs = -16.0
     config.normalise_params.tolerance = 1.0
-    config.noise_reduction_params.reduce_hum = False
-    config.noise_reduction_params.reduce_broadband = False
-    config.noise_reduction_params.hum_frequency = 60
-    config.noise_reduction_params.hum_harmonics = 8
-    config.noise_reduction_params.hum_quality = 30.0
-    config.noise_reduction_params.noise_start_ms = 0
-    config.noise_reduction_params.noise_end_ms = 500
-    config.noise_reduction_params.gate_threshold_db = 3.0
+    # A real parameter object: every unset field on a MagicMock is truthy, so
+    # ``neural_selected()`` would answer yes for a fixture that means "no noise
+    # stage", and the engine's argv would carry a mock's arithmetic (2.8.0).
+    from noise_reduction.core.models import NoiseReductionParams
+
+    config.noise_reduction_params = NoiseReductionParams()
     return config
 
 
@@ -860,18 +856,6 @@ class TestBuildUtilityArgs:
         entry = next(e for e in args_list if "Stem Separator" in e[1].name)
         assert "--mix" in entry[2]
 
-    def test_ml_denoiser_emits_its_amount_percentage(self):
-        """The driver passes a percentage, the unit both entry points use."""
-        state = _make_state()
-        state.ml_denoiser_amount = _str_var("40")
-        args_list = build_utility_args(state)
-        entry = next(e for e in args_list if "ML Denoiser" in e[1].name)
-        args = entry[2]
-        assert "--amount" in args
-        assert args[args.index("--amount") + 1] == "40"
-        # The shared run-mode/start/end tokens lead, as for every utility.
-        assert args[:4] == ["/music", "--dry", "--no-start", "--no-end"]
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # build_refinery_args
@@ -1002,6 +986,76 @@ class TestBuildRefineryArgs:
         stages_str = args[stage_idx + 1]
         assert "reduce_noise" not in stages_str
 
+    def test_the_neural_engine_reaches_the_child(self):
+        """A neural run must not launch the child's spectral default (2.8.0)."""
+        from noise_reduction.core.models import NEURAL_ENGINE
+
+        state = _make_state()
+        config = _make_refinery_config()
+        config.reduce_noise = True
+        config.noise_reduction_params.reduce_broadband = True
+        config.noise_reduction_params.broadband_engine = NEURAL_ENGINE
+        config.noise_reduction_params.neural_amount = 0.55
+
+        _, _, args = build_refinery_args(state, config)[0]
+
+        assert args[args.index("--broadband-engine") + 1] == "neural"
+        assert args[args.index("--denoise-amount") + 1] == "55"
+
+    def test_a_spectral_run_emits_no_engine_flag(self):
+        """The spectral argument list is unchanged, so existing runs stay put."""
+        state = _make_state()
+        config = _make_refinery_config()
+        config.reduce_noise = True
+        config.noise_reduction_params.reduce_broadband = True
+
+        _, _, args = build_refinery_args(state, config)[0]
+
+        assert "--broadband-engine" not in args
+        assert "--denoise-amount" not in args
+
+    def test_the_16_bit_opt_in_reaches_the_child(self):
+        """A Driver run narrows the source its card showed as allowed."""
+        from noise_reduction.core.models import NEURAL_ENGINE
+
+        state = _make_state()
+        config = _make_refinery_config()
+        config.reduce_noise = True
+        config.noise_reduction_params.reduce_broadband = True
+        config.noise_reduction_params.broadband_engine = NEURAL_ENGINE
+        config.noise_reduction_params.allow_16bit_output = True
+
+        _, _, args = build_refinery_args(state, config)[0]
+
+        assert "--allow-16bit-output" in args
+
+    def test_the_hum_and_profile_modes_reach_the_child(self):
+        """Auto is emitted as the flag; an override sends only its setting."""
+        state = _make_state()
+        config = _make_refinery_config()
+        config.reduce_noise = True
+        config.noise_reduction_params.reduce_hum = True
+        config.noise_reduction_params.reduce_broadband = True
+
+        _, _, args = build_refinery_args(state, config)[0]
+        assert "--hum-auto" in args
+        assert "--profile-auto" in args
+        assert "--hum-frequency" not in args
+        assert "--noise-start" not in args
+
+        config.noise_reduction_params.hum_auto = False
+        config.noise_reduction_params.hum_frequency = 50
+        config.noise_reduction_params.profile_auto = False
+        config.noise_reduction_params.noise_start_ms = 250
+        config.noise_reduction_params.noise_end_ms = 750
+
+        _, _, args = build_refinery_args(state, config)[0]
+        assert args[args.index("--hum-frequency") + 1] == "50"
+        assert args[args.index("--noise-start") + 1] == "250"
+        assert args[args.index("--noise-end") + 1] == "750"
+        assert "--hum-auto" not in args
+        assert "--profile-auto" not in args
+
     def test_eq_bands_reach_the_child_when_the_stage_is_on(self):
         """F-S1: the rack crosses as repeatable --eq-band flags, in order."""
         from audio_suite_shared.dsp_eq import EqBand, EqSettings
@@ -1032,6 +1086,10 @@ class TestBuildRefineryArgs:
         config = _make_refinery_config()
         config.noise_reduction_params.reduce_hum = True
         config.noise_reduction_params.reduce_broadband = True
+        # Changed in 2.8.0: detection is the default, so a card that names a
+        # frequency and a region is the override the child must be told about.
+        config.noise_reduction_params.hum_auto = False
+        config.noise_reduction_params.profile_auto = False
         config.noise_reduction_params.hum_frequency = 50
         config.noise_reduction_params.hum_harmonics = 4
         config.noise_reduction_params.hum_quality = 45.0

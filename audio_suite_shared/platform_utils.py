@@ -10,7 +10,6 @@ X/Y coordinates (Tk's ``WxH-X-Y`` form is now parsed instead of split on
 Changed in 1.3.0: registers the Spectral Viewer's guide filename in
 ``guide_to_program`` so its Help button resolves the shipped .docx.
 Changed in 2.0.0: registers the Stem Separator's guide filename.
-Changed in 2.0.0: registers the ML Denoiser's guide filename (Item 6.2).
 
 Changed in 2.3.0: registers the Duplicate Finder's and the Restoration
 (declip) tool's guide filenames (functional backlog F-02, F-08a).
@@ -26,6 +25,8 @@ Changed in 2.6.0: maps the CUE Sheet Generator's guide (F-E8).
 Changed in 2.5.0: ``open_help`` takes the installation root from
 :mod:`audio_suite_shared.suite_paths` instead of walking up from the
 working directory looking for a folder named after the project (D-44).
+
+Changed in 2.8.0: the guide mapping loses the retired denoiser.
 """
 
 import logging
@@ -134,7 +135,6 @@ def open_help(guide_filename: str) -> None:
         "Mood_Analysis_Batch_Tagger_User_Guide.docx": "mood_analysis_batch_tagger",
         "Mood_Analyzer_User_Guide.docx": "mood_analyzer",
         "Music_Format_Converter_User_Guide.docx": "music_format_converter",
-        "ML_Denoiser_User_Guide.docx": "ml_denoiser",
         "ReplayGain_Analyzer_User_Guide.docx": "replaygain_analyzer",
         "Duplicate_Finder_User_Guide.docx": "duplicate_finder",
         "Restoration_User_Guide.docx": "restoration",

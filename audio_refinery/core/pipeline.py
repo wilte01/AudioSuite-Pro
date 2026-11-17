@@ -414,7 +414,9 @@ def process_file(
 
         # ── 5. Noise Reduction ────────────────────────────────────────────
         if config.reduce_noise:
-            audio, msg, changed = _run_noise_reduction_stage(audio, stage_config, _emit)
+            audio, msg, changed = _run_noise_reduction_stage(
+                audio, stage_config, _emit, source_path
+            )
             modified = modified or changed
             result.add_stage("Noise Reduction", FileStatus.DONE, msg)
 
@@ -467,7 +469,14 @@ def process_file(
 
         # ── 8. Write temp file (single encode, bitrate-aware) ─────────────────
         staged = _temp_path()
-        _write_output(audio, staged, source_path, ext, _emit)
+        _write_output(
+            audio,
+            staged,
+            source_path,
+            ext,
+            _emit,
+            preserve_source_depth=not _neural_output_is_16_bit(config),
+        )
 
         # ── 9. Restore tags ───────────────────────────────────────────────────
         _emit("Export", "Restoring tags...")
@@ -705,31 +714,121 @@ def _run_noise_reduction_stage(
     audio: AudioSegment,
     config: StageConfig,
     emit: Callable[..., Any],
+    source_path: Path | None = None,
 ) -> tuple[AudioSegment, str, bool]:
     """Remove hum and broadband noise, returning ``(audio, message, modified)``.
 
     ``modified`` is the engine's own verdict, so a file with no detectable
-    noise is left byte-identical (U-02).
+    noise is left byte-identical (U-02).  The broadband half runs whichever
+    engine the parameters select; the message names it, and a neural run says
+    that its output carries 16 bits.  The hum half measures the file first, and
+    the message states the measured mains frequency, partial count and strength
+    so the run report carries the finding, not just the fact that it was on.
+
+    Changed in 2.8.0: the neural engine can run here too, so the stage refuses a
+    missing model or a source wider than the engine's output before the DSP -
+    ``source_path`` is named in the bit-depth refusal.  The spectral engine now
+    measures its profile window per file and the message names the window it
+    used.
 
     Raises:
-        AudioProcessingError: If the stage fails; preserves the original
+        AudioProcessingError: If the stage fails, including a missing model, a
+            refused bit depth or an unknown engine; preserves the original
             exception with context ``stage="noise_reduction"``.
     """
     emit("Noise Reduction", "Removing hum and noise…")
     try:
-        from noise_reduction.core.noise_reducer import reduce_noise
+        from noise_reduction.core.models import MIN_MEANINGFUL_ATTENUATION_DB
+        from noise_reduction.core.noise_reducer import (
+            check_neural_bit_depth,
+            neural_dependency_reason,
+            reduce_noise,
+        )
 
         nr_params = config.noise_reduction_params
+        # A missing model is a run-level fault; the batch refuses it before the
+        # first file, and this catches a stage called on its own.
+        reason = neural_dependency_reason(nr_params)
+        if reason is not None:
+            raise AudioConfigurationError(reason)
+        # Changed in 2.8.0: the depth a wider source was narrowed from, when the
+        # run's opt-in let it through, so the line states what the file carries.
+        downmixed_from = check_neural_bit_depth(
+            audio, nr_params, None if source_path is None else str(source_path)
+        )
         nr_result = reduce_noise(audio, nr_params)
+        neural_ran = nr_params.neural_selected()
         if nr_result.was_modified:
             audio = nr_result.audio
             attenuation = nr_result.energy_before_db - nr_result.energy_after_db
+            broadband = (
+                nr_params.broadband_engine if nr_params.reduce_broadband else "off"
+            )
+            hum_state = "on" if nr_params.reduce_hum else "off"
+            profile = nr_result.hum_profile
+            # Changed in 2.8.0: "hum=on" alone says nothing about what was
+            # found.  A detecting run that measured no hum, and a manual run
+            # that notched a fixed cascade, each say which of the two they were.
+            if profile is not None:
+                # Changed in 2.8.0: the measurement is the report - which mains
+                # frequency, how many partials and how far above the floor - so a
+                # run says what it found instead of only that hum was "on".
+                hum_state = f"{hum_state} {profile.describe()}"
+            elif nr_params.reduce_hum:
+                hum_state = (
+                    f"{hum_state} none detected"
+                    if nr_params.hum_auto
+                    else f"{hum_state} {nr_params.hum_frequency} Hz manual"
+                )
+            # Changed in 2.8.0: the spectral gate picks its profile window from
+            # the file, so the line names the stretch it measured - otherwise a
+            # run that gated too little (or too much) shows nothing to inspect.
+            profile_window = nr_result.noise_window
+            if profile_window is not None:
+                profile_state = f", profile={profile_window.describe()}"
+            elif nr_params.reduce_broadband and not neural_ran:
+                # A file below the analysis floor keeps the configured region;
+                # saying "manual" there would credit a choice nobody made.
+                region = f"{nr_params.noise_start_ms}-{nr_params.noise_end_ms} ms"
+                profile_state = (
+                    f", profile=auto none measured, used {region}"
+                    if nr_params.profile_auto
+                    else f", profile=manual {region}"
+                )
+            else:
+                profile_state = ""
+            # Changed in 2.8.0: the gate's own attenuation and the share of bins
+            # it suppressed, so "removed 20 dB from 2 % of the spectrum" and
+            # "thinned every bin" no longer read the same.
+            measurement_state = ""
+            if (
+                nr_result.gate_attenuation_db is not None
+                and nr_result.gated_bin_share is not None
+            ):
+                measurement_state = (
+                    f", gate={nr_result.gate_attenuation_db:.1f} dB"
+                    f", bins={nr_result.gated_bin_share * 100:.0f}%"
+                )
             msg = (
                 f"Attenuated {attenuation:.1f} dB"
-                f" (hum={'on' if nr_params.reduce_hum else 'off'},"
-                f" broadband="
-                f"{'on' if nr_params.reduce_broadband else 'off'})"
+                f" (hum={hum_state},"
+                f" broadband={broadband}{profile_state}{measurement_state})"
             )
+            if neural_ran:
+                # Changed in 2.8.0: the neural engine writes 16-bit audio, so the
+                # line says so - and names the wider source an opted-in run
+                # narrowed, rather than leaving the change to the container.
+                msg += " — 16-bit output"
+                if downmixed_from is not None:
+                    msg += f" (narrowed from a {downmixed_from}-bit source)"
+            if attenuation < MIN_MEANINGFUL_ATTENUATION_DB:
+                # A stage that wrote a file while removing almost nothing is a
+                # no-op, not a clean source: say so instead of implying a result.
+                msg += (
+                    f" — WARNING: removed under"
+                    f" {MIN_MEANINGFUL_ATTENUATION_DB:.1f} dB, so this run"
+                    " changed almost nothing"
+                )
         else:
             msg = "No noise detected — audio already clean"
         emit("Noise Reduction", msg)
@@ -938,12 +1037,22 @@ def _run_tone_stages(
     return audio, modified
 
 
+def _neural_output_is_16_bit(config: StageConfig) -> bool:
+    """Return whether this run's audio comes from the neural engine.
+
+    The model's output carries 16 bits whatever the source's depth, so the
+    writer must not re-pin a wider source's depth over it (2.8.0).
+    """
+    return bool(config.reduce_noise and config.noise_reduction_params.neural_selected())
+
+
 def _write_output(
     audio: AudioSegment,
     tmp_path: Path,
     source_path: Path,
     ext: str,
     emit: Callable[..., Any],
+    preserve_source_depth: bool = True,
 ) -> None:
     """Write the processed audio to the temp file (single encode, bitrate-aware).
 
@@ -953,6 +1062,9 @@ def _write_output(
         source_path: Original file, inspected for the export bitrate.
         ext: Lower-case source extension, selecting the export path.
         emit: Progress callback.
+        preserve_source_depth: Whether a lossless rewrite pins the source's
+            declared depth.  False for the neural engine, whose 16-bit output
+            would otherwise be written into a wider container.
     """
     emit("Export", "Writing output file...")
     src_bitrate, src_is_vbr = _inspect_source_bitrate(source_path)
@@ -977,7 +1089,12 @@ def _write_output(
         fmt, params = pydub_export_for_source(ext, src_bitrate, src_is_vbr)
         # A lossless source's depth must survive the rewrite; FFmpeg's WAV/
         # AIFF encoders would otherwise default a 24-bit source to 16-bit.
-        params = [*params, *preserve_depth_params(ext, str(source_path))]
+        # Changed in 2.8.0: the neural engine's output is 16-bit whatever the
+        # source was, so the writer must not re-pin a wider source's depth -
+        # that wrote a 24-bit container around 16-bit samples while the stage
+        # line claimed a 16-bit output.
+        if preserve_source_depth:
+            params = [*params, *preserve_depth_params(ext, str(source_path))]
         audio.export(str(tmp_path), format=fmt, parameters=params)
 
 
@@ -1605,7 +1722,9 @@ def _run_dry_run(
         audio, msg, _changed = _run_trim_stage(audio, config, emit)
         result.add_stage("Trim", FileStatus.DONE, msg)
     if config.reduce_noise:
-        audio, msg, _changed = _run_noise_reduction_stage(audio, config, emit)
+        audio, msg, _changed = _run_noise_reduction_stage(
+            audio, config, emit, source_path
+        )
         result.add_stage("Noise Reduction", FileStatus.DONE, msg)
     audio, _tone_changed = _run_tone_stages(audio, config, result, emit)
     if config.normalise:

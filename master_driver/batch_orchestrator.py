@@ -19,9 +19,6 @@ step note, so a long batch can be judged from one line instead of from each
 step's line (PLAN D110).
 Changed in 2.0.0: adds ``stem_separator`` to the dependency graph as a leaf
 (Sprint 6, Item 6.1).
-Changed in 2.0.0: adds ``ml_denoiser`` as a leaf (Item 6.2).  It rewrites the
-files already in the directory, so it depends on nothing another tool produces
-and imposes no ordering on the rest of the batch.
 Changed in 2.1.0: a standalone step records the launcher's exit code on
 ``BatchStep.exit_code`` (the module-level ``_launch_standalone`` reports it
 through ``on_exit``).  Without it the caller's summary was a bare "Module
@@ -47,6 +44,8 @@ Changed in 2.6.0: the CUE Sheet Generator is a graph leaf.  It fronts the
 shared ``cue generate`` sheet builder and carries an arg-builder entry, so a
 batch schedules its window like any other step and gets the run report back;
 the step depends on nothing another tool produces.
+
+Changed in 2.8.0: the denoiser's batch leaf leaves with the tool.
 """
 
 from __future__ import annotations
@@ -295,7 +294,6 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "audio_refinery": [],
     "tag_field_updater": [],
     "stem_separator": [],
-    "ml_denoiser": [],
     "duplicate_finder": [],
     "restoration": [],
     "tag_editor": [],

@@ -16,7 +16,197 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The Noise Reduction panel measures before a run, read-only.**
+  `analyse_noise(audio, *, hum_harmonics)` returns a `NoiseAnalysis` built from
+  the batch's own `detect_hum` (first 30 s) and `detect_noise_profile` (whole
+  file), plus the file's RMS; `describe(file_name)` renders the report the panel
+  shows (hum line, noise floor and window, recommended region), and nothing is
+  exported, registered or written. `setup_tab.build` takes `on_analyse_noise`
+  and the panel exposes `analyse`/`analyse_result` widgets (the label is the
+  output), wired to `AudioRefineryApp._analyse_noise`, which decodes the
+  folder's first supported file via the shared `FileDiscoveryMixin` (now a
+  base of the app) and reports missing-folder, no-audio and decode failures in
+  the same label rather than a dialog. Tests: 3 in `TestNoiseAnalysis`, the
+  panel's callback-invocation lock, and 3 in `TestAnalyseNoise` - the report
+  content, the empty-folder and no-source messages, and a folder snapshot
+  (name + mtime) unchanged after the action. Defect found by the first of those
+  tests and fixed in the same change: `detect_hum` accepted a candidate whose
+  lowest measured partial was the 6th harmonic (seeded white noise measured
+  60 Hz orders 6/7 at 9.3/7.6 dB), so it now requires a partial at the
+  fundamental or its octave - the octave because a source high-passed above
+  50/60 Hz keeps order 2. The regression is locked by
+  `test_a_clean_file_reports_no_hum`, which failed before the guard.
+
+- **The noise stage reports its own measurements per file.** `_spectral_gate_channel`
+  now returns the share of its time-frequency bins it suppressed
+  (`1 - mean(mag >= gate)`, saved before the mask is applied), and
+  `spectral_gate` aggregates it across channels and reports its own attenuation
+  (`energy_before - energy_after`) as `NoiseReductionResult.gate_attenuation_db`
+  and `.gated_bin_share`.  `reduce_noise` carries both onto the stage result, so
+  the gate's figure is measured where only the gate ran and stays separate from
+  the hum-inclusive totals.  The stage line now reads
+  `Attenuated 7.0 dB (hum=on 60 Hz auto, 1 harmonic, 39 dB above floor,
+  broadband=spectral, profile=auto ..., gate=3.9 dB, bins=79%)`; a detecting run
+  that measured no hum says `hum=on none detected`, a fixed cascade says
+  `60 Hz manual`, and `HumProfile.describe()` names its level as `dB above floor`.
+  `MIN_MEANINGFUL_ATTENUATION_DB` (0.5) adds
+  `WARNING: removed under 0.5 dB, so this run changed almost nothing` when the
+  stage wrote a file having removed next to nothing - a no-op that used to look
+  like a result, distinct from the untouched clean file's `No noise detected`.
+  Tests: 3 in `TestGateMeasurement` (measured share and attenuation, silence at
+  zero, gate/hum separation), the stage-line gate/hum-label/warning locks, and
+  two `refinery_log.txt` locks - one asserting all three measurements reach the
+  written report, one asserting the warning does.
+
+- **The spectral gate measures its profile window per file.** `detect_noise_profile`
+  cuts the source into 100 ms frames, measures each frame's power and spectral
+  flatness, and keeps every 400 ms window within 12 dB of the quietest as a
+  candidate - anything louder is content, not a floor. The flattest 12 are the
+  shortlist, and the order is trial (pass or drop), then flatness, then
+  quietness: each shortlisted profile gates the file's *loudest* stretch, a
+  candidate that would remove more than `_PROFILE_TRIAL_MAX_DB` (1.0 dB) there
+  is dropped as content-derived - a window of the music itself removes 22.9 dB
+  - and the survivors are ranked by flatness, with `window_db` breaking an
+  exact flatness tie. The trial is pass/fail, not a ranking, measured: on a
+  music/rest/hiss fixture the rest's profile and the hiss's profile each remove
+  0.00 dB from the loudest stretch, so the tie at zero falls to flatness (the
+  hiss reads 0.85 against a tonal rest far below it); the rest's 23 dB shows up
+  on the rest itself, and its profile removes 0.04 dB from the hiss beside it.
+  When every candidate is content-derived the flattest of a bad set wins, with
+  its reading reported. The guard does bite where it was meant to - a window
+  10 dB under a noise bed removes 1.0-2.2 dB from that bed and is dropped
+  (measured) - and a loud hiss 40 dB above the floor is outside the candidate
+  range anyway. `_spectral_gate_channel` builds its profile and hands a
+  per-bin gate to `_gate_channel`, so the trial applies the run's own gate (and
+  its `gate_threshold_db`) to one window instead of approximating it.
+  `NoiseWindow` carries the result and the measurement
+  (`describe()` -> `auto 12.4-12.8 s at -62 dBFS, trial 0.0 dB`),
+  `NoiseReductionResult.noise_window`
+  carries it to the stage, and the stage line and `refinery_log.txt` now name the
+  window (`profile=auto ...`) or the configured region (`profile=manual 0-500 ms`).
+  `NoiseReductionParams.profile_auto` defaults to True; a settings file without
+  the key measures, a named `--noise-start`/`--noise-end` turns it off, and the
+  panel checkbox, `--profile-auto/--no-profile-auto`, the click CLI and the
+  Driver argv all carry the mode. Files under 300 ms keep the configured region.
+  Tests: 9 in `TestNoiseProfileDetection` plus the rewritten spectral lock (the
+  gate's output still equals `spectral_gate` at the reported window) and a
+  manual-region lock; the stage-line and `refinery_log.txt` locks, the settings
+  round-trip and legacy default, the CLI-argument and panel locks, the panel
+  sync lock, and the Driver's auto/manual argv pair.
+
+- **Hum removal measures the file before it notches it.** `detect_hum` scores
+  each candidate mains frequency (50/60 Hz) by how far its harmonics stand
+  above the median of their own neighbourhood (`_prominence_at`), with a 40 dB
+  relative-power gate so a pure tone's leakage cannot read as hum, and a
+  fundamental-first tie-break for the 300 Hz partial 50 and 60 share.
+  `HumProfile`/`HumLine` carry the measurement, `remove_hum_lines` notches
+  exactly those orders (the one cascade `remove_hum` still uses for the manual
+  path), and `NoiseReductionResult.hum_profile` carries it to the stage, whose
+  line now reads `hum=on 50 Hz auto, 4 harmonics, 21 dB`, so `refinery_log.txt`
+  records what was found instead of only that hum was on.
+  `NoiseReductionParams.hum_auto` defaults to True - a settings file without the
+  key detects, and `--hum-frequency` turns detection off - and the panel's
+  Auto/50/60 radios, `--hum-auto/--no-hum-auto`, the click CLI and the Driver
+  argv all carry the mode. Tests: 7 in `TestHumDetection` (both frequencies,
+  the clean file measuring nothing,   the selective cascade measured on the
+  decoded file, the byte-identical clean case, the manual override and the
+  reported profile), plus the stage-line and `refinery_log.txt` locks, the
+  settings round-trip and default, the CLI-argument and panel locks, and the
+  Driver's auto/manual argv pair.  The SOS claim itself is locked twice: the
+  builder's matrix by `test_the_cascade_is_built_as_second_order_sections`, and
+  its application - the half a per-section `lfilter` chain satisfies
+  numerically - by `test_the_matrix_reaches_sosfilt_once_per_channel`, which
+  spies on `noise_reducer.sosfilt` (wrapping it, not replacing it) and requires
+  one call per channel per path with an `(n, 6)` float64 matrix whose rows have
+  `a0 == 1`.
+
+- **`noise_reduction` carries two broadband engines behind one parameter set.**
+  `NoiseReductionParams.broadband_engine` (`"spectral"` | `"neural"`) and
+  `neural_amount` (defaulted from `noise_reduction.core.models.DEFAULT_AMOUNT`, so
+  one value is declared in one place); the engine list is `BROADBAND_ENGINES` in
+  that module. `noise_reducer.neural_gate` lazily
+  imports `noise_reduction.core.rnnoise_engine.denoise_segment` and re-shapes
+  `DenoiseResult` as `NoiseReductionResult`, so a base install never imports
+  `pyrnnoise`, and `neural_dependency_reason` is the run-level question both
+  entry points ask before the batch (`file_processor.run_pipeline` and
+  `cli.refine`) rather than a per-file error. `check_neural_bit_depth` refuses a
+  source wider than the model's 16-bit output unless
+  `NoiseReductionParams.allow_16bit_output` is set - the opt-in this stage's
+  panel offers as **Allow 16-bit output** - and returns the source's declared
+  depth when it lets one through, so the stage line can name it. The file's own
+  depth is what the refusal names (`audio_formats.source_bit_depth`), and
+  `pipeline._write_output` takes `preserve_source_depth` so an opted-in neural
+  run does not re-pin a 24-bit container around the model's 16-bit samples;
+  `_neural_output_is_16_bit` is the one predicate that decides it, and every
+  caller asks `NoiseReductionParams.neural_selected()` rather than re-deriving
+  the engine pair. Settings and
+  both parsers round-trip the field (`--allow-16bit-output`), and the Driver's
+  `arg_builder` emits it beside the engine and blend.
+  `_run_noise_reduction_stage` takes the source path so that refusal names the
+  file, and its message names the engine (`broadband=neural`) instead of `on`;
+  both call sites (live and dry run) pass it. Settings round-trip the two fields
+  and an unknown stored engine reads as spectral; the setup panel registers
+  `state["noise_widgets"]` and writes through
+  one `_apply_engine` update function that both an edit and a pre-fill reach.
+  `_sync_noise_panel` reads both fields before setting either, because that one
+  function writes *both* fields from the widgets: setting the engine first fed
+  the panel's stale amount back into the run, so a Driver `--denoise-amount 55`
+  showed and ran 100 % and a restored neural setup came back as spectral.
+  `refinery_settings.default.json` is regenerated from `settings_text`.
+  `master_driver/runner/arg_builder.py` emits `--broadband-engine neural` and
+  `--denoise-amount` when the run is neural (and neither for a spectral run, so
+  existing argument lists are unchanged): before that the Driver's child ran
+  the spectral default while the Driver's config said neural, so the chosen
+  denoise silently did not happen.
+   Tests: 10 in
+  `noise_reduction/tests/test_noise_reducer.py` (the fake model measured on real
+  audio, the missing extra, an unknown engine, the bit-depth refusal, the
+  spectral default importing nothing, the shared `DEFAULT_AMOUNT`, the spectral
+  path compared sample for sample with `spectral_gate`, and the SOS cascade
+  matrix), 8 in
+  `audio_refinery/tests/test_pipeline_stages.py` (the stage's engine message, a
+  missing model, the batch refusing with the source untouched, a 24-bit
+  refusal, a dry run that measures and writes nothing, a 16-bit source's
+  written depth read back off the file, and the written file's per-channel RMS
+  measured from its decoded samples), plus CLI-argument,
+  settings round-trip and setup-panel locks. `audio_refinery/tests/test_app.py`
+  locks the start-time install offer, the Driver pre-fill through
+  `_sync_noise_panel`, and the `refinery_log.txt` line the Results tab opens;
+  `audio_refinery/tests/test_cli.py` locks the two click flags to the run
+  config and the missing-model refusal to exit 2 with the source untouched.
+  The hum cascade is applied as the second-order sections its docstring always
+  described - ``remove_hum`` used to
+  chain ``lfilter`` over ``(b, a)`` pairs while claiming SOS - and a test pins
+  the matrix shape, so the promise cannot drift from the code again.
+
+### Changed
+
+- **The per-file change-note lock is re-baselined to the 2.8.0 window.** Its base
+  commit sat at `02785ea` (the `v2.6.0` tag) while the cut had moved to 2.7.1, so
+  the lock still demanded a `Changed in 2.7.0` note from work landing after that
+  release - the misfiling its own history warns against. `BASE_COMMIT` is now
+  `a94c43d` (the 2.7.1 cut) and `NOTE_MARKER` is `Changed in 2.8.0`; the closed
+  window's notes stay as each file's own history, and every code file in this
+  change set carries the new one.
+
+### Removed
+
+- **The standalone ML Denoiser program is retired.** `ml_denoiser/`,
+  `ML_Denoiser.pyw`, its `master_driver` card and its guide are deleted; so are
+  the `audiosuite denoise` command, its manifest entry (with the `denoise` CLI
+  table and schema rows), its `TOOL_REQUIREMENTS` entry, the Driver's amount
+  variable and argv builder, and its doc/coverage registrations - the registry
+  is one tool shorter and the `ml` extra is probed for `audio_refinery` alone.
+  The RNNoise adapter and its measured quirks moved unchanged to
+  `noise_reduction/core/rnnoise_engine.py`, with `FRAME_SIZE`,
+  `DEFAULT_AMOUNT`, `MIN_CHANGE_DB`, `SILENCE_FLOOR_DBFS` and `DenoiseResult`
+  beside it in `noise_reduction/core/models.py` (the stage's single
+  declaration); its tests moved to `noise_reduction/tests/test_rnnoise_engine.py`
+  with their assertions intact, and the reducer's lazy imports now name the new
+  module. `cli_schema.json` and `tests/data/cli_payloads.json` were re-recorded
+  from the smaller registry.
 
 ## [2.7.1] - 2026-11-15
 

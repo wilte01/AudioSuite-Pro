@@ -201,7 +201,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 33  # 11 enrich + 21 utility + 1 refinery
+        assert len(r.first_party) == 32  # 11 enrich + 20 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -262,7 +262,6 @@ class TestDefaultRegistry:
             "undo_tag_edits",
             "spectral_viewer",
             "stem_separator",
-            "ml_denoiser",
             "duplicate_finder",
             "restoration",
             "channel_tools",
@@ -303,7 +302,6 @@ class TestDefaultRegistry:
             "tag-edit",
             "lyrics",
             "spectrogram",
-            "denoise",
             "stems",
             "duplicates",
             "declip",
@@ -331,7 +329,6 @@ class TestDefaultRegistry:
             "undo_tag_edits",
             "spectral_viewer",
             "stem_separator",
-            "ml_denoiser",
             "duplicate_finder",
             "restoration",
             "channel_tools",
@@ -398,11 +395,13 @@ REMOVED_TOOLS: dict[str, str] = {
     "noise_reduction": "reduce_noise",
     "audio_enhancer": "enhance",
     "audio_normalizer": "normalise",
+    # Changed in 2.8.0: RNNoise now runs inside REFINE's Noise Reduction stage.
+    "ml_denoiser": "reduce_noise",
 }
 
 
 class TestRemovedStandaloneTools:
-    """U-04: five tools leave every surface, and REFINE keeps their work.
+    """U-04: six tools leave every surface, and REFINE keeps their work.
 
     The first test is the removal; the rest prove it was a removal and not a
     half-one, and that the capability did not go with it.
@@ -417,12 +416,12 @@ class TestRemovedStandaloneTools:
             assert r.get(tool_id) is None, tool_id
 
     def test_the_utilities_tab_loses_them_with_the_registry(self):
-        """19 first-party utilities, and the tab offers every one."""
+        """20 first-party utilities, and the tab offers every one."""
         r = get_registry()
         utilities = [m.id for m in r.by_category("utility") if not m.plugin]
         cards = [m.id for m in r.driver_by_category("utility") if not m.plugin]
 
-        assert len(utilities) == 21, utilities
+        assert len(utilities) == 20, utilities
         assert sorted(cards) == sorted(utilities)
 
     def test_no_launcher_and_no_command_survive(self):
@@ -459,7 +458,14 @@ class TestRemovedStandaloneTools:
         import importlib
 
         for tool_id in REMOVED_TOOLS:
-            package = importlib.import_module(tool_id)
+            try:
+                package = importlib.import_module(tool_id)
+            except ModuleNotFoundError:
+                # Changed in 2.8.0: the denoiser's RNNoise engine now lives in
+                # ``noise_reduction``, so its own package is gone rather than
+                # reduced to a library.
+                assert tool_id == "ml_denoiser", tool_id
+                continue
             assert package.__all__ == [], tool_id
             assert not hasattr(package, "NoiseReductionApp"), tool_id
 

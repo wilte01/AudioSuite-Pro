@@ -14,10 +14,16 @@ Sprint 1 refine effect flags.
 Changed in 2.7.0: TestDryRunReachesTheRun locks ``--dry`` to the run config and
 to an unchanged file on disk, after a Master Driver Dry Run rewrote its files
 (F-S2 follow-up, plan D-17).
+
+Changed in 2.8.0: TestNeuralEngineFlags locks the two neural flags to the run
+config and the missing-model refusal to a non-zero exit with the source
+untouched (noise-reduction amalgamation).
 """
 
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -171,3 +177,86 @@ class TestEffectFlagsReachConfig:
     ) -> None:
         result = runner.invoke(refine, [str(tmp_path), "--karaoke-strength", "2.0"])
         assert result.exit_code == 2, result.output
+
+
+class TestNeuralEngineFlags:
+    """The neural engine's click seam (2.8.0).
+
+    ``--broadband-engine``/``--denoise-amount`` must reach the run config, and a
+    neural run without its model must refuse once, before any file, with a
+    non-zero exit - the opposite of the retired tool's per-file failure loop.
+    """
+
+    @staticmethod
+    def _source(tmp_path: Path) -> Path:
+        import numpy as np
+        from pydub import AudioSegment
+
+        rate = 44_100
+        time_axis = np.linspace(0.0, 0.2, int(rate * 0.2), endpoint=False)
+        pcm = (0.4 * np.sin(2 * np.pi * 220 * time_axis) * 32767).astype("<i2")
+        source = tmp_path / "song.wav"
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(str(source), format="wav", parameters=["-c:a", "pcm_s16le"])
+        return source
+
+    def test_the_engine_and_blend_reach_the_run_config(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from audio_refinery.core import file_processor
+
+        self._source(tmp_path)
+        monkeypatch.setitem(sys.modules, "pyrnnoise", types.ModuleType("pyrnnoise"))
+
+        with patch.object(file_processor, "run_pipeline") as mock_run:
+            result = runner.invoke(
+                refine,
+                [
+                    str(tmp_path),
+                    "--stages",
+                    "reduce_noise",
+                    "--reduce-broadband",
+                    "--broadband-engine",
+                    "neural",
+                    "--denoise-amount",
+                    "40",
+                ],
+            )
+
+        assert mock_run.call_count == 1, result.output
+        config = mock_run.call_args.kwargs["config"]
+        assert config.reduce_noise is True
+        assert config.noise_reduction_params.reduce_broadband is True
+        assert config.noise_reduction_params.broadband_engine == "neural"
+        assert config.noise_reduction_params.neural_amount == pytest.approx(0.4)
+
+    def test_a_missing_model_exits_non_zero_and_writes_nothing(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        source = self._source(tmp_path)
+        before = source.read_bytes()
+        monkeypatch.setitem(sys.modules, "pyrnnoise", None)
+
+        result = runner.invoke(
+            refine,
+            [
+                str(tmp_path),
+                "--stages",
+                "reduce_noise",
+                "--reduce-broadband",
+                "--broadband-engine",
+                "neural",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "pyrnnoise" in result.output
+        assert source.read_bytes() == before
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["song.wav"]

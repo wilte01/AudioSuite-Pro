@@ -23,6 +23,10 @@ instead of every file failing one by one.
 
 Changed in 2.6.0: a peak target plans no album gain (F-E2), so the folder is
 never measured as one album for a mode that is per-file by definition.
+
+Changed in 2.8.0: a neural broadband run refuses a missing model before the
+first file, so an optional extra is a run-level message once instead of a
+per-file error N times.
 """
 
 from __future__ import annotations
@@ -224,6 +228,17 @@ def run_pipeline(
     except AudioConfigurationError as exc:
         logger.error("Copy mode refused for this run: %s", exc.message)
         on_error(exc.message)
+        return
+
+    # The neural engine needs its model before the first file: a missing extra
+    # is a run-level fault, so the run refuses once with the install
+    # instruction instead of failing every file with the same error (2.8.0).
+    from noise_reduction.core.noise_reducer import neural_dependency_reason
+
+    neural_reason = neural_dependency_reason(config.noise_reduction_params)
+    if neural_reason is not None:
+        logger.error("Neural denoise refused for this run: %s", neural_reason)
+        on_error(neural_reason)
         return
 
     # Album mode measures the folder once, before any worker starts: album

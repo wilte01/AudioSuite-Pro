@@ -32,7 +32,13 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, Mapping, Sequence, cast
 
-from audio_suite_shared import audio_playback, styles, suite_config
+from audio_suite_shared import (
+    audio_playback,
+    optional_deps,
+    styles,
+    suite_config,
+    ui_common,
+)
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import active_batch
@@ -43,9 +49,12 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.file_discovery import FileDiscoveryMixin
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_audition import AuditionMixin
 from audio_suite_shared.ui_helpers import UIHelperMixin
+from noise_reduction.core.models import BROADBAND_ENGINES, SPECTRAL_ENGINE
+from noise_reduction.core.noise_reducer import analyse_noise
 
 from .core.file_processor import run_pipeline
 from .core.models import has_active_stage
@@ -61,7 +70,7 @@ logger = logging.getLogger(__name__)
 _TOOL_ID = "audio_refinery"
 
 
-class AudioRefineryApp(UIHelperMixin, AuditionMixin):
+class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
     """Main application window for Audio Refinery."""
 
     HELP_GUIDE = "Audio_Refinery_User_Guide.docx"
@@ -162,6 +171,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             on_browse_out=self._browse_output,
             on_start=self.start_processing,
             on_reset=self._reset_registry,
+            on_analyse_noise=self._analyse_noise,
             auto_start_var=self.auto_start_var,
             auto_end_var=self.auto_end_var,
             clear_logs_var=self.clear_logs_var,
@@ -245,6 +255,58 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         if src and src != self._last_source_dir:
             self._load_registry(src)
 
+    def _analyse_noise(self) -> None:
+        """Report what the detectors measure in the folder's first file.
+
+        Read-only by construction: one decode, the batch's own ``detect_hum``
+        and ``detect_noise_profile`` through :func:`analyse_noise`, and a line
+        of text in the panel.  It starts no run, touches no registry and writes
+        no file, so a user can measure before deciding to enable the stage.
+        """
+        widgets = (getattr(self, "_setup_state", None) or {}).get("noise_widgets")
+        report = widgets.get("analyse_result") if widgets else None
+        if report is None:  # pragma: no cover - the panel always provides it
+            return
+        source = self.source_path.get().strip()
+        if not source or not Path(source).is_dir():
+            report.set("Choose a source folder first.")
+            return
+        try:
+            names = sorted(self.discover_audio_files(source, SUPPORTED_EXTENSIONS))
+        # A folder that cannot be read is a report line, not a crash, and the
+        # reason is what the user needs on screen.
+        except Exception as exc:  # noqa: BLE001 - reported in the panel, not raised
+            mapped = map_to_audio_error(exc)
+            logger.warning("Noise analysis could not read %s: %s", source, mapped)
+            report.set(f"Could not read that folder: {user_message_for(mapped)}")
+            return
+        if not names:
+            report.set("No supported audio files in that folder.")
+            return
+
+        name = names[0]
+        try:
+            from pydub import AudioSegment
+
+            audio = AudioSegment.from_file(str(Path(source) / name))
+            analysis = analyse_noise(
+                audio,
+                hum_harmonics=self.config.noise_reduction_params.hum_harmonics,
+                gate_threshold_db=(
+                    self.config.noise_reduction_params.gate_threshold_db
+                ),
+            )
+        # A file that will not decode is a report line, not a crash, and
+        # nothing has been written at this point.
+        except Exception as exc:  # noqa: BLE001 - reported in the panel, not raised
+            mapped = map_to_audio_error(exc)
+            logger.error(
+                "Noise analysis failed for %s: %s", name, mapped, exc_info=True
+            )
+            report.set(f"Could not analyse {name}: {user_message_for(mapped)}")
+            return
+        report.set(analysis.describe(name))
+
     def _load_registry(self, source: str) -> None:
         path = Path(source)
         if path.is_dir():
@@ -289,6 +351,18 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             "normalise": p.normalise,
             # Changed in 2.7.0: the EQ stage's toggle and rack ride a preset (F-S1).
             "eq": p.eq,
+            # Changed in 2.8.0: the noise stage's toggle and its neural settings
+            # ride a preset with the rest of the run.
+            "reduce_noise": p.reduce_noise,
+            "broadband_engine": p.noise_reduction_params.broadband_engine,
+            "neural_amount": p.noise_reduction_params.neural_amount,
+            "allow_16bit_output": p.noise_reduction_params.allow_16bit_output,
+            # Changed in 2.8.0: hum detection rides a preset as well, so a saved
+            # auto setup comes back as auto and a manual one as its fixed cascade.
+            "hum_auto": p.noise_reduction_params.hum_auto,
+            "hum_frequency": p.noise_reduction_params.hum_frequency,
+            # Changed in 2.8.0: the profile-window mode rides a preset too.
+            "profile_auto": p.noise_reduction_params.profile_auto,
             "sensitivity": p.declick_params.sensitivity,
             "max_width_ms": p.declick_params.max_width_ms,
             "threshold": p.trim_params.threshold,
@@ -354,6 +428,8 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         "eq": "eq",
         # Changed in 2.7.0: the dynamics stage's toggle (F-S2).
         "dynamics": "dynamics",
+        # Changed in 2.8.0: the noise stage's toggle.
+        "reduce_noise": "reduce_noise",
     }
     _DECLICK_PRESET_KEYS = {
         "sensitivity": "sensitivity",
@@ -406,6 +482,17 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         "target_peak_dbtp": "target_peak_dbtp",
     }
 
+    # Changed in 2.8.0: the broadband engine and its blend ride a preset too,
+    # so a saved neural setup comes back as the run that was saved.
+    _NOISE_PRESET_KEYS = {
+        "broadband_engine": "broadband_engine",
+        "neural_amount": "neural_amount",
+        "allow_16bit_output": "allow_16bit_output",
+        "hum_auto": "hum_auto",
+        "hum_frequency": "hum_frequency",
+        "profile_auto": "profile_auto",
+    }
+
     @staticmethod
     def _apply_preset_keys(
         target: Any, settings: dict[str, Any], keys: dict[str, str]
@@ -421,6 +508,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self._apply_preset_keys(p, settings, self._STAGE_PRESET_KEYS)
         self._apply_preset_keys(p.declick_params, settings, self._DECLICK_PRESET_KEYS)
         self._apply_preset_keys(p.trim_params, settings, self._TRIM_PRESET_KEYS)
+        self._apply_preset_keys(
+            p.noise_reduction_params, settings, self._NOISE_PRESET_KEYS
+        )
         self._apply_preset_keys(p.enhance_params, settings, self._ENHANCE_PRESET_KEYS)
         self._apply_preset_keys(
             p.normalise_params, settings, self._NORMALISE_PRESET_KEYS
@@ -447,6 +537,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self._sync_trim_panel()
         self._sync_eq_panel()
         self._sync_dynamics_panel()
+        self._sync_noise_panel()
 
     def _sync_preset_editor(self, p: Any) -> None:
         """Keep the Custom DSP editor in step with the loaded preset."""
@@ -540,6 +631,19 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             if not has_active_stage(self.config):
                 messagebox.showerror(
                     "No Stages Selected", "Please enable at least one refinery stage."
+                )
+                return
+
+            # A neural run needs its model before the first file.  The prompt
+            # installs it once and calls this method again, so the run that
+            # starts is the run the panel shows (2.8.0).
+            from noise_reduction.core.noise_reducer import neural_dependency_reason
+
+            if neural_dependency_reason(self.config.noise_reduction_params):
+                ui_common.install_optional_dependency(
+                    self.root,
+                    optional_deps.RNNOISE,
+                    on_ready=self.start_processing,
                 )
                 return
 
@@ -843,6 +947,46 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             if var is not None:
                 var.set(f"{value:g}")
 
+    def _sync_noise_panel(self) -> None:
+        """Show the noise engine the run will actually use (2.8.0).
+
+        A preset, a restored settings file or a Driver launch assigns the params
+        directly, so the panel is refreshed through the same variables a user
+        edit uses - the traces on them are the one writer - and the panel cannot
+        disagree with the stage.
+        """
+        widgets = (getattr(self, "_setup_state", None) or {}).get("noise_widgets")
+        if not widgets:
+            return
+        p = self.config.noise_reduction_params
+        # Changed in 2.8.0: both values are read before either is set.  The
+        # panel's one update function (a trace on each of these variables)
+        # writes ``broadband_engine`` *and* ``neural_amount`` from the widgets, so
+        # setting one first feeds the other's stale on-screen value back into the
+        # run: a Driver ``--denoise-amount 55`` showed and ran 100 %, and a
+        # restored neural preset came back as the spectral engine.  Capture,
+        # then set, and the second trace writes exactly the captured pair.
+        engine = (
+            p.broadband_engine
+            if p.broadband_engine in BROADBAND_ENGINES
+            else SPECTRAL_ENGINE
+        )
+        amount_percent = max(int(round(p.neural_amount * 100)), 1)
+        # The hum mode is one variable too, so a restored preset or a Driver
+        # launch shows Auto or its override rather than the last thing clicked.
+        if "hum" in widgets:
+            widgets["hum"].set("auto" if p.hum_auto else str(p.hum_frequency))
+        # Changed in 2.8.0: the profile window mode is a variable as well, so a
+        # restored preset shows Auto (detect) or its manual region.
+        if "profile" in widgets:
+            widgets["profile"].set(p.profile_auto)
+        widgets["amount"].set(amount_percent)
+        widgets["engine"].set(engine)
+        # Changed in 2.8.0: the 16-bit opt-in is a variable too, so a preset or a
+        # Driver launch shows the state the run will use rather than the panel's
+        # construction-time default.
+        widgets["allow_wide"].set(p.allow_16bit_output)
+
     def _apply_cli_args(self) -> None:
         args = parse_cli()
 
@@ -895,13 +1039,29 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.config.trim_params.copy_mode = args.trim_copy
         self._sync_trim_panel()
         self.config.noise_reduction_params.reduce_hum = args.reduce_hum
+        # Changed in 2.8.0: an explicit --hum-frequency on the command line is the
+        # override; without it the file's own hum is detected.
+        self.config.noise_reduction_params.hum_auto = args.hum_auto
         self.config.noise_reduction_params.hum_frequency = args.hum_frequency
         self.config.noise_reduction_params.hum_harmonics = args.hum_harmonics
         self.config.noise_reduction_params.hum_quality = args.hum_quality
         self.config.noise_reduction_params.reduce_broadband = args.reduce_broadband
+        # Changed in 2.8.0: a typed region is the override; without one the gate
+        # measures each file's quietest stretch.
+        self.config.noise_reduction_params.profile_auto = args.profile_auto
         self.config.noise_reduction_params.noise_start_ms = args.noise_start_ms
         self.config.noise_reduction_params.noise_end_ms = args.noise_end_ms
         self.config.noise_reduction_params.gate_threshold_db = args.gate_threshold_db
+        # Changed in 2.8.0: the engine and its blend reach the run, and the
+        # panel shows them (the Driver can pass both).
+        self.config.noise_reduction_params.broadband_engine = (
+            args.broadband_engine
+            if args.broadband_engine in BROADBAND_ENGINES
+            else SPECTRAL_ENGINE
+        )
+        self.config.noise_reduction_params.neural_amount = args.denoise_amount / 100.0
+        self.config.noise_reduction_params.allow_16bit_output = args.allow_16bit_output
+        self._sync_noise_panel()
         self.config.enhance_params.preset = args.preset
         # Changed in 2.7.0: the Driver's --eq-band reaches the run (F-S1).
         if args.eq_bands:

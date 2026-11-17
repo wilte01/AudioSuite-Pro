@@ -1,4 +1,4 @@
-"""Tests for ``ml_denoiser.core.rnnoise_engine``.
+"""Tests for ``noise_reduction.core.rnnoise_engine``.
 
 ``pyrnnoise`` is part of the optional ``ml`` extra, so the default suite installs
 a fake model in ``sys.modules`` and asserts what the adapter does with it.  The
@@ -12,6 +12,9 @@ outcome — the length, the rate and the measured attenuation — not the adapte
 own bookkeeping.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.2).
+
+Changed in 2.8.0: moved here with the engine when the standalone denoiser
+    package was retired; the assertions are unchanged.
 """
 
 from __future__ import annotations
@@ -27,9 +30,9 @@ from pydub import AudioSegment
 from pydub.generators import Sine
 
 from audio_suite_shared.exceptions import AudioMissingDependencyError
-from ml_denoiser.core import rnnoise_engine
-from ml_denoiser.core.models import FRAME_SIZE, MIN_CHANGE_DB
-from ml_denoiser.core.rnnoise_engine import (
+from noise_reduction.core import rnnoise_engine
+from noise_reduction.core.models import FRAME_SIZE, MIN_CHANGE_DB
+from noise_reduction.core.rnnoise_engine import (
     denoise_samples,
     denoise_segment,
     missing_dependency_reason,

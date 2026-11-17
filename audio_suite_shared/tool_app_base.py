@@ -23,9 +23,10 @@ Changed in 1.4.1: ``_on_progress`` accepts ``**_extra: Any`` like
 ``_on_complete``, so a progress field the processor adds cannot abort a running
 batch (D112; locked by ``tests/test_callback_payload_contract.py``).
 Changed in 2.0.0: ``NoisePopToolApp``'s progress and completion handlers accept
-``**_extra: Any`` too, so the ML Denoiser can bind them directly and be covered
-by the callback-payload lock instead of hiding behind a local wrapper
-(Sprint 6, Item 6.2).
+``**_extra: Any`` too, so a tool can bind them directly and be covered by the
+callback-payload lock instead of hiding behind a local wrapper (Sprint 6).
+
+Changed in 2.8.0: the docstring no longer cites the denoiser as an example window.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.

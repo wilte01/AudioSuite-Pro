@@ -3,9 +3,9 @@ core/rnnoise_engine.py
 Adapter around RNNoise (``pyrnnoise``), kept behind a lazy import.
 
 ``pyrnnoise`` is part of the optional ``ml`` extra, so nothing here imports it
-at module import time.  A machine without the extra can open the GUI, validate a
-run and read this module's error message; only a live *or measured* run needs
-the model, and that is the moment the import is attempted.
+at module import time.  A machine without the extra can open the Refinery, set
+up a neural stage and read this module's error message; only a run (or a
+measurement) needs the model, and that is the moment the import is attempted.
 
 The API this adapter targets was measured, not assumed (PLAN_feature_expansion
 D116): ``RNNoise(sample_rate)`` takes the source rate and resamples to 48 kHz
@@ -20,7 +20,7 @@ input length.  Two consequences shape this file:
   samples.  Silence would be a repair the user never asked for.
 * **The model is not transparent.**  RNNoise is trained on speech; it attenuated
   a 220 Hz tone by ~24 dB.  ``amount`` blends its output with the dry signal and
-  the caller reports the measured before/after level, so the tool says what it
+  the caller reports the measured before/after level, so the stage says what it
   did rather than claiming a clean denoise.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.2).
@@ -28,6 +28,10 @@ Changed in 2.0.0: initial version (Sprint 6, Item 6.2).
 Changed in 2.1.0: the missing-dependency message no longer tells a GUI user to
     run ``uv sync --extra ml``; the tool installs RNNoise on first use and the
     hint remains only for a headless run.
+
+Changed in 2.8.0: moved here from the standalone denoiser package that used to
+    ship.  The Noise Reduction stage's neural engine is now the only caller; the
+    adapter, its measurement and its 16-bit output are unchanged.
 """
 
 from __future__ import annotations
@@ -68,8 +72,9 @@ def missing_dependency_reason() -> str | None:
         import pyrnnoise  # noqa: F401
     except ImportError as exc:
         return (
-            f"RNNoise is not installed ({exc}). The ML Denoiser installs it on "
-            f"first use; a headless run needs the 'ml' extra: {ML_EXTRA_HINT}."
+            f"RNNoise is not installed ({exc}). The Refinery's neural stage "
+            f"installs it on first use; a headless run needs the 'ml' extra: "
+            f"{ML_EXTRA_HINT}."
         )
     # Changed in 2.4.1: BLE001 triage (WP-7 of
     # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).

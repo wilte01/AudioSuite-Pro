@@ -92,7 +92,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.019,
+          "duration_secs": 0.034,
           "duration_str": "0.0s",
           "log_entries": [
             "Error: no supported audio files found in directory\n"
@@ -806,8 +806,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 2.818,
-          "duration_str": "2.8s",
+          "duration_secs": 1.606,
+          "duration_str": "1.6s",
           "log_entries": [
             "[ERROR] track.wav: BPM detection failed \u2014 Audio is too short to analyse (0.05s).\n"
           ],
@@ -917,8 +917,8 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.039,
-          "duration_str": "0.0s",
+          "duration_secs": 0.05,
+          "duration_str": "0.1s",
           "log_entries": [
             "[SKIP] track.wav | already mono - unchanged\n"
           ]
@@ -1077,7 +1077,7 @@
           "duration_secs": 0.0,
           "duration_str": "0.0s",
           "log_entries": [],
-          "error": "No such option: --no-such-option"
+          "error": "No such option '--no-such-option'."
         }
       ]
     },
@@ -1169,7 +1169,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.029,
+          "duration_secs": 0.033,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | WAV \u2192 FLAC | Est. Size: 0.00MB \u2192 0.00MB\n"
@@ -1675,7 +1675,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.043,
+          "duration_secs": 0.03,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Clean - no clipping found\n"
@@ -1686,108 +1686,6 @@
           "tool": "restoration",
           "command": "declip",
           "dry_run": true,
-          "total": 0,
-          "processed": 0,
-          "succeeded": 0,
-          "skipped": 0,
-          "errors": 1,
-          "duration_secs": 0.0,
-          "duration_str": "0.0s",
-          "log_entries": [],
-          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
-        }
-      ]
-    },
-    {
-      "title": "audiosuite denoise --json",
-      "type": "object",
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "tool": {
-          "const": "ml_denoiser"
-        },
-        "command": {
-          "const": "denoise"
-        },
-        "dry_run": {
-          "type": "boolean"
-        },
-        "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "processed": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "succeeded": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "skipped": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "errors": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "duration_secs": {
-          "type": "number",
-          "minimum": 0
-        },
-        "duration_str": {
-          "type": "string"
-        },
-        "log_entries": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "schema_version",
-        "tool",
-        "command",
-        "dry_run",
-        "total",
-        "processed",
-        "succeeded",
-        "skipped",
-        "errors",
-        "duration_secs",
-        "duration_str",
-        "log_entries"
-      ],
-      "additionalProperties": false,
-      "examples": [
-        {
-          "schema_version": 1,
-          "tool": "ml_denoiser",
-          "command": "denoise",
-          "dry_run": false,
-          "total": 1,
-          "processed": 1,
-          "succeeded": 1,
-          "skipped": 0,
-          "errors": 0,
-          "duration_secs": 0.118,
-          "duration_str": "0.1s",
-          "log_entries": [
-            "[FIXED] track.wav | Attenuated 6.0 dB (-18.0 \u2192 -24.0 dBFS) \u2014 Denoised\n"
-          ]
-        },
-        {
-          "schema_version": 1,
-          "tool": "ml_denoiser",
-          "command": "denoise",
-          "dry_run": false,
           "total": 0,
           "processed": 0,
           "succeeded": 0,
@@ -1928,24 +1826,24 @@
           "tool": "doctor",
           "command": "doctor",
           "dry_run": false,
-          "total": 39,
-          "processed": 39,
-          "succeeded": 39,
+          "total": 38,
+          "processed": 38,
+          "succeeded": 38,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.489,
+          "duration_secs": 0.459,
           "duration_str": "0.5s",
           "log_entries": [],
           "healthy": true,
-          "checkout_version": "2.6.0",
-          "installed_version": "2.6.0",
+          "checkout_version": "2.7.1",
+          "installed_version": "2.7.1",
           "editable": false,
-          "interpreter": "<python>",
+          "interpreter": "<repo>\\.venv\\Scripts\\python.exe",
           "launcher_interpreter": "<repo>\\.venv\\Scripts\\python.exe",
           "launcher_from_venv": true,
           "extras": [
             {
-              "tool": "ml_denoiser",
+              "tool": "audio_refinery",
               "requirement": "RNNoise",
               "module": "pyrnnoise",
               "extra": "ml",
@@ -1961,7 +1859,7 @@
               "reason": null
             }
           ],
-          "mapped": 39,
+          "mapped": 38,
           "packages": [
             {
               "name": "album_art_normalizer",
@@ -2139,14 +2037,6 @@
               ]
             },
             {
-              "name": "ml_denoiser",
-              "status": "ok",
-              "origin": "<repo>\\ml_denoiser\\__init__.py",
-              "commands": [
-                "denoise"
-              ]
-            },
-            {
               "name": "mood_analysis_batch_tagger",
               "status": "ok",
               "origin": "<repo>\\mood_analysis_batch_tagger\\__init__.py",
@@ -2313,7 +2203,7 @@
           "duration_secs": 0.0,
           "duration_str": "0.0s",
           "log_entries": [],
-          "error": "No such option: --no-such-option"
+          "error": "No such option '--no-such-option'."
         }
       ]
     },
@@ -2414,7 +2304,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.029,
+          "duration_secs": 0.033,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] <run>\\library\\track.wav | An error occurred during processing.\n",
@@ -2532,7 +2422,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.028,
+          "duration_secs": 0.037,
           "duration_str": "0.0s",
           "log_entries": [
             "[ERROR] track.wav\n    An error occurred during processing.\n"
@@ -2883,7 +2773,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.022,
+          "duration_secs": 0.017,
           "duration_str": "0.0s",
           "log_entries": [
             "[ERROR] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -3022,7 +2912,7 @@
             {
               "title": "Third-party notices",
               "file": "THIRD_PARTY_NOTICES.md",
-              "chars": 10951
+              "chars": 10955
             }
           ]
         },
@@ -3039,7 +2929,7 @@
           "duration_secs": 0.0,
           "duration_str": "0.0s",
           "log_entries": [],
-          "error": "No such option: --no-such-option"
+          "error": "No such option '--no-such-option'."
         }
       ]
     },
@@ -3246,7 +3136,7 @@
           "succeeded": 2,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.012,
+          "duration_secs": 0.014,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
@@ -3353,7 +3243,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.018,
+          "duration_secs": 0.028,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -3467,8 +3357,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.314,
-          "duration_str": "0.3s",
+          "duration_secs": 0.034,
+          "duration_str": "0.0s",
           "log_entries": [
             "<run>\\library\\track.wav  0.050 s -> 0.040 s  would write track_tempo_1.25.wav"
           ],
@@ -3687,7 +3577,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.004,
+          "duration_secs": 0.005,
           "duration_str": "0.0s",
           "log_entries": [],
           "plugin": "example_plugin",
@@ -3792,7 +3682,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.004,
+          "duration_secs": 0.005,
           "duration_str": "0.0s",
           "log_entries": [],
           "plugins": [
@@ -3843,7 +3733,7 @@
           "duration_secs": 0.0,
           "duration_str": "0.0s",
           "log_entries": [],
-          "error": "No such option: --no-such-option"
+          "error": "No such option '--no-such-option'."
         }
       ]
     },
@@ -3926,7 +3816,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.062,
+          "duration_secs": 0.084,
           "duration_str": "0.1s",
           "log_entries": [
             "[DONE] track.wav\n    [DryRun] Loaded OK (RMS: -180.0 dBFS, 50ms, 1ch)\n    [Declick] No clicks found - audio already clean\n    [Trim] No silence detected - original length maintained\n    [Enhance] Applied 'Moderate' preset (+0.0 dB gain)\n    [Normalise] Would adjust loudness from -70.0 to -14.0 LUFS\n"
@@ -4028,7 +3918,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.014,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": []
         },
@@ -4128,8 +4018,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.097,
-          "duration_str": "0.1s",
+          "duration_secs": 0.152,
+          "duration_str": "0.2s",
           "log_entries": [
             "\nFOLDER: <run>\\library\nALBUM STATS -> Gain: +54.00 dB | Peak: 1.000000 | measured from: combined signal\n-----------------------------------------------------------------\n",
             "[DRY RUN] track.wav\n    Track Gain: +54.00 dB | Track Peak: 1.000000\n"
@@ -4231,7 +4121,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.014,
+          "duration_secs": 0.017,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | Would scrub metadata\n"
@@ -4467,7 +4357,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.035,
+          "duration_secs": 0.042,
           "duration_str": "0.0s",
           "log_entries": [
             "<run>\\library\\track.wav  [track.wav] no gap found - 1 track kept whole\n"
@@ -4642,7 +4532,7 @@
           "duration_secs": 0.002,
           "duration_str": "0.0s",
           "log_entries": [],
-          "library_duration_secs": 0.002320499999768799,
+          "library_duration_secs": 0.0020142000284977257,
           "library_duration_str": "0.0s",
           "scan_path": "<run>\\library",
           "total_files": 1,
@@ -4798,8 +4688,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.003,
-          "duration_str": "0.0s",
+          "duration_secs": 0.944,
+          "duration_str": "0.9s",
           "log_entries": [
             "=== Stem separation \u2014 1 file(s) \u2014 Live Update \u2014 CPU ===\n",
             "[SEPARATED] track.wav - wrote vocals.wav, drums.wav to <run>\\out\\track\n"
@@ -5090,7 +4980,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.015,
+          "duration_secs": 0.019,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
@@ -5194,7 +5084,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.017,
+          "duration_secs": 0.039,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | No tags found\n"

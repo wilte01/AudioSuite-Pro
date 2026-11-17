@@ -85,13 +85,22 @@ class RefineryArgs:
 
     # Noise Reduction
     reduce_hum: bool = False
+    #: Changed in 2.8.0: the detected mains frequency is the default, and an
+    #: explicit ``--hum-frequency`` is the override.
+    hum_auto: bool = True
     hum_frequency: int = 60
     hum_harmonics: int = 8
     hum_quality: float = 30.0
     reduce_broadband: bool = False
+    #: Changed in 2.8.0: the profile window is measured per file unless a run
+    #: names its own region with ``--noise-start``/``--noise-end``.
+    profile_auto: bool = True
     noise_start_ms: int = 0
     noise_end_ms: int = 500
     gate_threshold_db: float = 3.0
+    broadband_engine: str = "spectral"
+    denoise_amount: float = 100.0
+    allow_16bit_output: bool = False
 
     # Enhance
     preset: str = "Moderate"
@@ -363,9 +372,21 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
     parser.add_argument(
         "--hum-frequency",
         type=int,
-        default=60,
+        default=None,
         choices=[50, 60],
-        help="Mains frequency (50 or 60 Hz). Default: 60.",
+        help=(
+            "Mains frequency override (50 or 60 Hz). Omit it and each file's own"
+            " hum is measured, so only the partials it carries are notched."
+        ),
+    )
+    parser.add_argument(
+        "--hum-auto",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Detect the mains frequency and its live harmonics (the default); "
+            "--no-hum-auto notches the fixed cascade at --hum-frequency."
+        ),
     )
     parser.add_argument(
         "--hum-harmonics",
@@ -388,21 +409,33 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         default=False,
         help="Enable broadband noise reduction.",
     )
+    # Changed in 2.8.0: the profile window comes from the file unless a region is
+    # named, so giving either bound is the manual override.
     parser.add_argument(
         "--noise-start",
         type=int,
-        default=0,
+        default=None,
         dest="noise_start_ms",
         metavar="MS",
-        help="Noise profile start (ms). Default: 0.",
+        help="Manual noise-profile start (ms); giving it turns detection off.",
     )
     parser.add_argument(
         "--noise-end",
         type=int,
-        default=500,
+        default=None,
         dest="noise_end_ms",
         metavar="MS",
-        help="Noise profile end (ms). Default: 500.",
+        help="Manual noise-profile end (ms); giving it turns detection off.",
+    )
+    parser.add_argument(
+        "--profile-auto",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        dest="profile_auto",
+        help=(
+            "Measure each file's quietest, flattest stretch as the noise profile "
+            "(the default); --no-profile-auto uses --noise-start/--noise-end."
+        ),
     )
     parser.add_argument(
         "--gate-threshold",
@@ -411,6 +444,35 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         dest="gate_threshold_db",
         metavar="DB",
         help="Gate threshold above noise floor (dB). Default: 3.0.",
+    )
+    # Changed in 2.8.0: the broadband engine and its blend reach the GUI launch
+    # path, so a Driver run and a typed command configure one stage the same way.
+    parser.add_argument(
+        "--broadband-engine",
+        choices=["spectral", "neural"],
+        default="spectral",
+        dest="broadband_engine",
+        help="Broadband engine: spectral (profile gate) or neural (RNNoise).",
+    )
+    parser.add_argument(
+        "--denoise-amount",
+        type=float,
+        default=100.0,
+        dest="denoise_amount",
+        metavar="PERCENT",
+        help="How much of the neural engine's output to keep (1-100 percent).",
+    )
+    # Changed in 2.8.0: the explicit opt-in for a wider source's 16-bit output
+    # reaches a GUI launch too, so the Driver's child narrows what its card shows
+    # as allowed instead of refusing every file.
+    parser.add_argument(
+        "--allow-16bit-output",
+        action="store_true",
+        dest="allow_16bit_output",
+        help=(
+            "Allow the neural engine to narrow a source wider than 16-bit to "
+            "its own 16-bit output."
+        ),
     )
 
     # Enhance params
@@ -661,13 +723,26 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         trim_duration=args.trim_duration,
         trim_copy=args.trim_copy,
         reduce_hum=args.reduce_hum,
-        hum_frequency=args.hum_frequency,
+        hum_auto=(
+            args.hum_auto if args.hum_auto is not None else args.hum_frequency is None
+        ),
+        hum_frequency=60 if args.hum_frequency is None else args.hum_frequency,
         hum_harmonics=args.hum_harmonics,
         hum_quality=args.hum_quality,
         reduce_broadband=args.reduce_broadband,
-        noise_start_ms=args.noise_start_ms,
-        noise_end_ms=args.noise_end_ms,
+        # Changed in 2.8.0: an explicit region is the override; a run that names
+        # neither bound gets the measured window.
+        profile_auto=(
+            args.profile_auto
+            if args.profile_auto is not None
+            else args.noise_start_ms is None and args.noise_end_ms is None
+        ),
+        noise_start_ms=0 if args.noise_start_ms is None else args.noise_start_ms,
+        noise_end_ms=500 if args.noise_end_ms is None else args.noise_end_ms,
         gate_threshold_db=args.gate_threshold_db,
+        broadband_engine=args.broadband_engine,
+        denoise_amount=args.denoise_amount,
+        allow_16bit_output=args.allow_16bit_output,
         preset=args.preset,
         eq_bands=eq_bands,
         dynamics=dynamics_given,

@@ -32,6 +32,8 @@ shapes are what those commands publish on a clean library.
 Changed in 2.7.0: drives ``licences`` with no argument and records its failure
 document from an unknown option, because the command has no input path to point
 at a missing one.
+
+Changed in 2.8.0: the recorded payloads drop the ``denoise`` command.
 """
 
 from __future__ import annotations
@@ -239,21 +241,6 @@ def _patched(command: str) -> Iterator[None]:
         with (
             mock.patch.object(plugins_cli, "load_enabled_map", lambda: dict(recorded)),
             mock.patch.object(plugins_cli, "save_enabled_map", recorded.update),
-        ):
-            yield
-        return
-    if command == "denoise":
-        import ml_denoiser.core.file_processor as denoise_processor
-        from ml_denoiser.core.models import DenoiseResult
-
-        def fake_denoise(audio: Any, amount: float = 1.0) -> Any:
-            # Fixed levels, not the fixture's own: the recorded artifact is a
-            # payload shape, and a silent WAV would print -inf in its log.
-            return DenoiseResult(audio.apply_gain(-6.0), -18.0, -24.0, True)
-
-        with (
-            mock.patch.object(denoise_processor, "denoise_segment", fake_denoise),
-            mock.patch.object(denoise_processor, "require_rnnoise", lambda: None),
         ):
             yield
         return

@@ -77,7 +77,11 @@ from audio_suite_shared.dsp_eq import (
 )
 from audio_suite_shared.exceptions import AudioConfigValueError
 from audio_suite_shared.suite_paths import suite_path
-from noise_reduction.core.models import NoiseReductionParams
+from noise_reduction.core.models import (
+    BROADBAND_ENGINES,
+    SPECTRAL_ENGINE,
+    NoiseReductionParams,
+)
 
 from ..core.models import (
     NORMALISATION_MODES,
@@ -362,15 +366,32 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
 
     # Noise Reduction params
     d = data.get("noise_reduction_params", {})
+    # Changed in 2.8.0: an unknown stored engine reads as the spectral gate, so
+    # a settings file written by another build cannot fail every file.
+    stored_engine = d.get("broadband_engine", SPECTRAL_ENGINE)
     config.noise_reduction_params = NoiseReductionParams(
         reduce_hum=d.get("reduce_hum", False),
+        # Changed in 2.8.0: a missing key means the new default, auto detection,
+        # so a settings file written before it still gets the measured cascade.
+        hum_auto=d.get("hum_auto", True),
         hum_frequency=d.get("hum_frequency", 60),
         hum_harmonics=d.get("hum_harmonics", 8),
         hum_quality=d.get("hum_quality", 30.0),
         reduce_broadband=d.get("reduce_broadband", False),
+        # Changed in 2.8.0: the profile window is measured per file by default;
+        # a file written before that keeps detecting.
+        profile_auto=d.get("profile_auto", True),
         noise_start_ms=d.get("noise_start_ms", 0),
         noise_end_ms=d.get("noise_end_ms", 500),
         gate_threshold_db=d.get("gate_threshold_db", 3.0),
+        broadband_engine=(
+            stored_engine if stored_engine in BROADBAND_ENGINES else SPECTRAL_ENGINE
+        ),
+        neural_amount=float(d.get("neural_amount", NoiseReductionParams.neural_amount)),
+        # Changed in 2.8.0: the explicit opt-in for a wider source's 16-bit
+        # output round-trips, so a restored run neither refuses nor narrows
+        # behind the user's back.
+        allow_16bit_output=bool(d.get("allow_16bit_output", False)),
     )
 
     # Enhance params
@@ -520,13 +541,20 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
         },
         "noise_reduction_params": {
             "reduce_hum": nr.reduce_hum,
+            "hum_auto": nr.hum_auto,
             "hum_frequency": nr.hum_frequency,
             "hum_harmonics": nr.hum_harmonics,
             "hum_quality": nr.hum_quality,
             "reduce_broadband": nr.reduce_broadband,
+            "profile_auto": nr.profile_auto,
             "noise_start_ms": nr.noise_start_ms,
             "noise_end_ms": nr.noise_end_ms,
             "gate_threshold_db": nr.gate_threshold_db,
+            # Changed in 2.8.0: which broadband engine ran, and its settings.
+            "broadband_engine": nr.broadband_engine,
+            "neural_amount": nr.neural_amount,
+            # Changed in 2.8.0: the opt-in is part of the stored stage.
+            "allow_16bit_output": nr.allow_16bit_output,
         },
         "enhance_params": {
             "preset": p.preset,

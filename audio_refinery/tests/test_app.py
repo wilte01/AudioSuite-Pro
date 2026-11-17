@@ -6,6 +6,10 @@ Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 
 Changed in 2.4.1: the slot-var scheduling contract now runs against the
 shared ``ThreadSafeSlotVar``; the app's local clone is gone (WP-3).
+
+Changed in 2.8.0: the neural broadband engine's three app-side seams are
+locked - the start-time install offer, the Driver/panel re-sync, and the run
+report line the Results tab opens (noise-reduction amalgamation).
 """
 
 from __future__ import annotations
@@ -265,6 +269,51 @@ class TestStartProcessingStageValidation:
         assert "No Stages Selected" in titles
         mb._thread_cls.assert_not_called()
 
+    def test_a_missing_model_offers_the_install_instead_of_starting(
+        self,
+        app: AudioRefineryApp,
+        audio_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A neural run asks for its model once, before the first file (2.8.0).
+
+        Starting anyway is how the retired standalone tool failed every file
+        with the same message.  Here the run does not start, and the offer is
+        the install prompt whose ``on_ready`` is this same entry point, so the
+        run that starts after installing is the run the panel shows.
+        """
+        from audio_suite_shared import optional_deps
+        from noise_reduction.core.models import NEURAL_ENGINE, NoiseReductionParams
+
+        monkeypatch.setitem(sys.modules, "pyrnnoise", None)
+        app.config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=True,
+            noise_reduction_params=NoiseReductionParams(
+                reduce_broadband=True, broadband_engine=NEURAL_ENGINE
+            ),
+        )
+
+        with (
+            patch("audio_refinery.app.messagebox") as mb,
+            patch("audio_refinery.app.save_settings"),
+            patch("audio_refinery.app.suite_config.save_last_directory"),
+            patch("audio_refinery.app.ui_common.install_optional_dependency") as offer,
+            patch("audio_refinery.app.threading.Thread") as thread_cls,
+        ):
+            app.start_processing()
+
+        offer.assert_called_once()
+        parent, requirement = offer.call_args.args
+        assert parent is app.root
+        assert requirement is optional_deps.RNNOISE
+        assert offer.call_args.kwargs["on_ready"] == app.start_processing
+        thread_cls.assert_not_called()
+        assert [c.args[0] for c in mb.showerror.call_args_list] == []
+
     def test_eq_only_passes_stage_validation(
         self, app: AudioRefineryApp, audio_dir: Path
     ) -> None:
@@ -375,6 +424,119 @@ class TestRealAppConstructionD3:
         assert entries["threshold_db"].get() == "-30"
         assert entries["ratio"].get() == "3"
         assert entries["ceiling_dbtp"].get() == "-2"
+
+    def test_a_driver_launch_shows_the_neural_engine_on_the_panel(
+        self, real_app: Any
+    ) -> None:
+        """The engine and blend a Driver run passes are what the panel shows.
+
+        ``--broadband-engine``/``--denoise-amount`` assign the params and then
+        re-sync through the panel's own variables, so the engine selector, the
+        amount control and the visible control group all follow the run rather
+        than the panel's construction-time defaults.
+        """
+        app = real_app
+        app.config.noise_reduction_params.reduce_broadband = True
+        app.config.noise_reduction_params.broadband_engine = "neural"
+        app.config.noise_reduction_params.neural_amount = 0.55
+        app.config.noise_reduction_params.allow_16bit_output = True
+
+        app._sync_noise_panel()
+
+        widgets = app._setup_state["noise_widgets"]
+        assert widgets["engine"].get() == "neural"
+        assert widgets["amount"].get() == 55
+        assert widgets["allow_wide"].get() is True
+        assert widgets["neural_frame"].winfo_manager() == "pack"
+        assert widgets["spectral_frame"].winfo_manager() == ""
+        assert app.config.noise_reduction_params.neural_amount == pytest.approx(0.55)
+        assert app.config.noise_reduction_params.allow_16bit_output is True
+
+    def test_the_launch_flags_reach_the_panel_through_one_update(
+        self, real_app: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Driver launch configures the stage and the panel the same way.
+
+        The Driver passes ``--broadband-engine``/``--denoise-amount``/
+        ``--allow-16bit-output`` to this GUI, so ``_apply_cli_args`` is a
+        pre-fill route of its own: it assigns the params and re-syncs through the
+        panel's variables, which is the one update function the edit handler
+        also runs.  A launch that skipped the sync showed the construction-time
+        spectral engine while the run used the model (2.8.0).
+        """
+        app = real_app
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "refine",
+                "--stages",
+                "reduce_noise",
+                "--reduce-broadband",
+                "--broadband-engine",
+                "neural",
+                "--denoise-amount",
+                "55",
+                "--allow-16bit-output",
+            ],
+        )
+
+        app._apply_cli_args()
+
+        params = app.config.noise_reduction_params
+        assert params.broadband_engine == "neural"
+        assert params.neural_amount == pytest.approx(0.55)
+        assert params.allow_16bit_output is True
+        widgets = app._setup_state["noise_widgets"]
+        assert widgets["engine"].get() == "neural"
+        assert widgets["amount"].get() == 55
+        assert widgets["allow_wide"].get() is True
+
+    def test_a_preset_pre_fill_shows_the_16_bit_opt_in(self, real_app: Any) -> None:
+        """A stored opt-in reaches the panel through the panel's own variable.
+
+        The preset writes the params directly, so the pre-fill has to carry the
+        value back into the widget the edit handler owns - otherwise a saved
+        neural run opens with the downmix looking forbidden while the run allows
+        it.
+        """
+        app = real_app
+        app._apply_preset({"allow_16bit_output": True})
+
+        app._sync_noise_panel()
+
+        widgets = app._setup_state["noise_widgets"]
+        assert widgets["allow_wide"].get() is True
+        assert app.config.noise_reduction_params.allow_16bit_output is True
+
+    def test_a_driver_hum_override_shows_on_the_panel(self, real_app: Any) -> None:
+        """A Driver's --hum-frequency must show as the override, not as Auto."""
+        app = real_app
+        app.config.noise_reduction_params.hum_auto = False
+        app.config.noise_reduction_params.hum_frequency = 50
+
+        app._sync_noise_panel()
+
+        widgets = app._setup_state["noise_widgets"]
+        assert widgets["hum"].get() == "50"
+        assert app.config.noise_reduction_params.hum_auto is False
+        assert app.config.noise_reduction_params.hum_frequency == 50
+
+    def test_a_driver_manual_region_shows_on_the_profile_panel(
+        self, real_app: Any
+    ) -> None:
+        """A Driver's --noise-start must show as the override, not as Auto."""
+        app = real_app
+        app.config.noise_reduction_params.profile_auto = False
+
+        app._sync_noise_panel()
+
+        widgets = app._setup_state["noise_widgets"]
+        assert widgets["profile"].get() is False
+
+        app.config.noise_reduction_params.profile_auto = True
+        app._sync_noise_panel()
+        assert widgets["profile"].get() is True
 
     def test_preset_collect_and_apply_roundtrip(self, real_app: Any) -> None:
         app = real_app
@@ -752,6 +914,281 @@ class TestCompletionSeam:
         report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
         assert "Total: 3  Processed: 3  Succeeded: 1  Skipped: 1  Errors: 1" in report
 
+    def test_the_report_states_a_neural_run_and_its_depth(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The report the Results tab opens carries the stage's own lines.
+
+        The run is real: a 16-bit source goes through ``run_pipeline``, the
+        model is stood in for where it would read samples, and the written
+        ``refinery_log.txt`` is read back.  Reading the stage result instead
+        would prove the message exists, not that it reaches the report.
+        """
+        import types
+
+        import numpy as np
+        from pydub import AudioSegment
+
+        from audio_refinery.core import file_processor
+        from audio_refinery.core.registry import CompletionRegistry
+        from noise_reduction.core.models import NEURAL_ENGINE, NoiseReductionParams
+
+        def _halve(chunk: Any, sample_rate: int) -> Any:
+            return np.rint(np.asarray(chunk, dtype=np.float64) * 0.5).astype(np.int16)
+
+        monkeypatch.setitem(sys.modules, "pyrnnoise", types.ModuleType("pyrnnoise"))
+        monkeypatch.setattr("noise_reduction.core.rnnoise_engine._model_output", _halve)
+
+        rate = 44_100
+        time_axis = np.linspace(0.0, 0.4, int(rate * 0.4), endpoint=False)
+        pcm = (0.4 * np.sin(2 * np.pi * 220 * time_axis) * 32767).astype("<i2")
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(
+            str(tmp_path / "song.wav"),
+            format="wav",
+            parameters=["-c:a", "pcm_s16le"],
+        )
+        app = _completion_shell(tmp_path)
+        slot_queue: Queue[int] = Queue()
+        slot_queue.put(0)  # one worker slot, as the window primes it on Start
+
+        file_processor.run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path / "out",
+            config=StageConfig(
+                declick=False,
+                trim=False,
+                enhance=False,
+                normalise=False,
+                reduce_noise=True,
+                noise_reduction_params=NoiseReductionParams(
+                    reduce_broadband=True, broadband_engine=NEURAL_ENGINE
+                ),
+            ),
+            registry=CompletionRegistry(tmp_path),
+            slot_vars=[MagicMock()],
+            slot_queue=slot_queue,
+            on_progress=MagicMock(),
+            on_complete=app._on_complete,
+            on_error=MagicMock(),
+        )
+
+        report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
+        assert "broadband=neural" in report
+        assert "16-bit output" in report
+
+    def test_the_report_states_the_measured_mains_hum(self, tmp_path: Path) -> None:
+        """What the detector measured reaches the file the Results tab opens.
+
+        The run is real: a 60 Hz hum is exported, ``run_pipeline`` processes it
+        with detection on, and the written ``refinery_log.txt`` is read back, so
+        the claim is about the artefact rather than the stage message.
+        """
+        import numpy as np
+        from pydub import AudioSegment
+
+        from audio_refinery.core import file_processor
+        from audio_refinery.core.registry import CompletionRegistry
+        from noise_reduction.core.models import NoiseReductionParams
+
+        rate = 44_100
+        time_axis = np.linspace(0.0, 2.0, rate * 2, endpoint=False)
+        pcm = (0.3 * np.sin(2 * np.pi * 60 * time_axis) * 32767).astype("<i2")
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(
+            str(tmp_path / "song.wav"),
+            format="wav",
+            parameters=["-c:a", "pcm_s16le"],
+        )
+        app = _completion_shell(tmp_path)
+        slot_queue: Queue[int] = Queue()
+        slot_queue.put(0)
+
+        file_processor.run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path / "out",
+            config=StageConfig(
+                declick=False,
+                trim=False,
+                enhance=False,
+                normalise=False,
+                reduce_noise=True,
+                noise_reduction_params=NoiseReductionParams(reduce_hum=True),
+            ),
+            registry=CompletionRegistry(tmp_path),
+            slot_vars=[MagicMock()],
+            slot_queue=slot_queue,
+            on_progress=MagicMock(),
+            on_complete=app._on_complete,
+            on_error=MagicMock(),
+        )
+
+        report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
+        assert "hum=on 60 Hz auto" in report
+
+    def test_the_report_states_the_profile_window_it_measured(
+        self, tmp_path: Path
+    ) -> None:
+        """The window the gate used reaches the file the Results tab opens."""
+        import numpy as np
+        from pydub import AudioSegment
+
+        from audio_refinery.core import file_processor
+        from audio_refinery.core.registry import CompletionRegistry
+        from noise_reduction.core.models import NoiseReductionParams
+
+        rate = 44_100
+        rng = np.random.default_rng(3)
+        pcm = (rng.standard_normal(rate * 2) * 0.2 * 32767).astype("<i2")
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(
+            str(tmp_path / "song.wav"),
+            format="wav",
+            parameters=["-c:a", "pcm_s16le"],
+        )
+        app = _completion_shell(tmp_path)
+        slot_queue: Queue[int] = Queue()
+        slot_queue.put(0)
+
+        file_processor.run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path / "out",
+            config=StageConfig(
+                declick=False,
+                trim=False,
+                enhance=False,
+                normalise=False,
+                reduce_noise=True,
+                noise_reduction_params=NoiseReductionParams(reduce_broadband=True),
+            ),
+            registry=CompletionRegistry(tmp_path),
+            slot_vars=[MagicMock()],
+            slot_queue=slot_queue,
+            on_progress=MagicMock(),
+            on_complete=app._on_complete,
+            on_error=MagicMock(),
+        )
+
+        report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
+        assert "profile=auto" in report
+
+    def test_the_report_states_the_hum_level_and_the_gate_measurement(
+        self, tmp_path: Path
+    ) -> None:
+        """The written report line carries all three measurements.
+
+        Read back from ``refinery_log.txt`` rather than from the stage's return
+        value, because that file is what the Results tab opens: a measurement
+        that only exists in the message never reaches the user.
+        """
+        import numpy as np
+        from pydub import AudioSegment
+
+        from audio_refinery.core import file_processor
+        from audio_refinery.core.registry import CompletionRegistry
+        from noise_reduction.core.models import NoiseReductionParams
+
+        rate = 44_100
+        window = np.linspace(0.0, 2.0, rate * 2, endpoint=False)
+        rng = np.random.default_rng(3)
+        pcm = (
+            (
+                0.25 * np.sin(2 * np.pi * 60 * window)
+                + 0.02 * rng.standard_normal(rate * 2)
+            )
+            * 32767
+        ).astype("<i2")
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(
+            str(tmp_path / "song.wav"),
+            format="wav",
+            parameters=["-c:a", "pcm_s16le"],
+        )
+        app = _completion_shell(tmp_path)
+        slot_queue: Queue[int] = Queue()
+        slot_queue.put(0)
+
+        file_processor.run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path / "out",
+            config=StageConfig(
+                declick=False,
+                trim=False,
+                enhance=False,
+                normalise=False,
+                reduce_noise=True,
+                noise_reduction_params=NoiseReductionParams(
+                    reduce_hum=True, reduce_broadband=True
+                ),
+            ),
+            registry=CompletionRegistry(tmp_path),
+            slot_vars=[MagicMock()],
+            slot_queue=slot_queue,
+            on_progress=MagicMock(),
+            on_complete=app._on_complete,
+            on_error=MagicMock(),
+        )
+
+        report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
+        assert "dB above floor" in report  # the hum level it measured
+        assert "gate=" in report  # what the gate removed on its own
+        assert "bins=" in report  # the share of bins it suppressed
+
+    def test_the_report_warns_when_the_stage_removed_almost_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """A written-but-unchanged file must not read as a clean one."""
+        import numpy as np
+        from pydub import AudioSegment
+
+        from audio_refinery.core import file_processor
+        from audio_refinery.core.registry import CompletionRegistry
+        from noise_reduction.core.models import NoiseReductionParams
+
+        rate = 44_100
+        window = np.linspace(0.0, 2.0, rate * 2, endpoint=False)
+        rng = np.random.default_rng(5)
+        samples = np.zeros(rate * 2)
+        samples[:rate] = 0.9 * np.sin(2 * np.pi * 1000 * window[:rate])
+        samples[rate:] = 0.0005 * rng.standard_normal(rate)
+        pcm = (samples * 32767).astype("<i2")
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(
+            str(tmp_path / "song.wav"),
+            format="wav",
+            parameters=["-c:a", "pcm_s16le"],
+        )
+        app = _completion_shell(tmp_path)
+        slot_queue: Queue[int] = Queue()
+        slot_queue.put(0)
+
+        file_processor.run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path / "out",
+            config=StageConfig(
+                declick=False,
+                trim=False,
+                enhance=False,
+                normalise=False,
+                reduce_noise=True,
+                noise_reduction_params=NoiseReductionParams(reduce_broadband=True),
+            ),
+            registry=CompletionRegistry(tmp_path),
+            slot_vars=[MagicMock()],
+            slot_queue=slot_queue,
+            on_progress=MagicMock(),
+            on_complete=app._on_complete,
+            on_error=MagicMock(),
+        )
+
+        report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
+        assert "WARNING: removed under 0.5 dB" in report
+
     @pytest.mark.parametrize(
         "field",
         [
@@ -880,3 +1317,72 @@ class TestEqPresetSeam:
 
         assert app.config.eq is True
         assert app.config.eq_params.bands == (EqBand("peaking", 500.0, 4.0, 1.2),)
+
+
+class TestAnalyseNoise:
+    """The panel's Analyse action reports the measurement and writes nothing."""
+
+    @staticmethod
+    def _app(tmp_path: Path, source: str) -> Any:
+        app = object.__new__(AudioRefineryApp)
+        app.config = StageConfig()
+        app.source_path = MagicMock()
+        app.source_path.get.return_value = source
+        app._setup_state = {"noise_widgets": {"analyse_result": MagicMock()}}
+        return app
+
+    @staticmethod
+    def _report(app: Any) -> str:
+        return app._setup_state["noise_widgets"]["analyse_result"].set.call_args.args[0]
+
+    def test_it_reports_the_measurement_and_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """The report is the output: no export, no new file, no registry."""
+        import numpy as np
+        from pydub import AudioSegment
+
+        rate = 44_100
+        window = np.linspace(0.0, 2.0, rate * 2, endpoint=False)
+        rng = np.random.default_rng(3)
+        pcm = (
+            (
+                0.3 * np.sin(2 * np.pi * 50 * window)
+                + 0.01 * rng.standard_normal(rate * 2)
+            )
+            * 32767
+        ).astype("<i2")
+        AudioSegment(
+            data=pcm.tobytes(), sample_width=2, frame_rate=rate, channels=1
+        ).export(
+            str(tmp_path / "song.wav"),
+            format="wav",
+            parameters=["-c:a", "pcm_s16le"],
+        )
+        before = {path.name: path.stat().st_mtime_ns for path in tmp_path.iterdir()}
+        app = self._app(tmp_path, str(tmp_path))
+
+        app._analyse_noise()
+
+        after = {path.name: path.stat().st_mtime_ns for path in tmp_path.iterdir()}
+        assert after == before
+        report = self._report(app)
+        assert "song.wav" in report
+        assert "Hum: 50 Hz auto" in report
+        assert "Noise floor:" in report
+        assert "Recommended profile region:" in report
+        assert "nothing was processed or written" in report
+
+    def test_without_a_source_folder_it_asks_for_one(self, tmp_path: Path) -> None:
+        app = self._app(tmp_path, "")
+
+        app._analyse_noise()
+
+        assert self._report(app) == "Choose a source folder first."
+
+    def test_a_folder_with_no_audio_says_so(self, tmp_path: Path) -> None:
+        app = self._app(tmp_path, str(tmp_path))
+
+        app._analyse_noise()
+
+        assert "No supported audio files" in self._report(app)

@@ -239,16 +239,6 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "log_entries",
         }
     ),
-    "MlDenoiserApp": frozenset(
-        {
-            "total",
-            "succeeded",
-            "skipped",
-            "errors",
-            "duration_secs",
-            "log_entries",
-        }
-    ),
     "StemSeparatorApp": frozenset(
         {
             "total",
@@ -341,8 +331,9 @@ def _required(fn: Any) -> set[str]:
 def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
     # 22 since 2.7.0: Pitch / Time is the twenty-second window on the shared
-    # shell (F-S4), on the 21 the 2.6.0 wave left.
-    assert len(COMPLETION_WIRINGS) == 22
+    # shell (F-S4), on the 21 the 2.6.0 wave left.  Changed in 2.8.0: back to
+    # 21; the denoiser window is gone with its tool.
+    assert len(COMPLETION_WIRINGS) == 21
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

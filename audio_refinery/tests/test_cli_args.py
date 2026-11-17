@@ -6,6 +6,9 @@ Changed in 2.5.0: album mode is a flag on this surface too, and defaults off
 
 Changed in 2.5.0: an exact trim range is configured here too, and a range flag
 without ``--trim-mode exact`` is refused rather than ignored (F-E3).
+
+Changed in 2.8.0: the broadband engine and its blend are part of this surface,
+and the defaults keep the spectral gate (F-S1 sibling).
 """
 
 from __future__ import annotations
@@ -325,3 +328,85 @@ class TestDynamicsFlags:
     def test_an_unrenderable_value_is_refused(self, argv: list[str]) -> None:
         with pytest.raises(SystemExit):
             parse(["prog", *argv])
+
+
+class TestHumModeArgs:
+    """Hum detection is the default and --hum-frequency is the override (2.8.0)."""
+
+    def test_the_default_measures_the_file(self) -> None:
+        args = parse([])
+
+        assert args.hum_auto is True
+        assert args.hum_frequency == 60
+
+    def test_an_explicit_frequency_is_the_override(self) -> None:
+        args = parse(["prog", "--hum-frequency", "50"])
+
+        assert args.hum_auto is False
+        assert args.hum_frequency == 50
+
+    def test_the_auto_switch_is_explicit(self) -> None:
+        off = parse(["prog", "--no-hum-auto"])
+        on = parse(["prog", "--hum-auto", "--hum-frequency", "50"])
+
+        assert off.hum_auto is False
+        assert on.hum_auto is True
+        assert on.hum_frequency == 50
+
+
+class TestProfileWindowArgs:
+    """The profile window is measured per file unless a region is named (2.8.0)."""
+
+    def test_the_default_measures_the_file(self) -> None:
+        args = parse([])
+
+        assert args.profile_auto is True
+        assert args.noise_start_ms == 0
+        assert args.noise_end_ms == 500
+
+    def test_a_named_region_is_the_override(self) -> None:
+        args = parse(["prog", "--noise-start", "100", "--noise-end", "900"])
+
+        assert args.profile_auto is False
+        assert args.noise_start_ms == 100
+        assert args.noise_end_ms == 900
+
+    def test_the_auto_switch_is_explicit(self) -> None:
+        off = parse(["prog", "--no-profile-auto"])
+        on = parse(["prog", "--profile-auto", "--noise-start", "100"])
+
+        assert off.profile_auto is False
+        assert on.profile_auto is True
+        assert on.noise_start_ms == 100
+
+
+class TestNoiseEngineArgs:
+    """The broadband engine and its blend reach a GUI launch (2.8.0)."""
+
+    def test_the_defaults_keep_the_spectral_engine(self) -> None:
+        args = parse([])
+
+        assert args.broadband_engine == "spectral"
+        assert args.denoise_amount == 100.0
+
+    def test_the_flags_parse(self) -> None:
+        args = parse(
+            [
+                "prog",
+                "--broadband-engine",
+                "neural",
+                "--denoise-amount",
+                "40",
+            ]
+        )
+
+        assert args.broadband_engine == "neural"
+        assert args.denoise_amount == 40.0
+
+    def test_the_16_bit_opt_in_is_a_flag(self) -> None:
+        """The downmix is off unless the launch asks for it."""
+        assert parse([]).allow_16bit_output is False
+
+        args = parse(["prog", "--broadband-engine", "neural", "--allow-16bit-output"])
+
+        assert args.allow_16bit_output is True

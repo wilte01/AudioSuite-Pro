@@ -118,6 +118,8 @@ settings squeezes the rest, so its Parametric EQ and Dynamics panels are each
 photographed alone, opened through their own Settings button and filled through
 the panel's own entries - the worked rack and the "control a spiky mix"
 starting point the guide describes.
+
+Changed in 2.8.0: the capture list loses the denoiser's figures.
 """
 
 from __future__ import annotations
@@ -446,14 +448,6 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
             f"[DRY RUN] {name} \u2192 Would scrub metadata" for name in _FINISHED
         ),
         slots=_busy_slots("Scrubbing"),
-    ),
-    "ml_denoiser": SampleRun(
-        status="Reducing noise...",
-        lines=tuple(
-            f"[FOUND] {name} \u2192 Attenuated 6.2 dB (noise floor -54.0 dBFS)"
-            for name in _FINISHED
-        ),
-        slots=_busy_slots("Reducing noise"),
     ),
     "mood_analysis_batch_tagger": SampleRun(
         status="Scanning: Sample Album",
@@ -1678,13 +1672,6 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "metadata_scrubber.app",
         "MetadataScrubberApp",
         window=(900, 804),
-        populate=GENERIC_POPULATE,
-    ),
-    ToolPlan(
-        "ml_denoiser",
-        "ml_denoiser.app",
-        "MlDenoiserApp",
-        window=(900, 625),
         populate=GENERIC_POPULATE,
     ),
     ToolPlan(

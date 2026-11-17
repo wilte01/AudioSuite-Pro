@@ -26,6 +26,8 @@ is the sequential batch order too) and ``EXPECTED_GROUPS`` freezes the captions
 and their membership, so a reorder or a re-grouping is a deliberate diff here
 rather than a side effect of a manifest edit.
 Changed in 2.7.0: the frozen utility order gains ``pitch_time`` (F-S4).
+
+Changed in 2.8.0: the utility lists follow the 20-card tab.
 """
 
 from __future__ import annotations
@@ -70,7 +72,6 @@ EXPECTED_UTILITY_ORDER: tuple[str, ...] = (
     "spectral_viewer",
     "channel_tools",
     "duplicate_finder",
-    "ml_denoiser",
     "pitch_time",
     "restoration",
     "stem_separator",
@@ -102,7 +103,6 @@ EXPECTED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "channel_tools",
             "duplicate_finder",
-            "ml_denoiser",
             "pitch_time",
             "restoration",
             "stem_separator",

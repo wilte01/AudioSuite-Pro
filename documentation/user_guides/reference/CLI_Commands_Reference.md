@@ -333,13 +333,18 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--trim-duration MS` — Exact trim length in ms, used instead of `--trim-end`
 - `--trim-copy` / `--no-trim-copy` — Cut the exact range with a stream copy instead of a re-encode: frame-accurate, no re-encode, and it cannot run beside the declick, reduce-noise, enhance or normalise stages (default: no-trim-copy)
 - `--reduce-hum` — Enable hum removal via notch filtering
-- `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
+- `--hum-auto` / `--no-hum-auto` — Measure each file's mains frequency and the harmonics it actually carries, and notch only those; `--no-hum-auto` notches the fixed cascade at `--hum-frequency`
+- `--hum-frequency [50|60]` — Mains frequency override; omit it and each file's own hum is measured
 - `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
 - `--hum-quality Q` — Notch Q factor, 1–100 (default: 30)
 - `--reduce-broadband` — Enable broadband noise reduction
-- `--noise-start MS` — Noise profile start in ms (default: 0)
-- `--noise-end MS` — Noise profile end in ms (default: 500)
+- `--noise-start MS` — Manual noise-profile start in ms; giving it (or `--noise-end`) turns detection off
+- `--noise-end MS` — Manual noise-profile end in ms; giving it (or `--noise-start`) turns detection off
+- `--profile-auto` / `--no-profile-auto` — Measure each file's quietest, flattest stretch as the noise profile and name it in the run report; detection is on unless `--no-profile-auto` keeps `--noise-start`/`--noise-end`
 - `--gate-threshold DB` — Gate threshold above the noise floor in dB (default: 3.0)
+- `--broadband-engine [spectral|neural]` — Broadband engine: `spectral` gates against a noise profile; `neural` runs the RNNoise model (ml extra), which writes 16-bit audio, so a source wider than 16 bits is refused unless `--allow-16bit-output` is given (default: spectral)
+- `--denoise-amount PCT` — How much of the neural engine's output to keep, 1–100 % (default: 100)
+- `--allow-16bit-output` — Allow the neural engine to narrow a source wider than 16-bit to its own 16-bit output; the run report then states the depth it narrowed from (default: off)
 - `--preset NAME` — Enhancement preset: Mild, Moderate, Aggressive, Custom (default: Moderate)
 - `--karaoke` / `--no-karaoke` — Remove centre-panned content (lead vocals) (default: no-karaoke)
 - `--karaoke-strength F` — Karaoke removal strength, 0.0–1.0 (default: 1.0)
@@ -811,28 +816,6 @@ audiosuite spectrogram "D:\Music\Album" --output-dir "D:\Spectrograms"
 audiosuite spectrogram "D:\Music\Album" --start 30 --end 60 --max-freq 12000 --cmap viridis
 ```
 
-### ML Denoiser
-
-Neural noise reduction with RNNoise, an optional extra installed by
-`uv sync --extra ml`. The model is trained on speech, so for music
-`--amount` blends the source back in rather than replacing it.
-
-```bash
-audiosuite denoise <directory> [--amount PCT] [--dry] [--json]
-```
-
-**Options:**
-
-- `--dry` / `--live` — Report the measured levels only, or write the processed audio (default: live)
-- `--amount PCT` — how much of the model's output to keep, 1–100 %; lower values blend the source back in, which suits music (default: 100.0)
-
-**Examples:**
-
-```bash
-audiosuite denoise "D:\Music\Interviews" --dry
-audiosuite denoise "D:\Music\Live" --amount 40 --json
-```
-
 ### Tag-Based File Reorganizer
 
 Move or copy audio files into a folder hierarchy built from their tags.
@@ -1170,7 +1153,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 33 tools appears
+installation rather than on a folder of audio. Each of the 32 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -1189,7 +1172,6 @@ here, and each tool's own section above documents its flags.
 | `cue generate` | CUE Sheet Generator | Suite |
 | `cue parse` | CUE sheet parser | Suite |
 | `cue split` | CUE sheet splitter | Suite |
-| `denoise` | ML Denoiser | Util |
 | `doctor` | Install check | Suite |
 | `example` | Example Tool (plugin) | Plugin |
 | `fingerprint` | Audio Fingerprinter | Enrich |

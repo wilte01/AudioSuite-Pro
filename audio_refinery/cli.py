@@ -235,9 +235,21 @@ def _validate_trim_range(
 )
 @click.option(
     "--hum-frequency",
-    default=60,
-    type=click.IntRange(50, 60),
-    help="Mains frequency 50 or 60 Hz (default 60).",
+    default=None,
+    type=click.Choice(["50", "60"]),
+    help=(
+        "Mains frequency override, 50 or 60 Hz; omit it and each file's own hum "
+        "is measured, so only the partials it carries are notched."
+    ),
+)
+@click.option(
+    "--hum-auto/--no-hum-auto",
+    "hum_auto",
+    default=None,
+    help=(
+        "Detect the mains frequency and its live harmonics (the default); "
+        "--no-hum-auto notches the fixed cascade at --hum-frequency."
+    ),
 )
 @click.option(
     "--hum-harmonics",
@@ -257,13 +269,60 @@ def _validate_trim_range(
     default=False,
     help="Enable broadband noise reduction.",
 )
-@click.option("--noise-start", default=0, type=int, help="Noise profile start ms.")
-@click.option("--noise-end", default=500, type=int, help="Noise profile end ms.")
+@click.option(
+    "--noise-start",
+    default=None,
+    type=int,
+    help="Manual profile start ms; giving it turns detection off.",
+)
+@click.option(
+    "--noise-end",
+    default=None,
+    type=int,
+    help="Manual profile end ms; giving it turns detection off.",
+)
+@click.option(
+    "--profile-auto/--no-profile-auto",
+    "profile_auto",
+    default=None,
+    help=(
+        "Measure each file's quietest, flattest stretch as the noise profile "
+        "(the default); --no-profile-auto uses --noise-start/--noise-end."
+    ),
+)
 @click.option(
     "--gate-threshold",
     default=3.0,
     type=float,
     help="Gate threshold above noise floor dB (default 3.0).",
+)
+@click.option(
+    "--broadband-engine",
+    type=click.Choice(["spectral", "neural"]),
+    default="spectral",
+    show_default=True,
+    help=(
+        "Broadband engine: spectral gates against a noise profile; neural runs "
+        "the RNNoise model (ml extra), which writes 16-bit audio, so a wider "
+        "source is refused."
+    ),
+)
+@click.option(
+    "--denoise-amount",
+    default=100.0,
+    type=click.FloatRange(min=1.0, max=100.0),
+    show_default=True,
+    metavar="PERCENT",
+    help="How much of the neural engine's output to keep, 1-100 %.",
+)
+@click.option(
+    "--allow-16bit-output",
+    is_flag=True,
+    default=False,
+    help=(
+        "Allow the neural engine to narrow a source wider than 16-bit to its "
+        "own 16-bit output."
+    ),
 )
 @click.option(
     "--preset",
@@ -376,13 +435,18 @@ def refine(
     trim_duration: int | None,
     trim_copy: bool,
     reduce_hum: bool,
-    hum_frequency: int,
+    hum_frequency: int | None,
+    hum_auto: bool | None,
     hum_harmonics: int,
     hum_quality: float,
     reduce_broadband: bool,
-    noise_start: int,
-    noise_end: int,
+    noise_start: int | None,
+    noise_end: int | None,
+    profile_auto: bool | None,
     gate_threshold: float,
+    broadband_engine: str,
+    denoise_amount: float,
+    allow_16bit_output: bool,
     preset: str,
     karaoke: bool,
     karaoke_strength: float,
@@ -522,13 +586,26 @@ def refine(
         ),
         noise_reduction_params=NoiseReductionParams(
             reduce_hum=reduce_hum,
-            hum_frequency=hum_frequency,
+            # Changed in 2.8.0: an explicit --hum-frequency is the override; a run
+            # that names neither gets the detected cascade.
+            hum_auto=hum_auto if hum_auto is not None else hum_frequency is None,
+            hum_frequency=60 if hum_frequency is None else int(hum_frequency),
             hum_harmonics=hum_harmonics,
             hum_quality=hum_quality,
             reduce_broadband=reduce_broadband,
-            noise_start_ms=noise_start,
-            noise_end_ms=noise_end,
+            # Changed in 2.8.0: a named region is the override; otherwise the
+            # gate takes its profile from the file.
+            profile_auto=(
+                profile_auto
+                if profile_auto is not None
+                else noise_start is None and noise_end is None
+            ),
+            noise_start_ms=0 if noise_start is None else noise_start,
+            noise_end_ms=500 if noise_end is None else noise_end,
             gate_threshold_db=gate_threshold,
+            broadband_engine=broadband_engine,
+            neural_amount=denoise_amount / 100.0,
+            allow_16bit_output=allow_16bit_output,
         ),
         eq_params=eq_settings,
         compressor_params=compressor,
@@ -544,6 +621,15 @@ def refine(
         # The run would refuse every file for the same reason; say it once,
         # before any file is opened.
         raise click.UsageError(exc.message) from exc
+
+    # Changed in 2.8.0: a neural run needs its model before the first file, so
+    # a headless run without the ml extra exits non-zero naming what to install
+    # instead of failing every file with the same message.
+    from noise_reduction.core.noise_reducer import neural_dependency_reason
+
+    neural_reason = neural_dependency_reason(config.noise_reduction_params)
+    if neural_reason is not None:
+        raise click.UsageError(neural_reason)
 
     with active_batch("audio_refinery", "tag_edit"):
         result = _run_tool(

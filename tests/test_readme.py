@@ -1,8 +1,7 @@
 """Tests for the README tool index and its cross-surface registration.
 
 Changed in 1.3.0: the metadata lock now expects 28 tool rows (Spectral Viewer).
-Changed in 2.0.0: the metadata lock now expects 30 tool rows (Stem Separator,
-ML Denoiser).
+Changed in 2.0.0: the metadata lock now expects 30 tool rows (Stem Separator).
 
 Plan iteration 5, item E1 (audit #10): the README's tool index must be
 generated from the tool manifest instead of hand-maintained rows that drift
@@ -43,6 +42,8 @@ with ``driver_card=False``, and a new lock keeps that exemption honest - the
 launcher and CLI command still exist and the card module really is gone.
 Changed in 2.5.0: the first-party tool count is 29 (F-E4 splitter, F-E5 joiner).
 Changed in 2.7.0: the frozen first-party count is 33 (F-S4).
+
+Changed in 2.8.0: the README row lock reads 32 first-party tools.
 """
 
 from __future__ import annotations
@@ -159,7 +160,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 33
+        assert len(get_registry().first_party) == 32
 
 
 class TestRegistrationLock:

@@ -121,7 +121,6 @@ The cards are grouped under six captions, in workflow order: Convert & Import, T
 
 - **Channel Tools: **Applies mono, dual-mono, phase, mid/side and width rules in place.
 - **Duplicate Finder: **Finds duplicate recordings by fingerprint and quarantines, deletes or stubs the extras.
-- **ML Denoiser: **Neural noise reduction with RNNoise, which is trained on speech.
 - **Restoration (Declip): **Reconstructs flat-topped peaks lost to clipping.
 - **Stem Separator: **Separates tracks into vocals, drums, bass and other stems.
 

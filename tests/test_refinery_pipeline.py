@@ -707,9 +707,21 @@ class TestPipelineShape:
             "_load_source": ["source_path", "emit"],
             "_run_declick_stage": ["audio", "config", "emit"],
             "_run_trim_stage": ["audio", "config", "emit"],
-            "_run_noise_reduction_stage": ["audio", "config", "emit"],
+            # Changed in 2.8.0: the stage takes the source path so its neural
+            # bit-depth refusal can name the file (the broadband half can now
+            # run RNNoise as well as the STFT gate).
+            "_run_noise_reduction_stage": ["audio", "config", "emit", "source_path"],
             "_run_enhance_stage": ["audio", "config", "emit"],
-            "_write_output": ["audio", "tmp_path", "source_path", "ext", "emit"],
+            # Changed in 2.8.0: the writer takes the depth decision, so a neural
+            # run does not re-pin a wider container around its 16-bit output.
+            "_write_output": [
+                "audio",
+                "tmp_path",
+                "source_path",
+                "ext",
+                "emit",
+                "preserve_source_depth",
+            ],
             "_run_normalise_stage": [
                 "tmp_path",
                 "config",

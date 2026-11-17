@@ -5,6 +5,10 @@ slider-to-config sync regression test (D24).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.8.0: the Noise Reduction panel's engine choice is locked - a
+restored neural setup shows neural with only its own controls packed, and an
+edit writes the params back through the same update function.
 """
 
 from __future__ import annotations
@@ -942,3 +946,164 @@ class TestDynamicsPanel:
 
         assert config.compressor_params == before
         assert "number" in state["dynamics_status"].get()
+
+
+class TestNoiseEnginePanel:
+    """A restored neural setup shows the engine, through the edit path (2.8.0)."""
+
+    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+        from audio_refinery.ui import setup_tab
+
+        return setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+        )
+
+    def test_a_restored_neural_engine_narrows_the_panel(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.noise_reduction_params.broadband_engine = "neural"
+        config.noise_reduction_params.neural_amount = 0.4
+
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["engine"].get() == "neural"
+        assert widgets["amount"].get() == 40
+        assert widgets["neural_frame"].winfo_manager() == "pack"
+        assert widgets["spectral_frame"].winfo_manager() == ""
+
+    def test_choosing_spectral_writes_the_params_back(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.noise_reduction_params.broadband_engine = "neural"
+
+        widgets = self._build(root, config)["noise_widgets"]
+        widgets["engine"].set("spectral")
+
+        assert config.noise_reduction_params.broadband_engine == "spectral"
+        assert widgets["neural_frame"].winfo_manager() == ""
+        assert widgets["spectral_frame"].winfo_manager() == "pack"
+
+    def test_the_amount_reaches_the_params(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)["noise_widgets"]
+
+        widgets["amount"].set(35)
+
+        assert config.noise_reduction_params.neural_amount == pytest.approx(0.35)
+
+    def test_the_16_bit_opt_in_is_off_and_writes_back(self, root: tk.Tk) -> None:
+        """The downmix is a deliberate choice: off at build time, one tick on."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["allow_wide"].get() is False
+        assert config.noise_reduction_params.allow_16bit_output is False
+
+        widgets["allow_wide"].set(True)
+
+        assert config.noise_reduction_params.allow_16bit_output is True
+
+    def test_a_restored_opt_in_shows_on_the_panel(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.noise_reduction_params.allow_16bit_output = True
+
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["allow_wide"].get() is True
+
+    def test_the_hum_panel_opens_on_auto_and_can_be_overridden(
+        self, root: tk.Tk
+    ) -> None:
+        """Detection is the default; a radio choice turns it into the override."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["hum"].get() == "auto"
+        assert config.noise_reduction_params.hum_auto is True
+
+        widgets["hum"].set("50")
+
+        assert config.noise_reduction_params.hum_auto is False
+        assert config.noise_reduction_params.hum_frequency == 50
+
+    def test_a_restored_hum_override_shows_on_the_panel(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.noise_reduction_params.hum_auto = False
+        config.noise_reduction_params.hum_frequency = 60
+
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["hum"].get() == "60"
+
+    def test_the_panel_offers_a_report_only_analyse_action(self, root: tk.Tk) -> None:
+        """The button is wired to its callback and its output is a label.
+
+        The report is the whole output, so the panel owns a text variable the
+        app fills; there is no path from this button to a run.
+        """
+        from audio_refinery.core.models import StageConfig
+        from audio_refinery.ui import setup_tab
+
+        calls: list[int] = []
+        config = StageConfig()
+        widgets = setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+            on_analyse_noise=lambda: calls.append(1),
+        )["noise_widgets"]
+
+        assert widgets["analyse_result"].get() == ""
+        widgets["analyse"].invoke()
+
+        assert calls == [1]
+
+    def test_the_profile_panel_opens_on_auto_and_can_be_overridden(
+        self, root: tk.Tk
+    ) -> None:
+        """Detection is the default; unticking it is the manual region."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["profile"].get() is True
+        assert config.noise_reduction_params.profile_auto is True
+
+        widgets["profile"].set(False)
+
+        assert config.noise_reduction_params.profile_auto is False
+
+    def test_a_restored_manual_region_shows_on_the_panel(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.noise_reduction_params.profile_auto = False
+
+        widgets = self._build(root, config)["noise_widgets"]
+
+        assert widgets["profile"].get() is False
