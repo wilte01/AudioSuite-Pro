@@ -340,6 +340,16 @@ function the edit handler calls (schedule it, don't duplicate the logic); audit
 all pre-fill routes together (Driver argv, CLI flags, restored config); and every
 pre-fill route needs a test asserting the **narrowed** state.
 
+**A guard test needs the config the window really holds, not a `MagicMock`.**
+`has_active_stage` reads every field in `REFINERY_STAGES` (seven since the EQ
+and dynamics stages landed), and a `MagicMock` answers the fields a test did
+not set with truthy children: `audio_refinery`'s "no stage selected" test set
+five fields `False`, `has_active_stage` still returned `True`, and its
+`assert_called_once` passed on the next dialog the window happened to raise -
+"Output Not Found" on the dev host, none at all on the 3.11 CI leg. Build the
+dataclass with every stage off and assert the dialog's **title**, not merely
+that one appeared.
+
 ## GUI Callback Contract (progress, complete, error)
 
 Every GUI tool starts its processor through a `run_*` entry point that takes

@@ -702,22 +702,34 @@ class TestStartGuardsD3:
     def test_no_stage_selected_shows_error(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        """Every stage off is refused before any folder work starts.
+
+        The config is the dataclass the window really holds: a ``MagicMock``
+        answers the unset ``eq``/``dynamics`` fields with truthy children, so
+        ``has_active_stage`` returned ``True`` and the test passed on whichever
+        dialog came next instead of this one.
+        """
+        from audio_refinery.core.models import StageConfig
+
         app = self._shell()
         dialogs = MagicMock()
         monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
         app.source_path.get.return_value = str(tmp_path)
         (tmp_path / "a.wav").write_bytes(b"\x00" * 8)
-        app.config = MagicMock(
+        app.config = StageConfig(
             declick=False,
             trim=False,
             enhance=False,
             normalise=False,
             reduce_noise=False,
+            eq=False,
+            dynamics=False,
         )
 
         app.start_processing()
 
         dialogs.showerror.assert_called_once()
+        assert dialogs.showerror.call_args.args[0] == "No Stages Selected"
 
     def test_invalid_output_dir_shows_error(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
