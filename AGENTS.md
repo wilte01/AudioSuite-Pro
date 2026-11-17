@@ -859,6 +859,15 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   state before any test can pollute it, and add a deterministic pollution
   regression when a test mutates module-level globals. Evidence:
   `PLAN_iteration5_remediation.md` Stage 5.
+- **A test that touches an optional extra must stub it, not borrow the dev
+  host's copy.** `pyrnnoise` lives in the `ml` extra, which `.venv` carries and
+  CI's `uv sync --extra dev --extra analysis --extra cd-ripping` does not, so a
+  test that assumes it passes locally and fails on the floor leg - and because
+  the suite stops at the first failure, one such test per CI round. Install the
+  package's fake model (`_install_fake_rnnoise`) where the model only has to be
+  *present*, and `monkeypatch.setitem(sys.modules, "pyrnnoise", None)` where the
+  missing-model path is the subject. To reproduce the floor leg locally, block
+  the import with a `-p` plugin on `sys.meta_path` and run the suite again.
 - **A skip is a pass, so it needs a budget.** `pytest` reports `N skipped` as a
   green result, so a test that stops verifying anything — a package missing on
   the runner, an ffmpeg build without a resampler — costs coverage silently:

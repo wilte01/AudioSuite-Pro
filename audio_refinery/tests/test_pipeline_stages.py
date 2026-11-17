@@ -1981,10 +1981,19 @@ class TestNoiseReductionEngine:
             )
         assert "pyrnnoise" in str(excinfo.value)
 
-    def test_a_24_bit_source_is_refused_with_both_depths(self, tmp_path: Path) -> None:
+    def test_a_24_bit_source_is_refused_with_both_depths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 24-bit source is refused by name, naming both depths.
+
+        The fake model is installed so the depth check is what refuses the
+        file: without it the stage reports the missing dependency first, which
+        a host with the ``ml`` extra never showed and CI, which has none, did.
+        """
         from audio_refinery.core.pipeline import _run_noise_reduction_stage
         from audio_suite_shared.exceptions import AudioProcessingError
 
+        _install_fake_rnnoise(monkeypatch)
         source = tmp_path / "wide.wav"
         _sine(duration_ms=200).export(
             str(source), format="wav", parameters=["-c:a", "pcm_s24le"]
