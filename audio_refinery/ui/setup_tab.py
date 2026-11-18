@@ -68,7 +68,7 @@ import audio_enhancer.ui.setup_tab as enhancer_ui
 import audio_normalizer.ui.setup_tab as normalise_ui
 import pop_click_remover.ui.setup_tab as declick_ui
 import silence_trimmer.ui.setup_tab as trim_ui
-from audio_refinery.core.models import StageConfig
+from audio_refinery.core.models import AUTO_STAGES, StageConfig, normalise_auto_stages
 from audio_suite_shared import styles, ui_common
 from audio_suite_shared.dsp_dynamics import CompressorSettings, LimiterSettings
 from audio_suite_shared.dsp_eq import (
@@ -97,6 +97,91 @@ from noise_reduction.core.models import (
 
 _MODE_VAR_IDS = itertools.count()
 
+#: The Best Audio widget registry the stage panels register into during one
+#: ``build()``.  ``_stage_panel`` is called from seven panel builders that have
+#: no reason to carry a second parameter, so the active registry is set once at
+#: the top of ``build`` and read by every panel; a second window's build
+#: replaces it, which is what a per-window registry means.
+_ACTIVE_AUTO_REGISTRY: "dict[str, Any] | None" = None
+
+#: The caption a stage's Auto box shows while it is ticked.  It says why the
+#: manual entries below are disabled, so nobody has to deduce it.
+_AUTO_CAPTION = "Auto supplies these for this stage; untick Auto to edit"
+
+
+def _set_widget_tree_state(
+    widget: tk.Misc, disabled: bool, saved: dict[tk.Misc, str]
+) -> None:
+    """Enable or disable every control below *widget*, recursively.
+
+    Values stay in the widgets while they are disabled, so unticking Auto
+    restores exactly the manual settings the user typed (contract rule A4).
+    The state each control had before Auto locked it is recorded in *saved* and
+    put back on untick, so a control the panel had deliberately disabled (the
+    exact-trim range fields, for example) does not come back live.
+
+    Frames have no ``state`` option; a widget that refuses the option is
+    skipped rather than treated as an error.
+    """
+    for child in widget.winfo_children():
+        # ``Tk``'s stubs type ``configure`` per concrete class, and a Frame has
+        # no ``state`` option at all - the runtime answers with TclError, which
+        # is exactly the distinction this loop needs.
+        configure = getattr(child, "configure", None)
+        if configure is not None:
+            try:
+                if disabled:
+                    saved[child] = str(child.cget("state"))
+                    configure(state="disabled")
+                else:
+                    configure(state=saved.get(child, "normal"))
+            except tk.TclError:
+                pass
+        _set_widget_tree_state(child, disabled, saved)
+
+
+def _sync_stage_auto(entry: dict[str, Any], on: bool) -> None:
+    """Show the caption and lock the manual entries for one Auto stage."""
+    entry["caption"].configure(text=_AUTO_CAPTION if on else "")
+    body = entry.get("body")
+    if body is None:
+        return
+    saved: dict[tk.Misc, str] = entry.setdefault("states", {})
+    if on:
+        _set_widget_tree_state(body, True, saved)
+    elif saved:
+        # Restore only what Auto locked: a panel that was already correct at
+        # build time must not have its disabled controls re-enabled.
+        _set_widget_tree_state(body, False, saved)
+
+
+def _apply_auto_stages(
+    config: StageConfig,
+    registry: dict[str, Any],
+    stages: "Any",
+) -> None:
+    """The one function every Best Audio selection route calls.
+
+    A CLI flag, a Driver argv, a restored settings file, a loaded preset and
+    the checkbox itself all end here, so the window and the config cannot
+    describe different runs (the pre-fill rule).
+
+    Args:
+        config: The run's configuration, whose ``auto_stages`` is written.
+        registry: The build's widget registry.
+        stages: The selection to store; validated and ordered by the model.
+    """
+    config.auto_stages = normalise_auto_stages(stages)
+    for attr, entry in registry.items():
+        if attr.startswith("_"):
+            continue
+        on = attr in config.auto_stages
+        entry["var"].set(on)
+        _sync_stage_auto(entry, bool(on))
+    bulk = registry.get("_bulk_var")
+    if bulk is not None:
+        bulk.set(tuple(config.auto_stages) == tuple(AUTO_STAGES))
+
 
 def build(
     parent: tk.Frame,
@@ -121,6 +206,7 @@ def build(
     driver_locked: bool = False,
     mode_var: "tk.StringVar | None" = None,
     on_analyse_noise: "Callable[[], None] | None" = None,
+    on_preview_best_audio: "Callable[[], None] | None" = None,
 ) -> dict[str, Any]:
     """Populate the Setup tab.
 
@@ -135,6 +221,8 @@ def build(
         on_reset: Callback for the Reset Progress button.
         on_analyse_noise: Callback for the Noise Reduction panel's read-only
             Analyse action; ``None`` leaves the button disabled.
+        on_preview_best_audio: Callback for the Best Audio panel's read-only
+            Preview action; ``None`` leaves the button disabled.
         embedded: When True, hide the title and subtitle labels.
         after_paths: Optional callback injected after path rows.
         after_stages: Optional callback injected after stage panels.
@@ -178,7 +266,7 @@ def build(
             fg=styles.FG_SUB,
         ).pack(pady=(0, 12))
 
-    _state: dict[str, Any] = {}
+    _state: dict[str, Any] = {"frame": frame}
 
     # ── Presets ───────────────────────────────────────────────────────────────
     if on_save_preset is not None:
@@ -271,6 +359,83 @@ def build(
     if after_paths is not None:
         after_paths(frame)
 
+    # ── Best Audio (2.9.0) ────────────────────────────────────────────────────
+    # One stored representation: this checkbox and every --auto-stage flag
+    # resolve to ``config.auto_stages``, and its state is computed from that
+    # list on every change, never held separately (D-02).
+    auto_registry: dict[str, Any] = {"_bulk_var": tk.BooleanVar(value=False)}
+    _state["auto_registry"] = auto_registry
+    bulk_var = auto_registry["_bulk_var"]
+
+    auto_row = tk.Frame(frame, bg=styles.BG_WHITE)
+    auto_row.pack(fill="x", pady=(8, 0))
+
+    def _on_bulk_toggle() -> None:
+        _apply_auto_stages(config, auto_registry, AUTO_STAGES if bulk_var.get() else ())
+
+    tk.Checkbutton(
+        auto_row,
+        text="Best Audio - measure each file and let the ticked stages choose",
+        variable=bulk_var,
+        command=_on_bulk_toggle,
+        font=styles.FONT_BODY,
+        bg=styles.BG_WHITE,
+        fg=styles.FG_MAIN,
+        activebackground=styles.BG_WHITE,
+        activeforeground=styles.FG_MAIN,
+        selectcolor=styles.BG_WHITE,
+        anchor="w",
+    ).pack(side=tk.LEFT)
+
+    tk.Label(
+        auto_row,
+        text="Never changes a stage switch, a preset or a delivery target",
+        font=styles.FONT_CAPTION,
+        bg=styles.BG_WHITE,
+        fg=styles.FG_SUB,
+    ).pack(side=tk.LEFT, padx=(12, 0))
+
+    # Changed in 2.9.0: a read-only preview, the shape the Noise panel's
+    # Analyse action already established.  It measures and reports; it starts
+    # no run and writes nothing.
+    preview_btn = tk.Button(
+        auto_row,
+        text="Preview decisions",
+        command=on_preview_best_audio or (lambda: None),
+        bg=styles.BG_LIGHT,
+        fg=styles.FG_MAIN,
+        activebackground=styles.BG_LIGHT,
+        activeforeground=styles.FG_MAIN,
+        # Disabled when the host passes no action, so its disabled text needs a
+        # themed colour like every other state (the Analyse button's rule).
+        disabledforeground=styles.FG_SUB,
+        font=styles.FONT_CAPTION,
+        padx=8,
+        relief="flat",
+    )
+    preview_btn.pack(side=tk.RIGHT)
+    if on_preview_best_audio is None:
+        preview_btn.configure(state="disabled")
+
+    _state["auto_result"] = tk.Label(
+        frame,
+        text="",
+        font=styles.FONT_CAPTION,
+        bg=styles.BG_WHITE,
+        fg=styles.FG_SUB,
+        anchor="w",
+        justify="left",
+        wraplength=760,
+    )
+    _state["auto_result"].pack(fill="x", pady=(2, 0))
+
+    _state["apply_auto_stages"] = lambda stages: _apply_auto_stages(
+        config, auto_registry, stages
+    )
+
+    global _ACTIVE_AUTO_REGISTRY
+    _ACTIVE_AUTO_REGISTRY = auto_registry
+
     # ── Stage panels ──────────────────────────────────────────────────────────
     stages_frame = tk.Frame(frame, bg=styles.BG_WHITE)
     stages_frame.pack(fill="x", pady=(10, 0))
@@ -294,6 +459,10 @@ def build(
 
     # Store stage_vars in the main state for access by Master Driver
     _state["stage_vars"] = stage_vars
+
+    # A settings file or a preset may already carry a selection, and the panels
+    # built their boxes from it; this normalises the widgets to the one list.
+    _apply_auto_stages(config, auto_registry, config.auto_stages)
 
     # Wire up the Output Gain visibility toggle after both panels exist
     def _update_output_gain_visibility(*_args: Any) -> None:
@@ -1759,6 +1928,52 @@ def _stage_panel(
         fg=styles.FG_MAIN,
     ).pack(side=tk.LEFT, expand=True, fill="x")
 
+    # Changed in 2.9.0: an Auto box in the header of each stage Best Audio may
+    # decide for.  ``normalise`` has none - its numbers are delivery choices,
+    # not measurements.  The box writes the one stored list through the single
+    # apply function, exactly as the bulk control does.
+    auto_entry: dict[str, Any] | None = None
+    if attr in AUTO_STAGES and _ACTIVE_AUTO_REGISTRY is not None:
+        registry = _ACTIVE_AUTO_REGISTRY
+        auto_var = tk.BooleanVar(value=attr in config.auto_stages)
+
+        def _on_auto_toggle() -> None:
+            stages = [
+                stage
+                for stage in AUTO_STAGES
+                if (stage == attr and auto_var.get())
+                or (stage != attr and stage in config.auto_stages)
+            ]
+            _apply_auto_stages(config, registry, stages)
+
+        tk.Checkbutton(
+            header,
+            text="Auto",
+            variable=auto_var,
+            command=_on_auto_toggle,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_LIGHT,
+            fg=styles.FG_MAIN,
+            activebackground=styles.BG_LIGHT,
+            activeforeground=styles.FG_MAIN,
+            selectcolor=styles.BG_LIGHT,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+
+        auto_entry = {
+            "var": auto_var,
+            "caption": tk.Label(
+                outer,
+                text="",
+                font=styles.FONT_CAPTION,
+                bg=styles.BG_LIGHT,
+                fg=styles.FG_SUB,
+                anchor="w",
+            ),
+            "body": None,
+        }
+        auto_entry["caption"].pack(fill="x", padx=8, pady=(0, 2))
+        registry[attr] = auto_entry
+
     expand_var = tk.StringVar(value="▶  Settings")
     expanded = [False]
 
@@ -1770,6 +1985,10 @@ def _stage_panel(
 
     if extra_builder:
         extra_builder(body)
+
+    if auto_entry is not None:
+        auto_entry["body"] = body
+        _sync_stage_auto(auto_entry, attr in config.auto_stages)
 
     def _toggle() -> None:
         if expanded[0]:

@@ -69,6 +69,10 @@ logger = logging.getLogger(__name__)
 
 _TOOL_ID = "audio_refinery"
 
+#: How many files the Best Audio preview measures.  A preview is a sample, and
+#: one decode per file is the whole cost; the run itself measures every file.
+_PREVIEW_FILE_CAP = 25
+
 
 class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
     """Main application window for Audio Refinery."""
@@ -172,6 +176,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             on_start=self.start_processing,
             on_reset=self._reset_registry,
             on_analyse_noise=self._analyse_noise,
+            on_preview_best_audio=self._preview_best_audio,
             auto_start_var=self.auto_start_var,
             auto_end_var=self.auto_end_var,
             clear_logs_var=self.clear_logs_var,
@@ -307,6 +312,79 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             return
         report.set(analysis.describe(name))
 
+    def _preview_best_audio(self) -> None:
+        """Report what Best Audio would decide for the first files, writing nothing.
+
+        Read-only by construction: one decode per file, the same
+        :func:`audio_refinery.core.best_audio.decide` the run calls, and a few
+        lines in the panel.  It starts no run, touches no registry and writes
+        no audio and no report - the preview names the file and the time each
+        measurement came from, so a value is never shown as if it were the
+        run's own (contract rule A10).
+        """
+        state = getattr(self, "_setup_state", None) or {}
+        report = state.get("auto_result")
+        if report is None:  # pragma: no cover - the panel always provides it
+            return
+        if not self.config.auto_stages:
+            report.set(
+                "Tick Best Audio, or tick Auto on a stage, to preview what it "
+                "would decide."
+            )
+            return
+        source = self.source_path.get().strip()
+        if not source or not Path(source).exists():
+            report.set("Choose a source folder first.")
+            return
+
+        if Path(source).is_dir():
+            try:
+                names = sorted(self.discover_audio_files(source, SUPPORTED_EXTENSIONS))[
+                    :_PREVIEW_FILE_CAP
+                ]
+            # A folder that cannot be read is a report line, not a crash.
+            except Exception as exc:  # noqa: BLE001 - reported in the panel
+                mapped = map_to_audio_error(exc)
+                logger.warning("Preview could not read %s: %s", source, mapped)
+                report.set(f"Could not read that folder: {user_message_for(mapped)}")
+                return
+            paths = [Path(source) / name for name in names]
+        else:
+            paths = [Path(source)]
+
+        if not paths:
+            report.set("No supported audio files to preview.")
+            return
+
+        from .core.best_audio import decide, decision_text
+
+        lines: list[str] = []
+        for path in paths:
+            try:
+                from pydub import AudioSegment
+
+                audio = AudioSegment.from_file(str(path))
+                plan = decide(audio, path, self.config)
+            # A file that will not decode is a report line, not a crash; the
+            # rest of the folder is still worth previewing.
+            except Exception as exc:  # noqa: BLE001 - reported in the panel
+                mapped = map_to_audio_error(exc)
+                logger.error("Preview failed for %s: %s", path.name, mapped)
+                lines.append(
+                    f"{path.name}: could not measure ({user_message_for(mapped)})"
+                )
+                continue
+            lines.append(
+                f"{path.name} (measured {plan.source.measured_at}): "
+                f"{decision_text(plan)}"
+            )
+        if len(paths) == _PREVIEW_FILE_CAP:
+            lines.append(
+                f"Previewed the first {_PREVIEW_FILE_CAP} files; "
+                "the run measures every file."
+            )
+        report.set("\n".join(lines))
+
     def _load_registry(self, source: str) -> None:
         path = Path(source)
         if path.is_dir():
@@ -351,6 +429,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             "normalise": p.normalise,
             # Changed in 2.7.0: the EQ stage's toggle and rack ride a preset (F-S1).
             "eq": p.eq,
+            # Changed in 2.9.0: Best Audio's per-stage selection rides a preset
+            # too, as the one list a run reads (D-02).
+            "auto_stages": list(p.auto_stages),
             # Changed in 2.8.0: the noise stage's toggle and its neural settings
             # ride a preset with the rest of the run.
             "reduce_noise": p.reduce_noise,
@@ -506,6 +587,14 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         """Apply a stored preset, leaving absent keys untouched."""
         p = self.config
         self._apply_preset_keys(p, settings, self._STAGE_PRESET_KEYS)
+        # Changed in 2.9.0: a stored preset carries the Auto selection, and a
+        # preset saved before 2.9.0 simply has no key - which reads as no Auto
+        # stages, the pipeline it described.
+        if "auto_stages" in settings:
+            from .core.models import normalise_auto_stages
+
+            p.auto_stages = normalise_auto_stages(settings["auto_stages"])
+            self._sync_auto_panel()
         self._apply_preset_keys(p.declick_params, settings, self._DECLICK_PRESET_KEYS)
         self._apply_preset_keys(p.trim_params, settings, self._TRIM_PRESET_KEYS)
         self._apply_preset_keys(
@@ -538,6 +627,17 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         self._sync_eq_panel()
         self._sync_dynamics_panel()
         self._sync_noise_panel()
+
+    def _sync_auto_panel(self) -> None:
+        """Push ``config.auto_stages`` into the panel through the one function.
+
+        Every programmatic route - a restored settings file, CLI flags, Driver
+        argv and a loaded preset - ends here, so the checkboxes always show the
+        selection the run will use (the pre-fill rule).
+        """
+        apply = (getattr(self, "_setup_state", None) or {}).get("apply_auto_stages")
+        if apply is not None:
+            apply(self.config.auto_stages)
 
     def _sync_preset_editor(self, p: Any) -> None:
         """Keep the Custom DSP editor in step with the loaded preset."""
@@ -789,6 +889,18 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             with open(self._log_path, "w", encoding="utf-8") as fh:
                 fh.write("Audio Refinery — Processing Log\n")
                 fh.write("=" * 50 + "\n")
+                # Changed in 2.9.0: one line, only when Auto was asked for, so
+                # a run without it writes exactly the report it always did.
+                auto_stages = getattr(getattr(self, "config", None), "auto_stages", ())
+                if auto_stages:
+                    from .core.models import AUTO_STAGES
+
+                    chosen = [s for s in AUTO_STAGES if s in auto_stages]
+                    mode = "DRY RUN" if self.run_mode.get() == "Dry Run" else "LIVE"
+                    fh.write(
+                        f"Mode: {mode} - BEST AUDIO: {len(chosen)} of "
+                        f"{len(AUTO_STAGES)} stages ({', '.join(chosen)})\n"
+                    )
                 fh.writelines(log_entries)
                 fh.write("=" * 50 + "\n")
                 fh.write(
@@ -824,6 +936,15 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             )
             self._time_label.config(text=f"Total time: {time_str}")
             self._show_album_rows(album_rows)
+            # Changed in 2.9.0: a run that measured its own parameters opens the
+            # results with level matching ticked, because the difference a
+            # measured run makes is mostly a level difference.  The shipped
+            # switch is unchanged and the user can untick it; a manual run's
+            # default is exactly what it was.
+            level_match = getattr(self, "_level_match_var", None)
+            auto_stages = getattr(getattr(self, "config", None), "auto_stages", ())
+            if auto_stages and level_match is not None:
+                level_match.set(True)
             self.notebook.select(self._tab_results)
             self.start_btn.config(state="normal")
             self.overall_status.set("Complete")
@@ -1019,6 +1140,10 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         self.config.enhance = "enhance" in active
         self.config.normalise = "normalise" in active
         self.config.reduce_noise = "reduce_noise" in active
+        # Changed in 2.9.0: --best-audio / --auto-stage resolve to one list in
+        # the argument parser, and this is the only place the run reads it.
+        self.config.auto_stages = args.auto_stages
+        self._sync_auto_panel()
         # Changed in 2.7.0: --eq-band implies the EQ stage, so the flag cannot
         # configure bands for a stage the run would not execute (F-S1).
         self.config.eq = "eq" in active or bool(args.eq_bands)
