@@ -1779,7 +1779,7 @@ def slide_conversion(prs: Presentation, number: int) -> None:
         [
             Line(
                 "Batch conversion across 14 formats: MP3, AAC, M4A, OGG, "
-                "Opus, WMA, MP4, FLAC, WAV, ALAC, APE, AIFF, AIF, WavPack",
+                "Opus, WMA, MP4, FLAC, WAV, ALAC, AIFF, AIF, WavPack, Speex",
                 marker="\u2022",
             ),
             Line(
