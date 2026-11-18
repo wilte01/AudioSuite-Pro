@@ -22,7 +22,58 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Audio Refinery can work out its own settings from the file.** A new
+  **Best Audio** option measures each file before processing it and chooses the
+  stages' parameters instead of using the values in their panels. Tick the
+  Best Audio box to do that for all six stages that support it, or tick the
+  smaller **Auto** box in a single stage's header. Audio Normaliser has no Auto
+  box: its loudness target, true-peak ceiling and album mode are delivery
+  decisions rather than measurements, so Best Audio never touches them.
+
+  It is an addition, not a replacement. A stage still runs only when its own
+  checkbox is ticked, its preset name is never changed, and a manual run or a
+  saved preset behaves exactly as it did. While a stage's Auto box is ticked,
+  that stage's manual entries are greyed out with a caption saying why; the
+  values you typed stay in them and come back, editable, the moment you untick
+  Auto.
+
+  What it decides, per stage: the click repair width (narrowed to the widest
+  defect actually found, never widened); whether detected silence is worth
+  cutting; which hum partials to notch (the ones the file carries); whether the
+  broadband gate is safe for this file; one high-pass band when the file has
+  real sub-bass rumble; whether a bypassed limiter must hold the delivery
+  ceiling; and, for a Custom enhancement rack, a presence and high-shelf lift
+  capped at 2 dB each. A lossy source whose top octave is missing is reported
+  rather than boosted.
+
+- **A read-only Preview decisions button** in the Best Audio row measures the
+  first 25 files of the source folder and reports what each stage would choose
+  for them, naming the file and the time. It starts no run, writes no file and
+  records no progress.
+
+- **Every run that used Best Audio writes `refinery_decisions.csv`** beside the
+  run log: one row per file per stage, naming the measurement, the value, the
+  threshold it was compared against and the parameter it produced. Skipped
+  files appear there too, since they print no stage lines.
+
+- **A Best Audio run measures what it wrote.** After a file is written the run
+  re-measures it, and if it missed what it claimed - a true-peak ceiling, a
+  loudness target, new clipping - the report says so with both numbers and
+  leaves the audio alone.
+
+### Changed
+
+- **The results tab opens with level matching ticked after a Best Audio run.**
+  The difference a measured run makes is mostly a level difference, so the
+  comparison starts fair; the switch is the same one as before and can be
+  unticked, and a manual run's default is unchanged.
+
+- **`audiosuite refine` and the Master Driver accept `--best-audio` and
+  `--auto-stage`.** The first is the all-six shortcut; the second is repeatable
+  and names one stage. An explicit list wins over the shortcut, and a Driver
+  run sends one `--auto-stage` per selected stage in pipeline order.
 
 ## [2.8.0] - 2026-11-18
 

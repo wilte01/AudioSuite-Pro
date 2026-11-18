@@ -61,6 +61,29 @@ The seven collapsible stage panels sit below the paths, in the order the pipelin
 
 At least one stage must be enabled. The window opens with Pop & Click Remover, Silence Trimmer / Fader, Audio Enhancer and Audio Normaliser enabled, and Noise Reduction, Dynamics and Parametric EQ disabled; enable an optional stage when a file needs it. SELECT ALL follows whichever stages have a panel, so it covers every one of them.
 
+### Best Audio
+
+**Best Audio** measures each file and lets the stages choose their own parameters, instead of using the numbers in their panels. Tick the **Best Audio** box to do that for all six stages that support it, or tick the smaller **Auto** box in a single stage's header. **Normalise** has no Auto box: its numbers are delivery decisions - a loudness target, a true-peak ceiling, album mode - and not measurements of a file, so Best Audio never touches them.
+
+What it measures, stage by stage:
+
+- **Pop & Click Remover** counts the clicks and narrows the repair width to the widest defect it actually found. It never widens the repair: a defect wider than the maximum you set is reported, not chased.
+- **Silence Trimmer / Fader** measures the leading and trailing silence and cuts it only when the amount is worth a re-encode. It never adds fades and never moves an exact range.
+- **Noise Reduction** measures which mains frequency a file carries and how many partials, and notches only those; it confirms the broadband gate is safe for the file (a floor well under the music, and a profile that would not gate the loudest stretch) rather than enabling it on a guess.
+- **Parametric EQ** appends one high-pass band when the file carries real sub-bass rumble. It never edits or removes a band you drew, and it leaves a rack that already has a high-pass alone.
+- **Dynamics** un-bypasses the limiter when the file's predicted peak would break the delivery ceiling. The compressor is never touched.
+- **Audio Enhancer** lifts the presence and high-shelf gains by at most 2 dB each when a Custom rack has a measured high-frequency deficit. It only does this when the preset is **Custom**: with Mild, Moderate or Aggressive selected the preset is yours, and a lossy source whose top octave is missing is reported rather than boosted.
+
+While a stage's **Auto** box is ticked, that stage's manual entries are greyed out with a caption saying why, and the values you typed stay in them. Untick Auto and they come back, editable, exactly as you left them. Nothing is hidden and no switch is changed: a stage still runs only when its own checkbox is ticked, and Best Audio only decides the parameters inside it.
+
+**Preview decisions** measures the first files in the source folder without writing anything, and names the file and the time each measurement came from. It is a report, not a run: no file is touched, no progress is recorded and no report is written.
+
+Decisions are taken in pipeline order, on the signal each stage will receive. When the trim decides to cut, the rest is measured on the trimmed audio - otherwise a stretch of leading silence would look like the quietest, flattest noise profile in the file and switch the gate on for a stretch that will not exist by the time the stage runs.
+
+When a run with any Auto stage finishes, it writes `refinery_decisions.csv` beside the run's log: one row per file per stage, naming the measurement, the value, the threshold it was compared against and the parameter it produced. Skipped files appear there too, because a skipped file prints no stage lines. A run with Auto ticked nowhere writes no such file and behaves exactly as it did before.
+
+The written file is measured again afterwards. If it misses what the run claimed - a true-peak ceiling, a loudness target, new clipping - the report says so with both numbers and the audio is left alone.
+
 #### Pop & Click Remover
 
 - **Click sensitivity: **Default 0.31; controls click detection. Lower values are more aggressive according to the stage model.

@@ -16,7 +16,55 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`audio_refinery/core/best_audio.py`: a per-file decision layer over the
+  detectors the suite already has.** `SourceProfile` holds measurements only
+  (`None` means "not measured", never zero); `StageDecision` carries the
+  evidence and the parameters; `BestAudioPlan.config` is a copy of the run's
+  config with only the Auto stages' parameters replaced, which is how contract
+  rules A1-A5 are expressed mechanically rather than by convention. `decide()`
+  measures nothing it was not asked for, and a measurement that raises disables
+  that stage's Auto for the file with a reason instead of aborting the batch. A
+  new test module (`audio_refinery/tests/test_best_audio.py`) pins each rule
+  both ways, the laziness table, the CSV, the guardrail's ability to fail, and
+  the additive contract.
+
+- **`pop_click_remover.core.declicker.detect_clicks()`**, the measurement half
+  of the click stage. `declick_audio()` now calls the same private
+  `_detect_channel_regions`/`_region_is_repairable` helpers, so the count a
+  decision is made on and the count the repair reports cannot drift (plan
+  D-07); its own behaviour and return type are unchanged, and its existing
+  suite is the control.
+
+- **`StageConfig.auto_stages`** as the single stored representation of the
+  Best Audio selection, validated and ordered by `AUTO_STAGES` through
+  `normalise_auto_stages()`. Unknown names are dropped with a warning. There is
+  deliberately no stored `best_audio` boolean (plan D-02), so the bulk checkbox,
+  both CLIs and the Driver cannot describe a run the pipeline would read
+  differently.
+
+- **`refinery_decisions.csv`**, written by `run_pipeline` in discovery order,
+  keyed by source path so a parallel run cannot reorder it between two
+  identical runs. A write failure is a warning: the audio work is already done.
+
+- **Post-write guardrails** in `pipeline._verify_best_audio()`, called from each
+  of the three write paths and never from a path that wrote nothing.
+
+### Changed
+
+- **`process_file`'s "nothing changed" branch moved into `_finish_unchanged()`**
+  and the Best Audio step into `_apply_best_audio()`, so the function stays
+  inside the statement budget it had before the decision layer was added.
+- **The setup panel's Best Audio state is computed from `config.auto_stages` on
+  every change.** Every programmatic route (CLI flags, Driver argv, a restored
+  settings file, a loaded preset) ends in one `_apply_auto_stages()` function,
+  per the pre-fill rule. The per-stage caption is packed below the header, and
+  the saved control states are restored on untick, so a control the panel had
+  deliberately disabled does not come back live.
+- **Driver argv emits `--auto-stage` in `AUTO_STAGES` order** from the selected
+  set, so a hand-built config cannot send them in a different order from the
+  pipeline's.
 
 ## [2.8.0] - 2026-11-18
 

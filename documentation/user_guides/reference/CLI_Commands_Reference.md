@@ -320,6 +320,8 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 
 - `--dry` / `--live` — Simulate the selected stages and report, or write the results (default: live)
 - `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `eq`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
+- `--best-audio` / `--no-best-audio` — Measure each file and let the six stages choose their own parameters instead of using the ones in the rest of this list. It never switches a stage on or off, never changes a preset name and never moves a delivery target, so it composes with everything above and below (default: off)
+- `--auto-stage STAGE` — Let one stage choose its own parameters: `declick`, `trim`, `reduce_noise`, `eq`, `dynamics` or `enhance`. Repeat it for several stages; an explicit list wins over `--best-audio`, which is the all-six shortcut
 - `--output DIR` — Output directory (default: source dir)
 - `--sensitivity F` — Declick sensitivity (default: 0.31)
 - `--width N` — Declick max defect width in ms (default: 2)
@@ -381,6 +383,8 @@ audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-start 12000 
 audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-end 45000 --trim-copy
 audiosuite refine "D:\Music" --stages eq,enhance --eq-band "peaking,1000,2.5,1.0" --eq-band "highpass,40"
 audiosuite refine "D:\Music" --stages dynamics,normalise --comp-threshold -20 --limiter-ceiling -1
+audiosuite refine "D:\Music" --stages declick,trim,reduce_noise,eq,enhance --best-audio --dry
+audiosuite refine "D:\Music" --stages trim,reduce_noise --auto-stage trim --auto-stage reduce_noise
 ```
 
 ## UTIL commands
