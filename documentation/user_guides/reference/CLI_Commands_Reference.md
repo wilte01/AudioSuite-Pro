@@ -1153,8 +1153,10 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 32 tools appears
-here, and each tool's own section above documents its flags.
+installation rather than on a folder of audio. Only tools with a CLI command
+appear in the table: Artwork Extractor is represented by its two suite
+commands (`artwork extract`, `artwork report`) and Undo Tag Edits has no row
+at all. Each tool's own section above documents its flags.
 
 | Command | Tool | Category |
 |---|---|---|

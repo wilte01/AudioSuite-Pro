@@ -66,6 +66,9 @@ TOOL_HEADING = re.compile(r"^### (.+)$", re.MULTILINE)
 #: One row of the reference's *All Commands* table: ``| `command` | Tool | ...``.
 COMMAND_ROW = re.compile(r"^\| `([^`]+)` \|", re.MULTILINE)
 
+#: The same row with its Tool cell: ``| `command` | Tool Name | Category |``.
+COMMAND_ROW_WITH_TOOL = re.compile(r"^\| `([^`]+)` \| ([^|]+?) \|", re.MULTILINE)
+
 
 def _tracked_paths() -> set[str]:
     """Return every tracked path, POSIX-style, relative to the repository root."""
@@ -138,6 +141,13 @@ _SUBSET_CLAIM = re.compile(r"(\d+)\s+of\s+(\d+)\s+tools", re.I)
 #: A category-count table row: ``| ENRICH | `enrich` | 11 | ...``.
 _CATEGORY_CLAIM = re.compile(
     r"^\|\s*(?:REFINE|ENRICH|UTIL)\s*\|\s*`([a-z]+)`\s*\|\s*(\d+)\s*\|", re.MULTILINE
+)
+
+#: A sentence promising that the *All Commands* table covers the suite:
+#: "Each of the 32 tools appears here".  The corrected wording - "Only tools
+#: with a CLI command appear in the table" - is deliberately not a match.
+_COVERS_EVERY_TOOL = re.compile(
+    r"\b(?:each|every|all)\b[^.]{0,40}\btools?\b[^.]{0,60}\bappear", re.IGNORECASE
 )
 
 #: The categories the manifest knows about.
@@ -325,6 +335,37 @@ class TestCliReferenceCoversEveryTool:
         assert not missing, (
             "these tools declare a CLI command that the reference does not list: "
             f"{missing}"
+        )
+
+    def test_a_claim_that_every_tool_appears_matches_the_table(self) -> None:
+        """The prose cannot promise coverage the table does not have.
+
+        "Each of the 32 tools appears here" outlived the ML Denoiser retirement
+        with only its number refreshed, while the table names no row for Undo
+        Tag Edits and reaches Artwork Extractor only through its two suite
+        commands.  Both sides are derived - the manifest's tool names and the
+        table's Tool cells - so no count is trusted.
+        """
+        text = REFERENCE.read_text(encoding="utf-8")
+        section = text.split("## All Commands", 1)[1].split("\n## ", 1)[0]
+        rows = {tool.strip() for _, tool in COMMAND_ROW_WITH_TOOL.findall(section)}
+
+        assert rows, "the All Commands table parsed to no tool cells"
+        # The lock must still recognise the wording it was written for: a
+        # pattern edit that stopped matching would leave a test that only ever
+        # returns early.
+        assert _COVERS_EVERY_TOOL.search("Each of the 32 tools appears here"), (
+            "_COVERS_EVERY_TOOL no longer matches the historical wording"
+        )
+        if not _COVERS_EVERY_TOOL.search(section):
+            return
+
+        missing = sorted(
+            tool.name for tool in _first_party_tools() if tool.name not in rows
+        )
+        assert not missing, (
+            "the All Commands prose claims every tool appears in the table, "
+            f"but these tools have no tool-named row: {missing}"
         )
 
 
