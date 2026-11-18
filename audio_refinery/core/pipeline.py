@@ -101,6 +101,14 @@ from audio_suite_shared.ffmpeg import FFMPEG_PATH
 from audio_suite_shared.lossless_gain import apply_track_gain, is_mp3_file
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
+# Changed in 2.9.0: the decision layer's plan type and its three public
+# functions - decide, the per-file line and the post-write guardrail.
+from .best_audio import (
+    BestAudioPlan,
+    decide,
+    decision_text,
+    verify_written,
+)
 from .integrity import IntegrityResult, validate_file
 from .models import (
     EXACT_TRIM_MODE,
@@ -278,6 +286,146 @@ def _run_exact_copy_trim(
     return result
 
 
+def _apply_best_audio(
+    audio: AudioSegment,
+    source_path: Path,
+    config: StageConfig,
+    result: FileResult,
+    emit: Callable[..., Any],
+) -> tuple[StageConfig, BestAudioPlan | None]:
+    """Measure this file and return ``(effective config, plan)``.
+
+    One call, once per file, after the decode: parameters are a per-file
+    question, so configuring Auto at run start would be the wrong answer.  A
+    decision-layer failure must not abort a batch, so anything that escapes
+    leaves the run's own config in place and this file is processed manually.
+
+    Args:
+        audio: The decoded source.
+        source_path: The file it came from.
+        config: The run's configuration.
+        result: The file result the Best Audio line is recorded into.
+        emit: Progress callback.
+
+    Returns:
+        The configuration the stages should use, and the plan when there is
+        one.  With no Auto stage both are ``(config, None)``.
+    """
+    if not config.auto_stages:
+        return config, None
+    try:
+        plan = decide(audio, source_path, config)
+    except Exception as exc:  # noqa: BLE001 - one file's plan, not a run
+        logger.error(
+            "Best Audio failed for %s: %s", source_path.name, exc, exc_info=True
+        )
+        return config, None
+    result.best_audio = plan
+    text = decision_text(plan)
+    result.add_stage("BestAudio", FileStatus.DONE, text)
+    emit("BestAudio", text)
+    return plan.config, plan
+
+
+def _verify_best_audio(
+    result: FileResult,
+    output_path: Path,
+    config: StageConfig,
+    plan: BestAudioPlan | None,
+    emit: Callable[..., Any],
+) -> None:
+    """Measure the file just written against the plan's claims.
+
+    Called only from a path that actually wrote the file.  The guardrail records
+    a caveat and a stage line; it never deletes, rewrites or corrects the
+    output and never raises (contract rule A8).
+
+    Args:
+        result: The file result the verification lines are recorded into.
+        output_path: The file the run wrote.
+        config: The configuration the run used.
+        plan: The file's plan, or ``None`` when Auto was not asked for.
+        emit: Progress callback.
+    """
+    if plan is None or not result.was_modified:
+        return
+    verification = verify_written(output_path, config, plan)
+    result.best_audio = replace(plan, verify=verification)
+    for line in (verification.message, *verification.caveats):
+        if line:
+            result.add_stage("BestAudio", FileStatus.DONE, line)
+            emit("BestAudio", line)
+
+
+def _finish_unchanged(
+    source_path: Path,
+    output_path: Path,
+    in_place: bool,
+    config: StageConfig,
+    stage_config: StageConfig,
+    result: FileResult,
+    emit: Callable[..., Any],
+    wants_normalise: bool,
+    normalise_reason: str | None,
+    album_plan: AlbumPlan | None,
+    album_key: str,
+    plan: BestAudioPlan | None,
+) -> FileResult:
+    """Finish a file no processing stage changed: normalise it, copy it, or skip it.
+
+    Extracted from :func:`process_file` so the Best Audio step and the three
+    write paths stay legible together; the behaviour is the branch that always
+    lived here.
+
+    Returns:
+        The finished result.  An in-place run that needed no change is SKIPPED
+        and leaves the file untouched, which is the no-op rule.
+    """
+    if in_place:
+        applied = False
+        if wants_normalise:
+            msg, applied = _run_normalise_in_place(
+                source_path,
+                config,
+                emit,
+                album=album_plan,
+                album_key=album_key,
+            )
+            result.add_stage("Normalise", FileStatus.DONE, msg)
+        if not applied:
+            result.status = FileStatus.SKIPPED
+            # The container reason is the useful one: "no changes needed"
+            # would hide why the stage never ran.
+            result.error = normalise_reason or _no_op_reason(stage_config)
+            emit("Done", result.error)
+            return result
+        emit("Done", "Complete ✓")
+        result.status = FileStatus.DONE
+        result.was_modified = True
+        _verify_best_audio(result, output_path, config, plan, emit)
+        return result
+
+    # Copy-out: the destination is the deliverable, so produce it - a byte copy
+    # when nothing changed, then one loudnorm pass on it.
+    emit("Export", "Copying to output folder...")
+    record_tag_edit_snapshot(str(output_path), "refinery_edit")
+    shutil.copy2(source_path, output_path)
+    if wants_normalise:
+        msg, _applied = _run_normalise_stage(
+            output_path,
+            config,
+            emit,
+            album=album_plan,
+            album_key=album_key,
+        )
+        result.add_stage("Normalise", FileStatus.DONE, msg)
+    emit("Done", "Complete ✓")
+    result.status = FileStatus.DONE
+    result.was_modified = True
+    _verify_best_audio(result, output_path, config, plan, emit)
+    return result
+
+
 def process_file(
     source_path: Path,
     output_path: Path,  # final destination (may equal source for in-place)
@@ -385,6 +533,11 @@ def process_file(
         # ── 1. Read tags and decode audio ─────────────────────────────────────
         original_tags, audio = _load_source(source_path, _emit)
 
+        # ── 1b. Best Audio: measure this file and decide the Auto stages ──────
+        plan: BestAudioPlan | None = None
+        config, plan = _apply_best_audio(audio, source_path, config, result, _emit)
+        stage_config = replace(config, normalise=False) if normalise_reason else config
+
         # ── 2. Dry run: detect with every enabled stage, write nothing ────────
         if config.dry_run:
             _run_dry_run(
@@ -426,46 +579,20 @@ def process_file(
 
         # ── 7. Nothing changed: normalise directly, or write nothing ─────────
         if not modified:
-            if in_place:
-                if wants_normalise:
-                    msg, modified = _run_normalise_in_place(
-                        source_path,
-                        config,
-                        _emit,
-                        album=album_plan,
-                        album_key=album_key,
-                    )
-                    result.add_stage("Normalise", FileStatus.DONE, msg)
-                if not modified:
-                    result.status = FileStatus.SKIPPED
-                    # The container reason is the useful one: "no changes
-                    # needed" would hide why the stage never ran.
-                    result.error = normalise_reason or _no_op_reason(stage_config)
-                    _emit("Done", result.error)
-                    return result
-                _emit("Done", "Complete ✓")
-                result.status = FileStatus.DONE
-                result.was_modified = True
-                return result
-
-            # Copy-out: the destination is the deliverable, so produce it —
-            # a byte copy when nothing changed, then one loudnorm pass on it.
-            _emit("Export", "Copying to output folder...")
-            record_tag_edit_snapshot(str(output_path), "refinery_edit")
-            shutil.copy2(source_path, output_path)
-            if wants_normalise:
-                msg, _applied = _run_normalise_stage(
-                    output_path,
-                    config,
-                    _emit,
-                    album=album_plan,
-                    album_key=album_key,
-                )
-                result.add_stage("Normalise", FileStatus.DONE, msg)
-            _emit("Done", "Complete ✓")
-            result.status = FileStatus.DONE
-            result.was_modified = True
-            return result
+            return _finish_unchanged(
+                source_path,
+                output_path,
+                in_place,
+                config,
+                stage_config,
+                result,
+                _emit,
+                wants_normalise,
+                normalise_reason,
+                album_plan,
+                album_key,
+                plan,
+            )
 
         # ── 8. Write temp file (single encode, bitrate-aware) ─────────────────
         staged = _temp_path()
@@ -499,6 +626,7 @@ def process_file(
         os.replace(str(staged), str(output_path))
         result.status = FileStatus.DONE
         result.was_modified = True
+        _verify_best_audio(result, output_path, config, plan, _emit)
 
     except AudioConfigurationError as exc:
         # A configuration refusal is the user's to fix and already states why;

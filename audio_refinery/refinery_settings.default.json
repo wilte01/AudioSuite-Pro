@@ -5,6 +5,7 @@
   "normalise": true,
   "reduce_noise": false,
   "eq": false,
+  "auto_stages": [],
   "declick_params": {
     "sensitivity": 0.31,
     "max_width_ms": 2

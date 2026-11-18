@@ -62,6 +62,7 @@ PLAN_audit_2026-10-24_deferred_p2p3.md).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -88,6 +89,25 @@ class DeclickResult(NamedTuple):
     audio: AudioSegment
     clicks_found: int
     was_modified: bool
+
+
+@dataclass(frozen=True)
+class ClickDetection:
+    """What the detector found, without repairing anything (2.9.0).
+
+    This is the measurement half of :func:`declick_audio`, extracted so a
+    caller can ask "how many defects, how wide" without paying for the repair
+    and so the two can never disagree about what is there.
+
+    Attributes:
+        count: Number of repairable regions found across every channel.
+        max_width_ms: Widest repairable region in ms (0.0 when none was found).
+        wider_defects: Regions the configured maximum leaves untouched.
+    """
+
+    count: int
+    max_width_ms: float
+    wider_defects: int = 0
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -305,18 +325,10 @@ def _detect_and_repair_channel(
     Detection and repair pipeline for a single channel.
     Returns the number of defect regions repaired.
     """
-    k = _threshold_to_k(threshold)
-    hw = max(1, int(sample_rate * _MAD_WINDOW_CLICK_S) // 2)
-
-    diff = np.diff(ch_samples, prepend=ch_samples[0])
-    local_noise = _windowed_mad(diff, hw).astype(np.float64)
-    spike_mask = np.abs(diff) > k * np.maximum(local_noise, 1e-6)
-    spike_idxs = np.where(spike_mask)[0]
-
-    if len(spike_idxs) == 0:
-        return 0
-
-    regions = _merge_regions(spike_idxs, max_gap=2)
+    # Changed in 2.9.0: the detection lives in ``_detect_channel_regions`` and
+    # ``detect_clicks`` reads the very same regions, so the count a decision is
+    # made on and the count the repair reports cannot drift apart (D-07).
+    regions = _detect_channel_regions(ch_samples, sample_rate, threshold)
     repaired_count = 0
     for start, end in regions:
         if _repair_region(
@@ -328,6 +340,114 @@ def _detect_and_repair_channel(
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+
+def _detect_channel_regions(
+    ch_samples: npt.NDArray[np.float64],
+    sample_rate: int,
+    threshold: float,
+) -> list[tuple[int, int]]:
+    """Return the spike regions in one channel, repairing nothing.
+
+    The detection half of :func:`_detect_and_repair_channel`, kept identical to
+    it by calling the same helpers.
+    """
+    k = _threshold_to_k(threshold)
+    hw = max(1, int(sample_rate * _MAD_WINDOW_CLICK_S) // 2)
+    diff = np.diff(ch_samples, prepend=ch_samples[0])
+    local_noise = _windowed_mad(diff, hw).astype(np.float64)
+    spike_mask = np.abs(diff) > k * np.maximum(local_noise, 1e-6)
+    spike_idxs = np.where(spike_mask)[0]
+    if len(spike_idxs) == 0:
+        return []
+    return _merge_regions(spike_idxs, max_gap=2)
+
+
+def _region_is_repairable(
+    ch_samples: npt.NDArray[np.float64],
+    start: int,
+    end: int,
+    max_width_samples: int,
+    clip_max: float,
+    sample_rate: int,
+) -> bool:
+    """Return whether :func:`_repair_region` would repair this region.
+
+    Mirrors the guards in the repair (width, near-silence, saturation) so a
+    detection count is a count of what the stage would actually change.
+    """
+    n = len(ch_samples)
+    width = end - start + 1
+    if width > max_width_samples:
+        return False
+    amp_hw = max(1, int(_AMP_CHECK_WINDOW_S * sample_rate))
+    amp_start = max(0, start - amp_hw)
+    amp_end = min(n, end + amp_hw + 1)
+    if float(np.max(np.abs(ch_samples[amp_start:amp_end]))) < (
+        _MIN_AMPLITUDE_FRACTION * clip_max
+    ):
+        return False
+    left_val = float(ch_samples[max(0, start - 1)])
+    right_val = float(ch_samples[min(n - 1, end + 1)])
+    if abs(left_val) >= 0.99 * clip_max and abs(right_val) >= 0.99 * clip_max:
+        return False
+    return True
+
+
+def detect_clicks(
+    audio: AudioSegment,
+    threshold: float = 0.31,
+    max_width_ms: int = 2,
+) -> ClickDetection:
+    """Measure this file's clicks without repairing them (2.9.0).
+
+    The measurement :func:`declick_audio` already performs internally, exposed
+    so a caller can decide a repair width from the file rather than from a
+    guess.  Both paths share the same detection and the same guards, so the
+    count reported here is the count the repair would act on.
+
+    Args:
+        audio: Input audio, mono or multi-channel.
+        threshold: Detection sensitivity in the range (0.0, 1.0].
+        max_width_ms: The widest region the run would repair, in ms.
+
+    Returns:
+        The measured click population.  A region wider than *max_width_ms* is
+        counted in ``wider_defects`` and not in ``count``.
+
+    Raises:
+        AudioConfigurationError: When *threshold* or *max_width_ms* is invalid.
+    """
+    if not (0.0 < threshold <= 1.0):
+        raise AudioConfigurationError(
+            f"threshold must be in (0.0, 1.0], got {threshold}"
+        )
+    if max_width_ms < 1:
+        raise AudioConfigurationError(f"max_width_ms must be >= 1, got {max_width_ms}")
+
+    sample_rate = audio.frame_rate
+    max_width_samples = max(1, int((max_width_ms / 1000.0) * sample_rate))
+    samples_f32, _rate = segment_to_numpy(audio)
+    samples = samples_f32.T.astype(np.float64)
+
+    widths_ms: list[float] = []
+    wider = 0
+    for ch in range(audio.channels):
+        ch_view = samples[:, ch].copy()
+        for start, end in _detect_channel_regions(ch_view, sample_rate, threshold):
+            width_ms = (end - start + 1) * 1000.0 / sample_rate
+            if _region_is_repairable(
+                ch_view, start, end, max_width_samples, 1.0, sample_rate
+            ):
+                widths_ms.append(width_ms)
+            else:
+                wider += 1
+
+    if not widths_ms:
+        return ClickDetection(0, 0.0, wider)
+    return ClickDetection(
+        count=len(widths_ms), max_width_ms=max(widths_ms), wider_defects=wider
+    )
 
 
 def declick_audio(

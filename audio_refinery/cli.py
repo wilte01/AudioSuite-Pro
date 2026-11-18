@@ -20,6 +20,10 @@ Changed in 2.5.0: ``--trim-mode exact`` with ``--trim-start``/``--trim-end`` (or
 Changed in 2.6.0: ``--target-mode peak`` with ``--target-peak`` (F-E2) targets
 the true peak with one static gain instead of pushing integrated loudness to a
 LUFS figure, and the pair is refused beside ``--album-mode``.
+
+Changed in 2.9.0: ``--best-audio`` and ``--auto-stage`` select the stages whose
+parameters Best Audio measures per file.  Both resolve to one ``auto_stages``
+list, so the flag surface cannot describe a run the pipeline cannot read.
 """
 
 from __future__ import annotations
@@ -30,9 +34,11 @@ from pathlib import Path
 import click
 
 from audio_refinery.core.models import (
+    AUTO_STAGES,
     NORMALISATION_MODES,
     NORMALISATION_TARGET_MODES,
     TRIM_MODES,
+    resolve_auto_stages,
 )
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
@@ -407,6 +413,25 @@ def _validate_trim_range(
     type=click.FloatRange(-9.0, 0.0),
     help="True-peak target in dBTP for --target-mode peak (default -1.0).",
 )
+@click.option(
+    "--best-audio/--no-best-audio",
+    default=False,
+    help=(
+        "Measure each file and let the six stages choose their own "
+        "parameters (default: off)."
+    ),
+)
+@click.option(
+    "--auto-stage",
+    "auto_stages",
+    multiple=True,
+    type=click.Choice(AUTO_STAGES),
+    metavar="STAGE",
+    help=(
+        "Let one stage choose its own parameters (repeatable); "
+        "an explicit list wins over --best-audio."
+    ),
+)
 def refine(
     ctx: click.Context,
     directory: str,
@@ -463,6 +488,8 @@ def refine(
     normalise_mode: str,
     target_mode: str,
     target_peak: float,
+    best_audio: bool,
+    auto_stages: tuple[str, ...],
 ) -> None:
     """Run the multi-stage audio refinement pipeline."""
     _validate_trim_range(trim_mode, trim_start, trim_end, trim_duration, trim_copy)
@@ -610,6 +637,10 @@ def refine(
         eq_params=eq_settings,
         compressor_params=compressor,
         limiter_params=limiter,
+        # Changed in 2.9.0: one resolved list, whatever the flags said.  An
+        # explicit --auto-stage list is the narrower statement, so it wins
+        # over the all-six shortcut.
+        auto_stages=resolve_auto_stages(auto_stages, best_audio),
     )
 
     registry = CompletionRegistry(source_dir)

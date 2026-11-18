@@ -25,6 +25,9 @@ Changed in 2.5.0: ``--trim-mode``/``--trim-start``/``--trim-end``/
 Changed in 2.6.0: ``--target-mode``/``--target-peak`` (F-E2) reach the GUI
 launch path with the same validation a typed command gets, and the pair is
 refused beside album mode.
+
+Changed in 2.9.0: ``--best-audio`` and ``--auto-stage`` reach the GUI launch
+path, resolved to the one ``auto_stages`` list a run reads.
 """
 
 from __future__ import annotations
@@ -43,7 +46,13 @@ from audio_suite_shared.dsp_dynamics import (
 from audio_suite_shared.dsp_eq import EqSettings, parse_band
 from audio_suite_shared.exceptions import AudioConfigValueError
 
-from ..core.models import NORMALISATION_MODES, NORMALISATION_TARGET_MODES, TRIM_MODES
+from ..core.models import (
+    AUTO_STAGES,
+    NORMALISATION_MODES,
+    NORMALISATION_TARGET_MODES,
+    TRIM_MODES,
+    resolve_auto_stages,
+)
 
 
 @dataclass(frozen=True)
@@ -60,6 +69,10 @@ class RefineryArgs:
 
     # Processing mode
     dry_run: bool = False
+
+    # Automation (2.9.0): the stages whose parameters Best Audio measures.
+    # Empty by default: a run that does not ask for the automation is unchanged.
+    auto_stages: tuple[str, ...] = ()
 
     # Display-only driver orchestration flags
     clear_logs: bool = False
@@ -189,6 +202,31 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         "--dry",
         action="store_true",
         help="Run in dry run mode (simulate operations without writing files).",
+    )
+
+    # Best Audio (2.9.0).  Both flags resolve to one stored list; an explicit
+    # --auto-stage list wins over the bulk flag because it is the narrower,
+    # more explicit statement (D-02).
+    parser.add_argument(
+        "--best-audio",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Measure each file and let the six stages choose their own "
+            "parameters (default: off)."
+        ),
+    )
+    parser.add_argument(
+        "--auto-stage",
+        dest="auto_stages",
+        action="append",
+        default=None,
+        choices=list(AUTO_STAGES),
+        metavar="STAGE",
+        help=(
+            f"Let one stage choose its own parameters (repeatable; "
+            f"one of {', '.join(AUTO_STAGES)})."
+        ),
     )
 
     # Stages
@@ -704,12 +742,17 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
     except AudioConfigValueError as exc:
         parser.error(exc.message)
 
+    # Changed in 2.9.0: one resolved list, whatever the flags said; models
+    # owns the precedence rule this CLI shares with the command line.
+    auto_stages = resolve_auto_stages(args.auto_stages, args.best_audio)
+
     return RefineryArgs(
         source=args.source,
         output=args.output,
         auto_start=args.auto_start,
         auto_end=args.auto_end,
         dry_run=args.dry,
+        auto_stages=auto_stages,
         stages=args.stages,
         sensitivity=args.sensitivity,
         width=args.width,

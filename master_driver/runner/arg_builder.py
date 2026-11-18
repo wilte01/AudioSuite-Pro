@@ -54,6 +54,7 @@ import tkinter as tk
 from collections.abc import Callable
 from typing import Any
 
+from audio_refinery.core.models import AUTO_STAGES as AUTO_STAGES
 from audio_refinery.core.models import REFINERY_STAGES as REFINERY_STAGES
 from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 from noise_reduction.core.models import NEURAL_ENGINE
@@ -661,6 +662,17 @@ def build_refinery_args(
                 str(lim.release_ms),
             ]
         )
+    # Changed in 2.9.0: Best Audio's per-stage selection reaches the child, in
+    # the declared order and never as the bulk flag, so a Driver run and a typed
+    # command configure one run.  An empty list emits nothing, which keeps every
+    # existing argument list byte-identical (contract rule A6).
+    # The declared order is the pipeline's, not the tuple's: a hand-built
+    # config can hold any order, and the child must be configured the same way
+    # whichever surface wrote the selection.
+    selected = set(getattr(config, "auto_stages", ()))
+    for stage in AUTO_STAGES:
+        if stage in selected:
+            args.extend(["--auto-stage", stage])
     if output:
         args.extend(["--output", output])
     if state.global_mode.get() == "Dry Run":

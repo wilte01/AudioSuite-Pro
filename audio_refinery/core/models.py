@@ -35,6 +35,8 @@ shape tone with bands the fixed enhancement shelves cannot express.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -46,6 +48,8 @@ from audio_suite_shared.dsp_dynamics import (
 )
 from audio_suite_shared.dsp_eq import EqSettings
 from noise_reduction.core.models import NoiseReductionParams
+
+logger = logging.getLogger(__name__)
 
 # ── Stage enable/disable + per-stage params ───────────────────────────────────
 
@@ -196,6 +200,16 @@ class StageConfig:
     eq_params: EqSettings = field(default_factory=EqSettings)
     compressor_params: CompressorSettings = field(default_factory=CompressorSettings)
     limiter_params: LimiterSettings = field(default_factory=LimiterSettings)
+    #: Changed in 2.9.0: the stages whose parameters Best Audio measures per
+    #: file.  Empty by default, so every run, preset, argument list and output
+    #: byte is unchanged for a user who does not ask for the automation.  This
+    #: is the one stored representation: the bulk control and ``--best-audio``
+    #: both resolve to it (D-02).
+    auto_stages: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Keep ``auto_stages`` valid whatever built the config."""
+        self.auto_stages = normalise_auto_stages(self.auto_stages)
 
 
 #: (``StageConfig`` field, ``--stages`` name) pairs for the pipeline's toggles.
@@ -214,6 +228,66 @@ REFINERY_STAGES: tuple[tuple[str, str], ...] = (
     ("eq", "eq"),
     ("dynamics", "dynamics"),
 )
+
+
+#: The stages whose parameters Best Audio may measure (2.9.0).  Declared once,
+#: so the settings loader, both CLIs, the Driver and the setup panel cannot
+#: disagree about which stages auto can be ticked on.
+#:
+#: ``normalise`` is deliberately absent: its numbers are delivery choices (a
+#: LUFS target, a true-peak ceiling), not measurements of the file.
+AUTO_STAGES: tuple[str, ...] = (
+    "declick",
+    "trim",
+    "reduce_noise",
+    "eq",
+    "dynamics",
+    "enhance",
+)
+
+
+def normalise_auto_stages(names: Any) -> tuple[str, ...]:
+    """Validate and order a Best Audio stage selection.
+
+    Args:
+        names: Any iterable of stage names; ``None`` reads as empty.
+
+    Returns:
+        The known names, de-duplicated, in :data:`AUTO_STAGES` order.  An
+        unknown name is logged at WARNING and dropped - a settings file from a
+        later build must not make the whole document unreadable.
+    """
+    if names is None:
+        return ()
+    if isinstance(names, str):
+        names = [names]
+    requested = {str(name).strip().lower() for name in names}
+    unknown = requested - set(AUTO_STAGES)
+    for name in sorted(unknown):
+        logger.warning("Unknown Best Audio stage %r - ignoring it", name)
+    return tuple(stage for stage in AUTO_STAGES if stage in requested)
+
+
+def resolve_auto_stages(
+    names: Iterable[str] | None, best_audio: bool
+) -> tuple[str, ...]:
+    """Resolve the two Best Audio flags to the one list a run reads.
+
+    Both CLIs ask this one function, so ``--best-audio`` and ``--auto-stage``
+    cannot mean different things on the GUI launch path and the command line.
+
+    Args:
+        names: The ``--auto-stage`` names, when the command gave any.
+        best_audio: The ``--best-audio`` switch.
+
+    Returns:
+        The explicit list when there is one - it is the narrower statement and
+        wins - otherwise all six stages when the bulk flag asked for them,
+        otherwise an empty tuple, which is a manual run.
+    """
+    if names:
+        return normalise_auto_stages(names)
+    return tuple(AUTO_STAGES) if best_audio else ()
 
 
 def has_active_stage(config: StageConfig) -> bool:
@@ -281,6 +355,11 @@ class FileResult:
     error: Optional[str] = None
     was_modified: bool = False
     total_processing_time: float = 0.0
+    #: Changed in 2.9.0: this file's Best Audio plan, when the run asked for
+    #: one.  Typed loosely to keep the models module free of a decision-layer
+    #: import; it is a ``best_audio.BestAudioPlan`` at run time.  The batch
+    #: runner reads it for the decisions CSV.
+    best_audio: Any = None
 
     def add_stage(
         self,

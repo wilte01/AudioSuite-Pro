@@ -27,6 +27,11 @@ never measured as one album for a mode that is per-file by definition.
 Changed in 2.8.0: a neural broadband run refuses a missing model before the
 first file, so an optional extra is a run-level message once instead of a
 per-file error N times.
+
+Changed in 2.9.0: Best Audio's decisions are written to
+``refinery_decisions.csv`` beside the run's log, for every file including the
+ones a report has no stage lines for, and each file's measured caveats reach
+the run's outcome channel.
 """
 
 from __future__ import annotations
@@ -62,12 +67,19 @@ from audio_suite_shared.resource_manager import cleanup_expired_resources
 from audio_suite_shared.run_outcome import record_caveats
 from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
+from .best_audio import decision_rows, write_decisions_csv
 from .models import FileResult, FileStatus, StageConfig
 from .pipeline import process_file
 from .registry import CompletionRegistry
 from .trim import check_copy_mode
 
 logger = logging.getLogger(__name__)
+
+#: Changed in 2.9.0: the per-file decisions table, written beside the run's own
+#: log the way the album table is.  Every file contributes rows - including a
+#: skipped or dry-run one, which prints no stage lines - so this is the record
+#: for the files a report has no room for.
+DECISIONS_REPORT_NAME = "refinery_decisions.csv"
 
 
 #: The per-track album table's name, written beside the run's own report.
@@ -292,6 +304,10 @@ def run_pipeline(
     skipped = [0]
     errors = [0]
     log_entries: list[str] = []
+    # Rows are keyed by source path and written in discovery order at the end:
+    # workers finish in whatever order the disk allows, and a table that moves
+    # between two identical runs is not diffable.
+    decision_rows_by_path: dict[Path, list[dict[str, str]]] = {}
 
     def _on_file_done(result: FileResult) -> None:
         processed[0] += 1
@@ -316,6 +332,14 @@ def run_pipeline(
                 log_lines.append(f"    [{stage.stage}] {stage.message}\n")
             log = "".join(log_lines)
             display = f"[DONE] {result.path.name}"
+
+        if result.best_audio is not None:
+            decision_rows_by_path[result.path] = decision_rows(
+                result.best_audio, result.path.name, result.status.value
+            )
+            caveats = result.best_audio.caveats
+            if caveats:
+                record_caveats(DRIVER_TOOL_ID, "\n".join(caveats))
 
         log_entries.append(log)
         on_progress(
@@ -352,6 +376,15 @@ def run_pipeline(
     logger.info("Starting pipeline with %d files", len(files))
     processor.process_batch(files, worker)
     logger.info("All files processed, calling on_complete")
+
+    # Changed in 2.9.0: the decisions table, in run order, on live and dry runs
+    # alike (a Dry Run is still a report of a decision).  A write failure is a
+    # warning: the audio work has already happened by this point.
+    if config.auto_stages:
+        ordered_rows = [
+            row for path in files for row in decision_rows_by_path.get(path, ())
+        ]
+        write_decisions_csv(output_dir / DECISIONS_REPORT_NAME, ordered_rows)
 
     on_complete(
         total=len(files),

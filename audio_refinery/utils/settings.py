@@ -51,6 +51,10 @@ Changed in 2.7.0: the parametric EQ stage's rack round-trips (F-S1).  A missing
 key reads as an empty rack and the stage off, so a settings file written before
 it keeps the pipeline it describes; a stored band the engine refuses is logged
 and dropped rather than making the whole file unreadable.
+
+Changed in 2.9.0: Best Audio's per-stage selection round-trips as
+``auto_stages``.  A missing key reads as empty, so a settings file written
+before 2.9.0 describes the manual run it always did.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -92,6 +96,7 @@ from ..core.models import (
     NormaliseParams,
     StageConfig,
     TrimParams,
+    normalise_auto_stages,
 )
 
 logger = logging.getLogger(__name__)
@@ -339,6 +344,10 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
     config.normalise = data.get("normalise", True)
     config.reduce_noise = data.get("reduce_noise", False)
     config.eq = bool(data.get("eq", False))
+    # Changed in 2.9.0: Best Audio's per-stage selection round-trips.  A missing
+    # key reads as empty, so a settings file written before 2.9.0 keeps exactly
+    # the pipeline it describes (contract rule A6).
+    config.auto_stages = normalise_auto_stages(data.get("auto_stages", ()))
 
     # Declick params
     d = data.get("declick_params", {})
@@ -523,6 +532,9 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
         "normalise": config.normalise,
         "reduce_noise": config.reduce_noise,
         "eq": config.eq,
+        # Changed in 2.9.0: the one stored representation of the Best Audio
+        # decision, written in AUTO_STAGES order so the file is diffable.
+        "auto_stages": list(config.auto_stages),
         # Per-stage params
         "declick_params": {
             "sensitivity": d.sensitivity,
