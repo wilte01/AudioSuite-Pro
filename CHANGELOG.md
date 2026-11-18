@@ -22,6 +22,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.8.0] - 2026-11-18
+
 ### Added
 
 - **Audio Refinery can measure a folder before deciding to clean it.** The

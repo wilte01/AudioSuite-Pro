@@ -16,6 +16,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.8.0] - 2026-11-18
+
 ### Added
 
 - **The Noise Reduction panel measures before a run, read-only.**
