@@ -950,6 +950,21 @@ class TestBuildRefineryArgs:
         _, _, args = build_refinery_args(state, _make_refinery_config())[0]
         assert "--stages" in args
 
+    # Changed in 2.9.0: Best Audio's argv, empty by default so every existing
+    # argument list is byte-identical (contract rule A6).
+    def test_best_audio_emits_nothing_when_it_is_off(self):
+        state = _make_state()
+        _, _, args = build_refinery_args(state, _make_refinery_config())[0]
+        assert "--auto-stage" not in args
+
+    def test_best_audio_emits_each_stage_in_declared_order(self):
+        state = _make_state()
+        config = _make_refinery_config()
+        config.auto_stages = ("eq", "trim")
+        _, _, args = build_refinery_args(state, config)[0]
+        positions = [i for i, token in enumerate(args) if token == "--auto-stage"]
+        assert [args[i + 1] for i in positions] == ["trim", "eq"]
+
     def test_all_stages_when_all_enabled(self):
         state = _make_state()
         config = _make_refinery_config()

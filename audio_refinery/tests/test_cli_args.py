@@ -9,6 +9,9 @@ without ``--trim-mode exact`` is refused rather than ignored (F-E3).
 
 Changed in 2.8.0: the broadband engine and its blend are part of this surface,
 and the defaults keep the spectral gate (F-S1 sibling).
+
+Changed in 2.9.0: ``--best-audio`` and ``--auto-stage`` are locked, including
+the documented precedence and the empty default.
 """
 
 from __future__ import annotations
@@ -58,6 +61,44 @@ class TestDisplayFlags:
     def test_parallel_wins_over_no(self) -> None:
         args = parse(["prog", "--parallel-run", "--no-parallel-run"])
         assert args.parallel_run is False
+
+
+# ── Best Audio (2.9.0) ────────────────────────────────────────────────────
+
+
+class TestBestAudioArgs:
+    """Both flags resolve to one list, and nothing is on by default (A6)."""
+
+    def test_the_default_is_no_automation(self) -> None:
+        assert parse([]).auto_stages == ()
+
+    def test_the_bulk_flag_selects_every_declared_stage(self) -> None:
+        from audio_refinery.core.models import AUTO_STAGES
+
+        assert parse(["prog", "--best-audio"]).auto_stages == AUTO_STAGES
+
+    def test_an_explicit_list_parses_in_declared_order(self) -> None:
+        args = parse(["prog", "--auto-stage", "eq", "--auto-stage", "trim"])
+
+        assert args.auto_stages == ("trim", "eq")
+
+    def test_the_list_wins_over_the_bulk_flag(self) -> None:
+        """The narrower, more explicit statement wins (Appendix E)."""
+        args = parse(["prog", "--best-audio", "--auto-stage", "trim"])
+
+        assert args.auto_stages == ("trim",)
+
+    def test_no_best_audio_beside_a_list_keeps_the_list(self) -> None:
+        args = parse(["prog", "--no-best-audio", "--auto-stage", "trim"])
+
+        assert args.auto_stages == ("trim",)
+
+    def test_no_best_audio_alone_selects_nothing(self) -> None:
+        assert parse(["prog", "--no-best-audio"]).auto_stages == ()
+
+    def test_an_unknown_stage_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", "--auto-stage", "teleport"])
 
 
 # ── Existing parse behaviour ──────────────────────────────────────────────

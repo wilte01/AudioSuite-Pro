@@ -25,11 +25,14 @@ from pydub import AudioSegment
 
 from audio_suite_shared.exceptions import AudioConfigurationError
 from pop_click_remover.core.declicker import (
+    ClickDetection,
     DeclickResult,
     _merge_regions,
+    _region_is_repairable,
     _repair_region,
     _threshold_to_k,
     declick_audio,
+    detect_clicks,
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -290,6 +293,60 @@ class TestIdempotency:
         assert not second.was_modified
         assert second.clicks_found == 0
         assert second.audio is first.audio
+
+
+class TestDetectClicks:
+    """Changed in 2.9.0: the measurement half of the stage, without a repair."""
+
+    def test_it_agrees_with_the_repair_on_count(self):
+        """One implementation: the count measured is the count repaired."""
+        audio = _inject_clicks(_sine_segment(), [10_000, 20_000, 30_000])
+
+        detection = detect_clicks(audio)
+        repaired = declick_audio(audio)
+
+        assert isinstance(detection, ClickDetection)
+        assert detection.count == repaired.clicks_found
+        assert detection.count >= 2
+
+    def test_a_clean_tone_measures_nothing(self):
+        detection = detect_clicks(_sine_segment())
+
+        assert detection.count == 0
+        assert detection.max_width_ms == 0.0
+        assert detection.wider_defects == 0
+
+    def test_a_region_wider_than_the_maximum_is_not_repairable(self):
+        """The width guard is what ``count`` and ``wider_defects`` divide on.
+
+        The detector itself rarely emits a region this wide - a sustained
+        transient raises its own local floor - so the guard is exercised
+        directly rather than by synthesising a defect it would ignore.
+        """
+        # A region is only a candidate when the audio around it is audible, so
+        # the fixture is a constant tone rather than silence.
+        samples = np.full(2_000, 0.2, dtype=np.float64)
+
+        assert not _region_is_repairable(
+            samples,
+            start=100,
+            end=400,
+            max_width_samples=88,
+            clip_max=1.0,
+            sample_rate=FS,
+        )
+        assert _region_is_repairable(
+            samples,
+            start=100,
+            end=102,
+            max_width_samples=88,
+            clip_max=1.0,
+            sample_rate=FS,
+        )
+
+    def test_it_rejects_an_impossible_sensitivity(self):
+        with pytest.raises(AudioConfigurationError):
+            detect_clicks(_sine_segment(), threshold=0.0)
 
 
 class TestMergeRegions:

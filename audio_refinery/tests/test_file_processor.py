@@ -11,6 +11,9 @@ locks therefore count the builder's calls and check that every worker received
 the same plan object, and they read the plan's configured targets rather than
 the pipeline's stage config.
 Changed in 2.7.0: the run writes the album table and records the caveat (F-S5).
+Changed in 2.9.0: the run writes the Best Audio decisions table - one row
+per file and stage, only when Auto was requested, and including the files
+the run skipped because they print no stage lines.
 """
 
 from __future__ import annotations
@@ -263,3 +266,117 @@ def test_a_track_outside_the_window_is_named_in_the_run_outcome(
     assert read_outcome("audio_refinery") == (
         "1 of 3 tracks sits more than 3.0 LU from the album target: 02"
     )
+
+
+# ── Best Audio decisions table (2.9.0) ───────────────────────────────────────
+
+
+def _run_with_result(
+    tmp_path: Path, config: StageConfig, result_for: "Any"
+) -> dict[str, Any]:
+    """Run one batch whose worker returns whatever *result_for* builds."""
+    for name in NAMES:
+        (tmp_path / name).write_bytes(b"placeholder audio bytes")
+
+    captured: dict[str, Any] = {"completes": [], "errors": []}
+
+    def _process(**kwargs: Any) -> FileResult:
+        return result_for(kwargs["source_path"])
+
+    registry = CompletionRegistry(tmp_path)
+    slot_vars, slot_queue = _slots()
+
+    with (
+        patch("audio_refinery.core.file_processor.process_file", side_effect=_process),
+        patch("audio_suite_shared.resource_manager.get_resource_manager"),
+        patch("audio_suite_shared.resource_manager.cleanup_expired_resources"),
+        patch("audio_suite_shared.resource_manager.track_thread"),
+    ):
+        run_pipeline(
+            source_dir=tmp_path,
+            output_dir=tmp_path,
+            config=config,
+            registry=registry,
+            slot_vars=slot_vars,
+            slot_queue=slot_queue,
+            on_progress=lambda **kwargs: None,
+            on_complete=lambda **kwargs: captured["completes"].append(kwargs),
+            on_error=lambda message: captured["errors"].append(message),
+        )
+    return captured
+
+
+def _best_audio_plan(tmp_path: Path, config: StageConfig):
+    """A real plan from a real segment, so the rows are the run's own."""
+    import numpy as np
+
+    from audio_refinery.core import best_audio
+
+    n = int(44_100 * 1.0)
+    samples = (0.15 * np.sin(2 * np.pi * 440 * np.arange(n) / 44_100) * 32767).astype(
+        np.int16
+    )
+    samples[10_000] = 30_000
+    from audio_suite_shared.audio_conversion import numpy_to_segment
+
+    segment = numpy_to_segment(
+        samples.astype(np.float32) / 32767.0,
+        44_100,
+        sample_width=2,
+        num_channels=1,
+    )
+    return best_audio.decide(segment, tmp_path / NAMES[0], config)
+
+
+def test_a_best_audio_run_writes_the_decisions_table(tmp_path: Path) -> None:
+    """The table is the record for every file, read back from disk."""
+    config = StageConfig(declick=True, trim=False, enhance=False, normalise=False)
+    config.auto_stages = ("declick",)
+    plan = _best_audio_plan(tmp_path, config)
+
+    def _result(path: Path) -> FileResult:
+        return FileResult(path=path, status=FileStatus.DONE, best_audio=plan)
+
+    _run_with_result(tmp_path, config, _result)
+
+    written = tmp_path / "refinery_decisions.csv"
+    assert written.exists()
+    with written.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    from audio_refinery.core.best_audio import CSV_HEADER
+
+    assert list(rows[0]) == list(CSV_HEADER)
+    assert [row["file"] for row in rows] == list(NAMES)
+    assert {row["stage"] for row in rows} == {"declick"}
+    assert {row["decision"] for row in rows} == {"active"}
+
+
+def test_a_run_without_auto_writes_no_decisions_table(tmp_path: Path) -> None:
+    config = StageConfig(declick=True, trim=False, enhance=False, normalise=False)
+
+    def _result(path: Path) -> FileResult:
+        return FileResult(path=path, status=FileStatus.DONE)
+
+    _run_with_result(tmp_path, config, _result)
+
+    assert not (tmp_path / "refinery_decisions.csv").exists()
+
+
+def test_a_skipped_file_still_reaches_the_table(tmp_path: Path) -> None:
+    """A skipped file prints no stage lines, so the table is its only record."""
+    config = StageConfig(declick=True, trim=False, enhance=False, normalise=False)
+    config.auto_stages = ("declick",)
+    plan = _best_audio_plan(tmp_path, config)
+
+    def _result(path: Path) -> FileResult:
+        return FileResult(
+            path=path, status=FileStatus.SKIPPED, error="No clicks", best_audio=plan
+        )
+
+    _run_with_result(tmp_path, config, _result)
+
+    with (tmp_path / "refinery_decisions.csv").open(
+        encoding="utf-8", newline=""
+    ) as handle:
+        rows = list(csv.DictReader(handle))
+    assert {row["status"] for row in rows} == {"Skipped"}

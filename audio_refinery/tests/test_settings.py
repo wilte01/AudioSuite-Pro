@@ -414,6 +414,46 @@ class TestDynamicsPersistence:
         assert loaded.compressor_params == CompressorSettings()
 
 
+class TestBestAudioPersistence:
+    """Changed in 2.9.0: the one stored representation round-trips."""
+
+    def test_the_selection_round_trips_in_declared_order(
+        self, settings_file: Path
+    ) -> None:
+        config = StageConfig()
+        config.auto_stages = ("eq", "trim")
+
+        refinery_settings.save(config)
+        loaded = refinery_settings.load()
+
+        assert loaded.auto_stages == ("trim", "eq")
+
+    def test_a_file_without_the_key_describes_a_manual_run(
+        self, settings_file: Path
+    ) -> None:
+        settings_file.write_text(json.dumps({"declick": False}), encoding="utf-8")
+
+        loaded = refinery_settings.load()
+
+        assert loaded.declick is False
+        assert loaded.auto_stages == ()
+
+    def test_an_unknown_name_is_dropped_not_fatal(self, settings_file: Path) -> None:
+        settings_file.write_text(
+            json.dumps({"auto_stages": ["trim", "teleport", "trim"]}),
+            encoding="utf-8",
+        )
+
+        assert refinery_settings.load().auto_stages == ("trim",)
+
+    def test_a_default_config_stores_an_empty_list(self, settings_file: Path) -> None:
+        refinery_settings.save(StageConfig())
+
+        data = json.loads(settings_file.read_text(encoding="utf-8"))
+
+        assert data["auto_stages"] == []
+
+
 class TestNoiseEngineSettings:
     """The broadband engine and its blend round-trip (2.8.0)."""
 

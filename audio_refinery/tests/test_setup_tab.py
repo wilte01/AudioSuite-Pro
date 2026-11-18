@@ -9,6 +9,9 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.8.0: the Noise Reduction panel's engine choice is locked - a
 restored neural setup shows neural with only its own controls packed, and an
 edit writes the params back through the same update function.
+Changed in 2.9.0: the Best Audio row is locked - the bulk box, the per-stage
+Auto boxes and the read-only preview, all of which leave the stage toggles
+and the presets as the user left them.
 """
 
 from __future__ import annotations
@@ -1107,3 +1110,176 @@ class TestNoiseEnginePanel:
         widgets = self._build(root, config)["noise_widgets"]
 
         assert widgets["profile"].get() is False
+
+
+# ── Best Audio panel (2.9.0) ──────────────────────────────────────────────────
+
+
+def _iter_widgets(widget: tk.Misc):
+    """Yield *widget* and every descendant."""
+    yield widget
+    for child in widget.winfo_children():
+        yield from _iter_widgets(child)
+
+
+def _checkbutton_for(root: tk.Misc, variable: tk.Variable) -> tk.Checkbutton:
+    """Return the Checkbutton bound to *variable*."""
+    for widget in _iter_widgets(root):
+        if isinstance(widget, tk.Checkbutton):
+            try:
+                if str(widget.cget("variable")) == str(variable):
+                    return widget
+            except tk.TclError:  # pragma: no cover - defensive
+                continue
+    raise AssertionError(f"no checkbutton is bound to {variable}")
+
+
+def _states(widget: tk.Misc) -> list[str]:
+    """Return the ``state`` of every control below *widget* that has one."""
+    found: list[str] = []
+    for child in _iter_widgets(widget):
+        try:
+            state = str(child.cget("state"))
+        except (tk.TclError, AttributeError):
+            continue
+        if state:
+            found.append(state)
+    return found
+
+
+class TestBestAudioPanel:
+    """One stored list drives the bulk box, the stage boxes and the locks."""
+
+    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+        from audio_refinery.ui import setup_tab
+
+        return setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+        )
+
+    def test_the_bulk_box_selects_every_declared_stage(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import AUTO_STAGES, StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)
+        registry = widgets["auto_registry"]
+
+        # ``invoke`` flips the box as a click does, then runs its command.
+        _checkbutton_for(widgets["frame"], registry["_bulk_var"]).invoke()
+
+        assert config.auto_stages == AUTO_STAGES
+        for stage in AUTO_STAGES:
+            assert registry[stage]["var"].get() is True
+
+    def test_unticking_the_bulk_box_clears_them_again(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)
+        registry = widgets["auto_registry"]
+        widgets["apply_auto_stages"](["trim", "eq"])
+
+        # The box reads False while a partial list is selected, so one click
+        # ticks it and selects every stage; a second clears them again.
+        bulk = _checkbutton_for(widgets["frame"], registry["_bulk_var"])
+        bulk.invoke()
+        assert config.auto_stages == (
+            "declick",
+            "trim",
+            "reduce_noise",
+            "eq",
+            "dynamics",
+            "enhance",
+        )
+        bulk.invoke()
+
+        assert config.auto_stages == ()
+
+    def test_one_stage_box_adds_only_its_own_entry(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        widgets = self._build(root, config)
+        registry = widgets["auto_registry"]
+        widgets["apply_auto_stages"](["trim"])
+
+        _checkbutton_for(widgets["frame"], registry["eq"]["var"]).invoke()
+
+        assert config.auto_stages == ("trim", "eq")
+        assert registry["_bulk_var"].get() is False
+
+    def test_the_manual_entries_are_locked_and_restored(self, root: tk.Tk) -> None:
+        """Contract rule A4: nothing is hidden, and the values survive."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.declick_params.sensitivity = 0.22
+        widgets = self._build(root, config)
+        registry = widgets["auto_registry"]
+        body = registry["declick"]["body"]
+
+        widgets["apply_auto_stages"](["declick"])
+        assert "disabled" in _states(body)
+
+        widgets["apply_auto_stages"]([])
+        assert "disabled" not in _states(body)
+        assert config.declick_params.sensitivity == 0.22
+
+    def test_a_restored_selection_reaches_the_boxes(self, root: tk.Tk) -> None:
+        """The settings/CLI/preset route all end in the same function."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.auto_stages = ("trim", "eq")
+        widgets = self._build(root, config)
+        registry = widgets["auto_registry"]
+
+        assert registry["trim"]["var"].get() is True
+        assert registry["eq"]["var"].get() is True
+        assert registry["declick"]["var"].get() is False
+        assert registry["_bulk_var"].get() is False
+
+    def test_normalise_has_no_auto_box(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        widgets = self._build(root, StageConfig())
+
+        assert "normalise" not in widgets["auto_registry"]
+
+    def test_the_preview_action_is_wired_and_writes_a_report_line(
+        self, root: tk.Tk
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+        from audio_refinery.ui import setup_tab
+
+        calls: list[int] = []
+        config = StageConfig()
+        widgets = setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+            on_preview_best_audio=lambda: calls.append(1),
+        )
+
+        assert widgets["auto_result"].cget("text") == ""
+        preview = next(
+            widget
+            for widget in _iter_widgets(widgets["frame"])
+            if isinstance(widget, tk.Button)
+            and widget.cget("text") == "Preview decisions"
+        )
+        preview.invoke()
+
+        assert calls == [1]

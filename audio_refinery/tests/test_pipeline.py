@@ -6,6 +6,9 @@ Album mode is the one place where the stage must *not* measure the file it is
 about to write: the gain belongs to the folder, so the run's plan supplies it.
 These locks therefore fail if the per-file measurement runs, and they read the
 stage message and the file state rather than the pipeline's own flags alone.
+Changed in 2.9.0: the Best Audio seam is locked - one decision call after the
+decode, the plan's parameters reaching the stage, and no call at all for a
+run that ticked nothing.
 """
 
 from __future__ import annotations
@@ -421,3 +424,78 @@ class TestExactCopyTrimRun:
         assert result.status is FileStatus.ERROR
         assert "Enhance" in (result.error or "")
         assert _fingerprint(source) == before
+
+
+# ── Best Audio wiring (2.9.0) ────────────────────────────────────────────────
+
+
+def _clicky_wav(tmp_path: Path) -> Path:
+    """A real WAV carrying clicks, for the one end-to-end Auto run."""
+    n = int(FS * 1.5)
+    t = np.linspace(0, 1.5, n, endpoint=False)
+    samples = (0.15 * np.sin(2 * np.pi * 440 * t) * 32767).astype(np.int16)
+    for index in (5_000, 20_000, 35_000):
+        samples[index] = 30_000
+    path = tmp_path / "clicky.wav"
+    AudioSegment(samples.tobytes(), frame_rate=FS, sample_width=2, channels=1).export(
+        str(path), format="wav"
+    )
+    return path
+
+
+@pytest.mark.integration()
+class TestBestAudioWiring:
+    """One call after the decode, and no call at all when nothing was ticked."""
+
+    def test_the_plan_reaches_the_stages_and_is_reported(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        source = _clicky_wav(tmp_path)
+        config = StageConfig(declick=True, trim=False, enhance=False, normalise=False)
+        config.auto_stages = ("declick",)
+
+        result = process_file(source, source, config)
+
+        assert result.status is FileStatus.DONE, result.error
+        assert result.best_audio is not None
+        best = _stage_messages(result)["BestAudio"]
+        assert best.startswith("BestAudio: declick auto")
+        assert result.best_audio.config.declick_params.max_width_ms <= (
+            config.declick_params.max_width_ms
+        )
+
+    def test_a_dry_run_reports_the_plan_and_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        source = _clicky_wav(tmp_path)
+        before = _fingerprint(source)
+        config = StageConfig(
+            declick=True, trim=False, enhance=False, normalise=False, dry_run=True
+        )
+        config.auto_stages = ("declick",)
+
+        result = process_file(source, source, config)
+
+        assert result.status is FileStatus.DONE
+        assert "BestAudio:" in _stage_messages(result)["BestAudio"]
+        assert _fingerprint(source) == before, "a Dry Run rewrote the source"
+
+    def test_no_decision_runs_when_nothing_is_ticked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The call is the only difference between an Auto run and a manual one."""
+        import audio_refinery.core.pipeline as pipeline
+
+        def _fail(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("decide() ran for a run that asked for nothing")
+
+        monkeypatch.setattr(pipeline, "decide", _fail)
+        source = _clicky_wav(tmp_path)
+        config = StageConfig(declick=True, trim=False, enhance=False, normalise=False)
+
+        result = pipeline.process_file(source, source, config)
+
+        assert result.best_audio is None
+        assert "BestAudio" not in _stage_messages(result)

@@ -260,3 +260,49 @@ class TestNeuralEngineFlags:
         assert "pyrnnoise" in result.output
         assert source.read_bytes() == before
         assert sorted(p.name for p in tmp_path.iterdir()) == ["song.wav"]
+
+
+class TestBestAudioFlags:
+    """Changed in 2.9.0: the two flags resolve to one list on the run config."""
+
+    @staticmethod
+    def _config(runner: CliRunner, tmp_path: Path, *extra: str) -> object:
+        from audio_refinery.core import file_processor
+
+        with patch.object(file_processor, "run_pipeline") as mock_run:
+            result = runner.invoke(refine, [str(tmp_path), *extra])
+        assert mock_run.call_count == 1, (
+            f"run_pipeline was called {mock_run.call_count} times: {result.output}"
+        )
+        return mock_run.call_args.kwargs["config"]
+
+    def test_a_plain_run_selects_nothing(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        config = self._config(runner, tmp_path, "--stages", "trim")
+
+        assert config.auto_stages == ()
+
+    def test_the_bulk_flag_selects_every_stage(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.models import AUTO_STAGES
+
+        config = self._config(runner, tmp_path, "--stages", "trim", "--best-audio")
+
+        assert config.auto_stages == AUTO_STAGES
+
+    def test_an_explicit_list_wins_over_the_bulk_flag(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        config = self._config(
+            runner,
+            tmp_path,
+            "--stages",
+            "trim,eq",
+            "--best-audio",
+            "--auto-stage",
+            "eq",
+        )
+
+        assert config.auto_stages == ("eq",)
