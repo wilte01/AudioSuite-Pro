@@ -1470,7 +1470,10 @@ class TestDurationHistory:
         steps = [_make_step("bpm"), _make_step("replaygain")]
 
         def _run_step(step: BatchStep) -> bool:
-            time.sleep(0.01)
+            # 60 ms, not 10: on Windows before 3.13 time.monotonic() ticks in
+            # 15.6 ms steps, so a 10 ms sleep can measure as exactly 0.0 on the
+            # 3.11 floor leg (CI run 44727060393).
+            time.sleep(0.06)
             return True
 
         with patch.object(
