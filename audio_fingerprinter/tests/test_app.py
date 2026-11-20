@@ -7,6 +7,10 @@ its record for the Master Driver batch report (``_surface_isrc_outcome``),
 including the manifest-id lock the driver's lookup depends on.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_fingerprinting`` into the completion handler (PLAN D117).
+Changed in 2.9.0: an autouse fixture points the shared ``suite_config`` at
+``tmp_path``.  Starting a run persists the last directory - a
+read-modify-write of the whole document - so the ISRC start case rewrote the
+developer's real ``audio_suite_config.json``.
 """
 
 import sys
@@ -20,6 +24,28 @@ import pytest
 
 import audio_fingerprinter.app as fp_mod
 from audio_fingerprinter.app import FingerprinterApp
+from audio_suite_shared import suite_config
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(tmp_path, monkeypatch):
+    """Keep every ``suite_config`` save out of the developer's real file.
+
+    Starting a run persists the last directory, and that save rewrites the
+    whole shared document - last directory, palette, font sizes, window
+    geometry - so a test that left ``CONFIG_PATH`` alone replaced the
+    developer's preferences.
+    """
+    config_file = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(
+        suite_config, "_LOCK_PATH", config_file.with_suffix(".json.lock")
+    )
+    suite_config._invalidate_cache()
+    try:
+        yield config_file
+    finally:
+        suite_config._invalidate_cache()
 
 
 @pytest.fixture()

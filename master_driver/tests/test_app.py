@@ -25,6 +25,10 @@ different entry on the Tk 8.6 legs (their menubar carried a tear-off entry).
 Changed in 2.3.1 (U-03, released in 2.6.0): the select-all lock walks
 ``driver_by_category``, the population the tab actually offers, so the five
 retired DSP tools are not expected to have a checkbox.
+Changed in 2.9.0: ``driver_app`` redirects the shared ``suite_config`` into
+``tmp_path``.  A Mode pick calls ``save_app_state`` - a read-modify-write of
+the whole document - so the two mode cases were rewriting the developer's real
+``audio_suite_config.json`` (last directory included) on every run.
 
 Regression background
 ---------------------
@@ -46,6 +50,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared import suite_config
 from audio_suite_shared.tool_plugin import get_registry
 from master_driver.app import _ACCENT_POLL_MS, AudioSuiteDriver
 from master_driver.batch_orchestrator import BatchProgress
@@ -302,12 +307,36 @@ def app_root(root):
 
 
 @pytest.fixture()
-def driver_app(app_root, monkeypatch):
-    """A real AudioSuiteDriver on an isolated toplevel.
+def _isolated_config(tmp_path, monkeypatch):
+    """Point the shared config at a temp file for the test's lifetime.
+
+    Every ``suite_config.save_*`` call is a read-modify-write of the whole
+    document, and the driver persists ``save_app_state`` whenever a tab or a
+    Mode changes.  A driver built without this redirect rewrote the
+    developer's real ``audio_suite_config.json`` - the last directory, the
+    palette, the font sizes and every window geometry - so the redirect
+    covers the lock file that sits beside it too.
+    """
+    config_file = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(
+        suite_config, "_LOCK_PATH", config_file.with_suffix(".json.lock")
+    )
+    suite_config._invalidate_cache()
+    try:
+        yield config_file
+    finally:
+        suite_config._invalidate_cache()
+
+
+@pytest.fixture()
+def driver_app(app_root, monkeypatch, _isolated_config):
+    """A real AudioSuiteDriver on an isolated toplevel and config.
 
     The saved last directory is machine-specific real-config state; it is
     neutralised during construction so tab-mirroring assertions below are
-    deterministic.
+    deterministic, and ``_isolated_config`` keeps every save the window makes
+    out of the developer's file.
     """
     monkeypatch.setattr(
         "master_driver.app._suite_config.load_last_directory", lambda: ""

@@ -10,6 +10,12 @@ subprocess is required rather than an in-process fixture because the behaviour
 under scrutiny is session-level (``pytest_configure`` →
 ``pytest_collection_modifyitems`` → ``pytest_terminal_summary``), which cannot
 be re-entered inside a live session.
+
+Changed in 2.9.0: ``TestSuiteConfigWriteGuard`` holds the session's guard on
+``audio_suite_shared.suite_config._save``, so a test can no longer rewrite the
+developer's real ``audio_suite_config.json`` (the last directory included) -
+nor save a hidden window's ``1x1+X+Y`` geometry into it, which the session's
+last act now compares and refuses.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ import ast
 import gc
 import importlib
 import importlib.util
+import json
 import os
 import shutil
 import sys
@@ -621,3 +628,212 @@ class TestTkGarbageCollection:
         combined = outcomes.stdout.str() + outcomes.stderr.str()
         assert "PytestUnraisableExceptionWarning" not in combined
         assert "main thread is not in main loop" not in combined
+
+
+class TestSuiteConfigWriteGuard:
+    """The session cannot rewrite the developer's real shared config.
+
+    ``audio_suite_config.json`` sits beside the checkout and every
+    ``suite_config.save_*`` call is a read-modify-write of the whole document,
+    so one save aimed at it replaces the last directory, the palette, the font
+    sizes and every window geometry.  The guard is installed by the root
+    ``conftest.py``, whose fixtures a test cannot see from the inside, so the
+    writer's identity is the seam this lock holds.
+    """
+
+    def test_the_shared_writer_is_guarded_for_the_session(self) -> None:
+        """Structural lock: the installed writer refuses the live path.
+
+        Without it, a test that saves a preference without redirecting
+        ``CONFIG_PATH`` - the Master Driver's Mode pick and the Refinery
+        launch both do - rewrites the file next to the checkout.
+        """
+        import audio_suite_shared.suite_config as suite_config
+
+        writer = suite_config._save
+        assert getattr(writer, "__name__", "") == "guarded_save", (
+            "conftest.py must guard suite_config._save for the session"
+        )
+
+    def test_a_temp_redirect_keeps_the_real_save_behaviour(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request
+    ) -> None:
+        """The guard delegates: a test that redirects still saves and loads."""
+        import audio_suite_shared.suite_config as suite_config
+
+        target = tmp_path / "audio_suite_config.json"
+        monkeypatch.setattr(suite_config, "CONFIG_PATH", target)
+        monkeypatch.setattr(
+            suite_config, "_LOCK_PATH", target.with_suffix(".json.lock")
+        )
+        suite_config._invalidate_cache()
+        request.addfinalizer(suite_config._invalidate_cache)
+
+        suite_config.save_last_directory(str(tmp_path / "music"))
+
+        saved = json.loads(target.read_text(encoding="utf-8"))
+        assert saved["last_directory"] == str(tmp_path / "music")
+        assert suite_config.load_last_directory() == str(tmp_path / "music")
+
+    def test_the_teardown_redirect_aims_the_writer_at_a_scratch_file(
+        self, monkeypatch: pytest.MonkeyPatch, request
+    ) -> None:
+        """Every window left open saves its geometry as the root is destroyed.
+
+        That happens after the session fixture has restored the real writer, so
+        ``pytest_unconfigure`` aims ``CONFIG_PATH`` at a scratch directory
+        first.  Without it the last 70 saves of a full run land in the
+        developer's file.
+        """
+        import audio_suite_shared.suite_config as suite_config
+
+        live = suite_config.CONFIG_PATH
+        monkeypatch.setattr(suite_config, "CONFIG_PATH", live)
+        monkeypatch.setattr(suite_config, "_LOCK_PATH", suite_config._LOCK_PATH)
+        request.addfinalizer(suite_config._invalidate_cache)
+
+        root_conftest._redirect_suite_config_for_teardown()
+
+        assert suite_config.CONFIG_PATH != live
+        assert suite_config.CONFIG_PATH.parent != live.parent
+        suite_config.save_value("geometry_probe", "800x600+0+0")
+        saved = json.loads(suite_config.CONFIG_PATH.read_text(encoding="utf-8"))
+        assert saved["geometry_probe"] == "800x600+0+0"
+
+    def test_unconfigure_redirects_destroys_and_then_checks(self) -> None:
+        """Structural lock: redirect, destroy, then prove nothing was saved."""
+        tree = ast.parse((REPO_ROOT / "conftest.py").read_text(encoding="utf-8"))
+        functions = {
+            node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+        }
+        positions: dict[str, int] = {}
+        for node in ast.walk(functions["pytest_unconfigure"]):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                positions[node.func.id] = node.lineno
+            elif isinstance(node.func, ast.Attribute):
+                positions[node.func.attr] = node.lineno
+        assert "_redirect_suite_config_for_teardown" in positions, (
+            "pytest_unconfigure must redirect suite_config before _root.destroy()"
+        )
+        assert positions["_redirect_suite_config_for_teardown"] < positions["destroy"]
+        assert positions["destroy"] < positions["_assert_no_hidden_geometry_persisted"]
+
+        configured = {
+            node.func.id
+            for node in ast.walk(functions["pytest_configure"])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "_snapshot_live_window_geometries" in configured, (
+            "pytest_configure must snapshot the developer's saved window geometry"
+        )
+
+    @pytest.mark.parametrize(
+        ("geometry", "hidden"),
+        [
+            ("1x1+104+19", True),
+            ("0x1+5+5", True),
+            ("200x200+133+33", True),
+            ("200x200", False),
+            ("850x950+951+101", False),
+            ("1120x1004+340+48", False),
+            ("800x600", False),
+            ("", False),
+            (None, False),
+            (42, False),
+        ],
+    )
+    def test_a_hidden_window_geometry_is_recognised(
+        self, geometry: object, hidden: bool
+    ) -> None:
+        """``1x1`` and ``200x200`` are what Tk reports for a window never shown.
+
+        Measured on this host: a positioned top-level reports ``1x1+X+Y`` until
+        it is first mapped, and ``200x200+X+Y`` once its idle tasks have run
+        without it being shown.  No shipped window is that small, so either
+        shape can only have been saved from a hidden window.
+        """
+        assert root_conftest._hidden_window_geometry(geometry) is hidden
+
+    def test_the_session_fails_when_it_persists_a_hidden_geometry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The teardown lock names the key a hidden geometry landed on."""
+        target = tmp_path / "audio_suite_config.json"
+
+        def write(values: dict[str, str]) -> None:
+            target.write_text(json.dumps(values), encoding="utf-8")
+
+        write({"master_driver_window": "1120x1004+340+47"})
+        monkeypatch.setattr(
+            root_conftest,
+            "_live_window_snapshot",
+            (target, root_conftest._window_geometries(target)),
+        )
+
+        # A save the developer's own tool could make is not this lock's business.
+        write({"master_driver_window": "900x700+10+10", "last_directory": "D:/Music"})
+        root_conftest._assert_no_hidden_geometry_persisted()
+
+        write({"master_driver_window": "1x1+104+19", "last_directory": "D:/Music"})
+        with pytest.raises(AssertionError) as raised:
+            root_conftest._assert_no_hidden_geometry_persisted()
+        message = str(raised.value)
+        assert "master_driver_window" in message
+        assert "1x1+104+19" in message
+        assert "1120x1004+340+47" in message
+
+    def test_a_hidden_geometry_the_run_inherited_is_not_a_violation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The file already holds several: only a change means this run."""
+        target = tmp_path / "audio_suite_config.json"
+        target.write_text(
+            json.dumps({"master_driver_window": "1x1+104+19"}), encoding="utf-8"
+        )
+        monkeypatch.setattr(
+            root_conftest,
+            "_live_window_snapshot",
+            (target, root_conftest._window_geometries(target)),
+        )
+
+        target.write_text(
+            json.dumps(
+                {"master_driver_window": "1x1+104+19", "last_directory": "D:/Music"}
+            ),
+            encoding="utf-8",
+        )
+        root_conftest._assert_no_hidden_geometry_persisted()
+
+    def test_the_geometry_selector_follows_the_value_not_the_key(
+        self, tmp_path: Path
+    ) -> None:
+        """A window's geometry is watched under whatever key it was saved.
+
+        ``bootstrap_tool_app`` takes its config key as an argument, so
+        ``audio_suite_shared/tests/test_app_bootstrap.py`` writes windows under
+        ``log_key``, ``notes_window_key`` and ``queue_key`` - names that do not
+        end in ``_window``.  Selecting values by their saved shape needs no list
+        of keys to keep in step with the tests that choose them, and a setting
+        that merely looks like a size (no ``+X+Y``) is left alone.
+        """
+        target = tmp_path / "audio_suite_config.json"
+        target.write_text(
+            json.dumps(
+                {
+                    "master_driver_window": "1250x950+100+100",
+                    "queue_key": "200x200+951+101",
+                    "a_key_no_test_uses_yet": "850x950+951+101",
+                    "thumbnail_size": "200x200",
+                    "last_directory": "D:/Music",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert set(root_conftest._window_geometries(target)) == {
+            "master_driver_window",
+            "queue_key",
+            "a_key_no_test_uses_yet",
+        }

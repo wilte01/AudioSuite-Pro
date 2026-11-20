@@ -24,6 +24,10 @@ asserting the ``styles`` constants would pass on the broken build.
 Changed in 2.3.1: the sweep and its lock for text colour against the theme
 (PLAN_restoration_2026-10-31.md T-02), generalising T-01's card contrast helper
 and T-03's locked-strip assertions into one repo-wide contract.
+
+Changed in 2.9.0: ``_driver_window`` pins the Refinery run config to
+``StageConfig()``, so a saved Best Audio selection can no longer decide
+which disabled controls the theme lock measures.
 """
 
 from __future__ import annotations
@@ -503,6 +507,16 @@ def _driver_window(
         "master_driver.app._suite_config.load_palette", lambda: styles.DEFAULT_PALETTE
     )
     monkeypatch.setattr("master_driver.app._suite_config.load_theme_mode", lambda: mode)
+    # The tab is built from the user's saved ``refinery_settings.json``, and a
+    # saved Best Audio selection locks six stage panels.  The lock paints
+    # disabled colours, so measuring them would make this theme lock depend on
+    # whatever settings file the machine happens to hold (D-24); the run config
+    # is pinned to the model's defaults instead.
+    from audio_refinery.core.models import StageConfig
+
+    monkeypatch.setattr(
+        "master_driver.ui.refinery_tab._load_settings", lambda: StageConfig()
+    )
     with _theme(mode, os_theme, monkeypatch):
         from master_driver.app import AudioSuiteDriver
 

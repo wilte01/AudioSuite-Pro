@@ -13,6 +13,11 @@ to skip tracks it could not analyse.
 
 Changed in 1.4.0: the worker-slot pool expectations are derived from
 ``default_max_workers()`` instead of a literal pool of four (PLAN D56).
+
+Changed in 2.9.0: an autouse fixture points the shared ``suite_config`` at
+``tmp_path``.  Starting a run calls ``save_last_directory`` - a
+read-modify-write of the whole document - so the two start-processing cases
+were rewriting the developer's real ``audio_suite_config.json``.
 """
 
 import tkinter as tk
@@ -21,9 +26,31 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared import suite_config
 from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.run_outcome import read_outcome
 from mood_analyzer.app import MoodAnalyzerApp
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(tmp_path, monkeypatch):
+    """Keep every ``suite_config`` save out of the developer's real file.
+
+    A run that starts persists the last directory, and that save rewrites the
+    whole shared document - last directory, palette, font sizes, window
+    geometry - so a test that left ``CONFIG_PATH`` alone replaced the
+    developer's preferences.
+    """
+    config_file = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(
+        suite_config, "_LOCK_PATH", config_file.with_suffix(".json.lock")
+    )
+    suite_config._invalidate_cache()
+    try:
+        yield config_file
+    finally:
+        suite_config._invalidate_cache()
 
 
 def _make_parsed(**overrides) -> MagicMock:

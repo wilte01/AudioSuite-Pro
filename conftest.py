@@ -49,14 +49,29 @@ Changed in 2.7.0: the session also holds its skips to a committed budget
 green, so the six ``importorskip("setuptools")`` skips the 2.6.0 floor leg
 carried cost the wheel checks silently; a reason outside the budget now fails
 the session and names the test.
+
+Changed in 2.9.0: ``_isolated_refinery_settings`` fails a test that aims a
+save at the developer's live ``~/.audiosuite/refinery_settings.json``
+instead of letting the run overwrite it, and ``_isolated_suite_config`` does
+the same for the live ``audio_suite_config.json`` beside the checkout - which
+also earns the ``pytest_unconfigure`` redirect, because each window the tests
+leave open saves its geometry as the shared root is destroyed - and the
+the session's last act compares every saved window geometry it can find -
+selected by its ``WxH+X+Y`` shape, so no list of keys has to keep up with the
+labels the tests name their windows - with the values it started from, so a
+run that ever saves a hidden window's geometry fails instead of reporting
+green.
 """
 
 from __future__ import annotations
 
 import gc
+import json
 import os
+import re
 import tkinter as tk
 import warnings
+from pathlib import Path
 from typing import Generator
 
 import pytest
@@ -75,6 +90,12 @@ _collected = 0
 
 #: Every skip this session reported, as ``(nodeid, reason)``.
 _skip_records: list[tuple[str, str]] = []
+
+#: The developer's live config and its saved window-geometry values as the
+#: session found them, so the teardown can prove the run did not save a hidden
+#: window's geometry into it.  ``None`` when there is no display or no readable
+#: file.
+_live_window_snapshot: tuple[Path, dict[str, str]] | None = None
 
 #: The session-scoped fixtures whose presence means "this test needs a display".
 _GUI_FIXTURES = frozenset({"root", "tk_root"})
@@ -182,14 +203,153 @@ def pytest_configure(config: pytest.Config) -> None:
         )
     else:
         _display_available = True
+        _snapshot_live_window_geometries()
+
+
+def _redirect_suite_config_for_teardown() -> None:
+    """Point ``suite_config`` at a scratch file while the root is destroyed.
+
+    A window the tests left open saves its geometry from the widget's
+    ``<Destroy>`` binding as the shared root goes away, and that is a save of
+    the whole document: measured on a full run, 70 of them fired here, aimed
+    at the developer's real ``audio_suite_config.json`` after
+    ``_isolated_suite_config``'s guard had already been restored.  The writer
+    is aimed at a scratch directory instead, so the last thing a run does
+    cannot rewrite the user's preferences.
+    """
+    import tempfile
+
+    import audio_suite_shared.suite_config as suite_config
+
+    scratch = Path(tempfile.mkdtemp(prefix="audiosuite-teardown-"))
+    suite_config.CONFIG_PATH = scratch / "audio_suite_config.json"
+    suite_config._LOCK_PATH = suite_config.CONFIG_PATH.with_suffix(".json.lock")
+    suite_config._invalidate_cache()
+
+
+#: The shape ``setup_window`` stores: ``root.geometry()`` always reports a size
+#: and a position, so the trailing ``+X+Y`` is what tells a saved geometry apart
+#: from a config value that merely looks like a size.
+_SAVED_GEOMETRY = re.compile(r"^(\d+)x(\d+)[+-]\d+[+-]\d+$")
+
+
+def _saved_geometry_size(value: object) -> tuple[int, int] | None:
+    """Return the ``(width, height)`` a saved window geometry carries, or None."""
+    if not isinstance(value, str):
+        return None
+    match = _SAVED_GEOMETRY.match(value)
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def _hidden_window_geometry(value: object) -> bool:
+    """Return True for a geometry only a window the user never saw can carry.
+
+    Measured on this host's Tk: a top-level that has been positioned but never
+    mapped reports ``1x1+X+Y`` - the requested size is realised only when the
+    window is first shown - and one that has run its idle tasks without being
+    shown reports Tk's default ``200x200+X+Y``.  No shipped window is that
+    small (the smallest asks for ``760x620``), so a saved value of either shape
+    came from a hidden window - a test root, or a window destroyed before it
+    was ever mapped - saving its geometry from ``<Destroy>``.
+    """
+    size = _saved_geometry_size(value)
+    return size is not None and (min(size) <= 1 or size == (200, 200))
+
+
+def _window_geometries(path: Path) -> dict[str, str]:
+    """Return the saved window-geometry values from one config file.
+
+    Selected by the value's shape, not the key's name: ``bootstrap_tool_app``
+    takes its config key as an argument, so a window is stored under whatever
+    label the caller passes (``audio_suite_shared/tests/test_app_bootstrap.py``
+    writes ``log_key``, ``notes_window_key`` and ``queue_key``), and a list of
+    keys would stop matching the day a test passes a new one.  A missing,
+    unreadable or malformed file yields an empty mapping: a first run with no
+    config yet must not be reported as a violation.
+    """
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        key: value
+        for key, value in data.items()
+        if isinstance(value, str) and _saved_geometry_size(value) is not None
+    }
+
+
+def _hidden_geometry_regressions(
+    before: dict[str, str], after: dict[str, str]
+) -> list[str]:
+    """Return the keys whose saved geometry became a hidden window's.
+
+    A key that already held one is not a regression - the live file has carried
+    several since before the guard existed - but a key that *changed* to one,
+    or appeared with one, is a window this run saved from a root it never
+    showed.
+    """
+    return sorted(
+        key
+        for key, value in after.items()
+        if _hidden_window_geometry(value) and before.get(key) != value
+    )
+
+
+def _snapshot_live_window_geometries() -> None:
+    """Record the developer's saved window geometry before any test runs."""
+    global _live_window_snapshot
+    if _root is None:
+        return
+    try:
+        import audio_suite_shared.suite_config as suite_config
+    except ImportError:  # a conftest copied out of its repository
+        return
+    path = Path(suite_config.CONFIG_PATH)
+    _live_window_snapshot = (path, _window_geometries(path))
+
+
+def _assert_no_hidden_geometry_persisted() -> None:
+    """Fail the session if it saved a hidden window's geometry to the file.
+
+    ``_isolated_suite_config`` refuses a save aimed at the live path and
+    ``pytest_unconfigure`` aims the teardown's saves at a scratch file, so this
+    should never fire: it is the lock that says neither seam can be bypassed
+    quietly.  It reads the path recorded at configure time - the teardown
+    redirect has moved ``CONFIG_PATH`` by now - and compares only values shaped
+    like a saved window geometry, so anything else the developer's own tool
+    saves during the run is not this session's doing.
+    """
+    if _live_window_snapshot is None:
+        return
+    path, before = _live_window_snapshot
+    after = _window_geometries(path)
+    regressions = _hidden_geometry_regressions(before, after)
+    if not regressions:
+        return
+    detail = ", ".join(
+        f"{key}={after[key]!r} (was {before.get(key)!r})" for key in regressions
+    )
+    raise AssertionError(
+        "the run persisted a hidden window's geometry into the developer's "
+        f"{path.name}: {detail}. Tk reports 1x1+X+Y for a top-level that was "
+        "never mapped and 200x200+X+Y for one that was never laid out, so this "
+        "came from a window no user saw saving on <Destroy>; point "
+        "suite_config.CONFIG_PATH at a temp path in the test that builds it."
+    )
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     """Destroy the shared root after the whole session finishes."""
     global _root
     if _root is not None:
+        _redirect_suite_config_for_teardown()
         _root.destroy()
         _root = None
+        _assert_no_hidden_geometry_persisted()
 
 
 def requires_display(item: pytest.Item) -> bool:
@@ -479,6 +639,98 @@ def _isolated_log_dir(
             os.environ.pop("AUDIOSUITE_LOG_DIR", None)
         else:
             os.environ["AUDIOSUITE_LOG_DIR"] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_refinery_settings() -> Generator[None, None, None]:
+    """Fail a test that would rewrite the developer's real Refinery settings.
+
+    ``audio_refinery.utils.settings.save`` writes
+    ``~/.audiosuite/refinery_settings.json``, and the Master Driver calls it
+    before it launches a batch (``master_driver/tool_launcher.py``).  A test
+    that reached a real launch would overwrite the selection the developer's
+    own windows restore - and, through the Best Audio lock, change which
+    control states later tests measure.
+
+    The live path stays where it is, because a lock asserts it; the *writer* is
+    guarded instead.  A test that deliberately exercises saving points
+    ``_SETTINGS_FILE`` at a temp path, as ``audio_refinery/tests/test_settings``
+    does, and passes straight through.
+    """
+    import sys
+    from typing import Any
+
+    import audio_refinery.utils.settings as settings
+
+    real_path = settings._SETTINGS_FILE
+    real_save = settings.save
+
+    def guarded_save(config: Any) -> None:
+        if settings._SETTINGS_FILE != real_path:
+            real_save(config)
+            return
+        raise AssertionError(
+            "a test tried to write the developer's real Refinery settings "
+            f"({real_path}). Point _SETTINGS_FILE at a temp path, or patch "
+            "master_driver.ui.refinery_tab.save_settings."
+        )
+
+    setattr(settings, "save", guarded_save)
+    for module_name, attr in (
+        ("audio_refinery.app", "save_settings"),
+        ("master_driver.ui.refinery_tab", "_save_settings"),
+    ):
+        module = sys.modules.get(module_name)
+        if module is not None and getattr(module, attr, None) is real_save:
+            setattr(module, attr, guarded_save)
+    try:
+        yield
+    finally:
+        setattr(settings, "save", real_save)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_suite_config() -> Generator[None, None, None]:
+    """Fail a test that would rewrite the developer's real shared config.
+
+    ``audio_suite_config.json`` sits beside the checkout and holds every
+    tool's saved preference: the last directory, the palette, the font sizes
+    and each window's geometry.  Every ``suite_config.save_*`` call is a
+    read-modify-write of that whole document, so one save aimed at the live
+    path rewrites all of it - and the Master Driver saves the last directory
+    immediately after the Refinery settings (``master_driver/tool_launcher.py``
+    ``launch_refinery``), which is the pair a test that reached a real launch
+    would overwrite.
+
+    Reads stay untouched, so a test that asserts the live path's shape still
+    sees it; the *writer* is guarded instead, exactly as
+    ``_isolated_refinery_settings`` guards ``~/.audiosuite/refinery_settings.json``.
+    A test that deliberately saves points ``CONFIG_PATH`` at a temp file, as
+    ``audio_suite_shared/tests/test_suite_config.py`` does, and passes straight
+    through.
+    """
+    from typing import Any
+
+    import audio_suite_shared.suite_config as suite_config
+
+    real_path = suite_config.CONFIG_PATH
+    real_save = suite_config._save
+
+    def guarded_save(data: dict[str, Any]) -> None:
+        if suite_config.CONFIG_PATH != real_path:
+            real_save(data)
+            return
+        raise AssertionError(
+            "a test tried to write the developer's real audio_suite_config.json "
+            f"({real_path}). Point suite_config.CONFIG_PATH at a temp path, or "
+            "patch the writer (e.g. _suite_config.save_last_directory)."
+        )
+
+    setattr(suite_config, "_save", guarded_save)
+    try:
+        yield
+    finally:
+        setattr(suite_config, "_save", real_save)
 
 
 @pytest.fixture(scope="session", autouse=True)
