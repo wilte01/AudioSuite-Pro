@@ -41,6 +41,13 @@ Changed in 2.4.1: the built-in preset labels are built with
 ``preset_text(preset)`` - the shared model's single display accessor -
 instead of ``preset.value``, so an enum-base change cannot rewrite a
 label the window shows. The rendered strings are unchanged (WP-0).
+
+Changed in 2.9.0: the Custom DSP summary button names
+``FG_ON_ACCENT_LOCKED`` as its disabled foreground. The REFINE tab's Auto
+box locks this row, and Tk's default ``SystemDisabledText`` is the
+operating system's grey - 1.13:1 on the accent fill. The colour is dormant
+in this window, where the button is never disabled, and correct wherever a
+host locks the row (PLAN_2026-11-18_2.9.0_best_audio.md D-24).
 """
 
 from __future__ import annotations
@@ -258,6 +265,7 @@ class CustomDspPanel:
             text="Configure Custom DSP\u2026",
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             font=styles.FONT_BUTTON,
             padx=12,
             pady=2,

@@ -358,9 +358,8 @@ def _verify_best_audio(
 
 
 def _finish_unchanged(
-    source_path: Path,
+    *,
     output_path: Path,
-    in_place: bool,
     config: StageConfig,
     stage_config: StageConfig,
     result: FileResult,
@@ -377,10 +376,17 @@ def _finish_unchanged(
     write paths stay legible together; the behaviour is the branch that always
     lived here.
 
+    The source path and the in-place flag come from *result* and the two paths
+    rather than being passed beside them, so a caller cannot hand over a set
+    that disagrees with itself.  Every parameter is keyword-only, so the two
+    paths and the two configs cannot be transposed by position.
+
     Returns:
         The finished result.  An in-place run that needed no change is SKIPPED
         and leaves the file untouched, which is the no-op rule.
     """
+    source_path = result.path
+    in_place = _same_file(source_path, output_path)
     if in_place:
         applied = False
         if wants_normalise:
@@ -468,7 +474,6 @@ def process_file(
             on_progress(stage, msg)
 
     ext = source_path.suffix.lower()
-    in_place = _same_file(source_path, output_path)
     # The work file must live on the same volume as output_path —
     # os.replace() cannot move a file across drives (WinError 17).  It is
     # created lazily so a Dry Run and a no-op leave no temp file at all.
@@ -580,18 +585,16 @@ def process_file(
         # ── 7. Nothing changed: normalise directly, or write nothing ─────────
         if not modified:
             return _finish_unchanged(
-                source_path,
-                output_path,
-                in_place,
-                config,
-                stage_config,
-                result,
-                _emit,
-                wants_normalise,
-                normalise_reason,
-                album_plan,
-                album_key,
-                plan,
+                output_path=output_path,
+                config=config,
+                stage_config=stage_config,
+                result=result,
+                emit=_emit,
+                wants_normalise=wants_normalise,
+                normalise_reason=normalise_reason,
+                album_plan=album_plan,
+                album_key=album_key,
+                plan=plan,
             )
 
         # ── 8. Write temp file (single encode, bitrate-aware) ─────────────────

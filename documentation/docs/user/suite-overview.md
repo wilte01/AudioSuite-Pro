@@ -14,7 +14,7 @@ The grouping is the suite's own, and it is what the Master Driver's tabs show:
 
 | Tab | Category | Tools | What belongs here |
 | --- | --- | --- | --- |
-| REFINE | `refinery` | Audio Refinery | The multi-stage audio pipeline: declick, trim, reduce noise, enhance, normalise in one decode/encode pass. Settings are shared with the standalone Audio Refinery window. |
+| REFINE | `refinery` | Audio Refinery | The multi-stage audio pipeline: declick, trim, reduce noise, parametric EQ, dynamics, enhance, normalise in one decode/encode pass. Settings are shared with the standalone Audio Refinery window. |
 | ENRICH | `enrich` | 11 | Reading and writing metadata — scrubbing, fingerprinting, ReplayGain, genre, BPM, tempo, key, mood, artwork, lyrics. |
 | UTIL | `utility` | 20 | Everything else: conversion, extraction, ripping, editing, duplicate detection, audio repair, and the batch tools that do not fit either pipeline stage. |
 

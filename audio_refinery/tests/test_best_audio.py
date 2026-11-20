@@ -96,7 +96,6 @@ def rumbly():
 def _profile(**overrides: object) -> SourceProfile:
     """Return a profile with every field named, for the pure rule tests."""
     values: dict[str, object] = {
-        "path": "x.wav",
         "file_name": "x.wav",
         "measured_at": "2026-11-18T12:00:00",
     }
@@ -253,6 +252,32 @@ class TestOrderingRule:
         assert plan.source.noise_floor_dbfs > -100.0, (
             "the noise floor was measured on the untrimmed source - leading "
             "silence won the profile contest"
+        )
+
+
+# ── The level pass ───────────────────────────────────────────────────────────
+
+
+class TestLevelPass:
+    """The profile's true peak is the figure the forensics pass reports (D-16)."""
+
+    @pytest.mark.integration()
+    def test_the_profile_peak_is_the_forensics_peak(self, tmp_path) -> None:
+        """`measure_loudness` runs the same chain; only the astats stage is gone."""
+        from audio_suite_shared import audio_probe
+
+        segment = _segment(_tone(1.0, amplitude=0.05))
+        target = tmp_path / "peak.wav"
+        segment.export(str(target), format="wav")
+        config = StageConfig(declick=False, trim=False, dynamics=True)
+        config.auto_stages = ("dynamics",)
+
+        plan = decide(segment, target, config)
+
+        assert plan.source.true_peak_dbtp is not None
+        assert (
+            plan.source.true_peak_dbtp
+            == audio_probe.measure_forensics(str(target)).true_peak_dbtp
         )
 
 
@@ -682,6 +707,19 @@ class TestAutoOnADisabledStage:
 
         assert "eq inactive: the stage is switched off" in text
 
+    def test_a_switched_off_stage_is_named_while_another_stage_runs(self) -> None:
+        """The reason does not depend on whether anything else was measured."""
+        config = StageConfig(eq=False)
+        config.auto_stages = ("eq", "declick")
+
+        plan = decide(_segment(_tone(0.5)), "x.wav", config)
+
+        assert plan.decisions["eq"].auto is True
+        assert plan.decisions["eq"].active is False
+        assert "switched off" in plan.decisions["eq"].reason
+        assert plan.decisions["declick"].auto is True
+        assert decision_text(plan).count("the stage is switched off") == 1
+
 
 # ── Calibration locks ────────────────────────────────────────────────────────
 
@@ -701,7 +739,6 @@ PUBLISHED_CONSTANTS: dict[str, float] = {
     "TILT_WINDOW_SECONDS": 30.0,
     "TILT_DEFICIT_DB": 3.0,
     "TILT_MAX_LIFT_DB": 2.0,
-    "TILT_MAX_TOTAL_DB": 4.0,
     "LOSSY_CEILING_HZ": 16_000,
     "CLIP_SAMPLE_THRESHOLD": 0.999,
     "VERIFY_PEAK_MARGIN_DB": 0.1,

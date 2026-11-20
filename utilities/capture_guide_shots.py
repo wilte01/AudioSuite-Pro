@@ -49,6 +49,10 @@ Changed in 2.7.0: a tool's setup panel is filled from a declared override table,
 so a regenerated figure shows the defaults the guide documents instead of the
 capturing machine's last saved run.
 
+Changed in 2.9.0: the Audio Refinery figure is 900x850. The Best Audio row and
+the Dynamics panel each push the following stage down, and at the old 725 px
+frame the seventh panel and the start button fell past the bottom edge.
+
 An occluded window is the failure mode that matters: ``ImageGrab`` copies the
 screen, so the window is raised and made topmost before each grab, and every
 frame is checked for a plausible number of distinct colours.  A locked or
@@ -1565,9 +1569,11 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "audio_refinery",
         "audio_refinery.app",
         "AudioRefineryApp",
-        # 675 tall framed six stage panels; the Dynamics panel (F-S2) needs the
-        # extra height, or the seventh switch and the start button collide.
-        window=(900, 725),
+        # 850 tall framed six stage panels; the Dynamics panel (F-S2) and the
+        # Best Audio row (2.9.0) each push the following switch down, and at
+        # 725 the seventh panel and the start button fall past the bottom
+        # edge - measured on the real window, not guessed from the request.
+        window=(900, 850),
         populate=GENERIC_POPULATE,
         panel_shots=(
             PanelShot("setup", "Parametric EQ", _refinery_eq_example),

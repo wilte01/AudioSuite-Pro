@@ -97,20 +97,43 @@ from noise_reduction.core.models import (
 
 _MODE_VAR_IDS = itertools.count()
 
-#: The Best Audio widget registry the stage panels register into during one
-#: ``build()``.  ``_stage_panel`` is called from seven panel builders that have
-#: no reason to carry a second parameter, so the active registry is set once at
-#: the top of ``build`` and read by every panel; a second window's build
-#: replaces it, which is what a per-window registry means.
-_ACTIVE_AUTO_REGISTRY: "dict[str, Any] | None" = None
-
 #: The caption a stage's Auto box shows while it is ticked.  It says why the
 #: manual entries below are disabled, so nobody has to deduce it.
 _AUTO_CAPTION = "Auto supplies these for this stage; untick Auto to edit"
 
 
+#: The disabled-state options the Auto lock themes when a control left them on
+#: Tk's symbolic defaults, and the module constant each one takes.  Tk paints
+#: ``SystemDisabledText`` and ``SystemButtonFace`` from the operating system in
+#: *both* themes, so a locked field measured 1.13:1 on the accent fill, 2.04:1
+#: on the dark body and 3.22:1 wherever the OS grey met a themed surface.
+_LOCKED_DISABLED_OPTIONS: dict[str, str] = {
+    "disabledforeground": "FG_SUB",
+    "disabledbackground": "BG_READONLY",
+}
+
+
+def _symbolic_disabled_options(widget: tk.Misc) -> dict[str, str]:
+    """The disabled options *widget* declares on a symbolic Tk colour.
+
+    Only those options are replaced while the control is locked.  A widget that
+    named its own colour keeps it: the accent-filled buttons name
+    ``FG_ON_ACCENT_LOCKED``, because the OS grey cannot clear 4.5:1 on a
+    saturated fill.
+    """
+    keys = widget.keys()
+    symbolic: dict[str, str] = {}
+    for option in _LOCKED_DISABLED_OPTIONS:
+        if option not in keys:
+            continue
+        value = str(widget.cget(option))
+        if value.startswith("System"):
+            symbolic[option] = value
+    return symbolic
+
+
 def _set_widget_tree_state(
-    widget: tk.Misc, disabled: bool, saved: dict[tk.Misc, str]
+    widget: tk.Misc, disabled: bool, saved: dict[tk.Misc, tuple[str, dict[str, str]]]
 ) -> None:
     """Enable or disable every control below *widget*, recursively.
 
@@ -119,6 +142,10 @@ def _set_widget_tree_state(
     The state each control had before Auto locked it is recorded in *saved* and
     put back on untick, so a control the panel had deliberately disabled (the
     exact-trim range fields, for example) does not come back live.
+
+    A control that left a disabled option symbolic is painted with the theme's
+    own while it is locked and gets the symbolic name back on untick; see
+    :data:`_LOCKED_DISABLED_OPTIONS`.
 
     Frames have no ``state`` option; a widget that refuses the option is
     skipped rather than treated as an error.
@@ -131,10 +158,25 @@ def _set_widget_tree_state(
         if configure is not None:
             try:
                 if disabled:
-                    saved[child] = str(child.cget("state"))
+                    if child not in saved:
+                        saved[child] = (
+                            str(child.cget("state")),
+                            _symbolic_disabled_options(child),
+                        )
+                    _state, symbolic = saved[child]
                     configure(state="disabled")
+                    themed = {
+                        option: getattr(styles, constant)
+                        for option, constant in _LOCKED_DISABLED_OPTIONS.items()
+                        if option in symbolic
+                    }
+                    if themed:
+                        configure(**themed)
                 else:
-                    configure(state=saved.get(child, "normal"))
+                    state, symbolic = saved.pop(child, ("normal", {}))
+                    configure(state=state)
+                    if symbolic:
+                        configure(**symbolic)
             except tk.TclError:
                 pass
         _set_widget_tree_state(child, disabled, saved)
@@ -146,7 +188,7 @@ def _sync_stage_auto(entry: dict[str, Any], on: bool) -> None:
     body = entry.get("body")
     if body is None:
         return
-    saved: dict[tk.Misc, str] = entry.setdefault("states", {})
+    saved: dict[tk.Misc, tuple[str, dict[str, str]]] = entry.setdefault("states", {})
     if on:
         _set_widget_tree_state(body, True, saved)
     elif saved:
@@ -433,9 +475,6 @@ def build(
         config, auto_registry, stages
     )
 
-    global _ACTIVE_AUTO_REGISTRY
-    _ACTIVE_AUTO_REGISTRY = auto_registry
-
     # ── Stage panels ──────────────────────────────────────────────────────────
     stages_frame = tk.Frame(frame, bg=styles.BG_WHITE)
     stages_frame.pack(fill="x", pady=(10, 0))
@@ -445,17 +484,37 @@ def build(
     # Store BooleanVar references for SELECT ALL functionality
     stage_vars: dict[str, Any] = {}
 
-    _build_declick_panel(stages_frame, config, embedded, stage_vars)
+    _build_declick_panel(
+        stages_frame, config, embedded, stage_vars, auto_registry=auto_registry
+    )
     _state["trim_widgets"] = _build_trim_panel(
-        stages_frame, config, embedded, stage_vars
+        stages_frame, config, embedded, stage_vars, auto_registry=auto_registry
     )
     _state["noise_widgets"] = _build_noise_reduction_panel(
-        stages_frame, config, embedded, stage_vars, on_analyse_noise
+        stages_frame,
+        config,
+        embedded,
+        stage_vars,
+        on_analyse_noise,
+        auto_registry=auto_registry,
     )
-    _build_eq_panel(stages_frame, config, _state, stage_vars)
-    _build_dynamics_panel(stages_frame, config, _state, stage_vars)
-    _build_enhance_panel(stages_frame, config, _state, stage_vars)
-    _build_normalise_panel(stages_frame, config, _state, embedded, stage_vars)
+    _build_eq_panel(
+        stages_frame, config, _state, stage_vars, auto_registry=auto_registry
+    )
+    _build_dynamics_panel(
+        stages_frame, config, _state, stage_vars, auto_registry=auto_registry
+    )
+    _build_enhance_panel(
+        stages_frame, config, _state, stage_vars, auto_registry=auto_registry
+    )
+    _build_normalise_panel(
+        stages_frame,
+        config,
+        _state,
+        embedded,
+        stage_vars,
+        auto_registry=auto_registry,
+    )
 
     # Store stage_vars in the main state for access by Master Driver
     _state["stage_vars"] = stage_vars
@@ -592,6 +651,7 @@ def _build_declick_panel(
     config: StageConfig,
     embedded: bool = False,
     stage_vars: dict[str, Any] | None = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> None:
     p = config.declick_params
     run_mode: tk.StringVar | None = tk.StringVar(value="Live Update")
@@ -624,6 +684,7 @@ def _build_declick_panel(
             width_var,
         ),
         stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
 
 
@@ -643,6 +704,7 @@ def _build_trim_panel(
     config: StageConfig,
     embedded: bool = False,
     stage_vars: dict[str, Any] | None = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the Trim panel, returning the variables a caller can re-sync.
 
@@ -792,6 +854,7 @@ def _build_trim_panel(
         [],
         _extra,
         stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
 
     return {
@@ -809,6 +872,7 @@ def _build_noise_reduction_panel(
     embedded: bool = False,
     stage_vars: dict[str, Any] | None = None,
     on_analyse: "Callable[[], None] | None" = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the Noise Reduction stage panel and return its engine controls.
 
@@ -1120,6 +1184,7 @@ def _build_noise_reduction_panel(
         [],
         _extra,
         stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
     return widgets
 
@@ -1129,6 +1194,7 @@ def _build_enhance_panel(
     config: StageConfig,
     state: dict[str, Any],
     stage_vars: dict[str, Any] | None = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> None:
     p = config.enhance_params
     preset_var = tk.StringVar(value=p.preset)
@@ -1205,7 +1271,14 @@ def _build_enhance_panel(
         _on_preset_change()
 
     _stage_panel(
-        parent, "Audio Enhancer", config, "enhance", [], _extra, stage_vars=stage_vars
+        parent,
+        "Audio Enhancer",
+        config,
+        "enhance",
+        [],
+        _extra,
+        stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
 
 
@@ -1297,6 +1370,7 @@ class _EqEditor:
             command=self.add_band,
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             font=styles.FONT_CAPTION,
             padx=8,
         ).pack(side=tk.LEFT, padx=(6, 3))
@@ -1512,6 +1586,7 @@ def _build_eq_panel(
     config: StageConfig,
     state: dict[str, Any],
     stage_vars: dict[str, Any] | None = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> None:
     """Build the parametric EQ stage panel (F-S1)."""
     editor = _EqEditor(config, state)
@@ -1524,6 +1599,7 @@ def _build_eq_panel(
         [],
         editor.build,
         stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
 
 
@@ -1532,6 +1608,7 @@ def _build_dynamics_panel(
     config: StageConfig,
     state: dict[str, Any],
     stage_vars: dict[str, Any] | None = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> None:
     """Build the Dynamics stage panel (F-S2)."""
     comp = config.compressor_params
@@ -1658,6 +1735,7 @@ def _build_dynamics_panel(
         [],
         _extra,
         stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
 
 
@@ -1667,6 +1745,7 @@ def _build_normalise_panel(
     state: dict[str, Any],
     embedded: bool = False,
     stage_vars: dict[str, Any] | None = None,
+    auto_registry: dict[str, Any] | None = None,
 ) -> None:
     p = config.normalise_params
     # Hide execution mode when embedded since Audio Refinery
@@ -1867,6 +1946,7 @@ def _build_normalise_panel(
         _extra,
         on_check_change=_on_check_change,
         stage_vars=stage_vars,
+        auto_registry=auto_registry,
     )
 
 
@@ -1883,6 +1963,7 @@ def _stage_panel(
     on_check_change: Callable[..., Any] | None = None,
     stage_vars: dict[str, Any]
     | None = None,  # Store BooleanVar references for SELECT ALL
+    auto_registry: dict[str, Any] | None = None,
 ) -> None:
     """Build a collapsible labelled panel for one pipeline stage."""
     outer = tk.Frame(
@@ -1933,8 +2014,8 @@ def _stage_panel(
     # not measurements.  The box writes the one stored list through the single
     # apply function, exactly as the bulk control does.
     auto_entry: dict[str, Any] | None = None
-    if attr in AUTO_STAGES and _ACTIVE_AUTO_REGISTRY is not None:
-        registry = _ACTIVE_AUTO_REGISTRY
+    if attr in AUTO_STAGES and auto_registry is not None:
+        registry = auto_registry
         auto_var = tk.BooleanVar(value=attr in config.auto_stages)
 
         def _on_auto_toggle() -> None:

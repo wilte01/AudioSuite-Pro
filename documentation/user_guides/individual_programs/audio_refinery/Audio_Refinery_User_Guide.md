@@ -7,7 +7,7 @@ subtitle: Based on the current Audio Refinery implementation
 
 Audio Refinery is a single-pass audio processing pipeline. It loads each source file once, runs the selected stages in memory, exports the result, restores the original tags, and optionally applies loudness normalisation. The final file is placed in a separate output folder or atomically replaces the source when running in place.
 
-The window has three tabs in the order a run happens: **1. Setup**, **2. Processing**, **3. Results**. Inside Setup the controls read top to bottom: Presets, the run controls, the output folder, then the seven stage panels in the order the pipeline runs them - Pop & Click Remover, Silence Trimmer / Fader, Noise Reduction, Parametric EQ, Dynamics, Audio Enhancer, Audio Normaliser - and finally Reset Progress and BEGIN REFINERY. The subtitle under the window title names that same order: **Declick -> Trim -> Noise Reduction -> EQ -> Dynamics -> Enhance -> Normalise**. This guide follows the window in that order.
+The window has three tabs in the order a run happens: **1. Setup**, **2. Processing**, **3. Results**. Inside Setup the controls read top to bottom: Presets, the run controls, the output folder, the **Best Audio** row, then the seven stage panels in the order the pipeline runs them - Pop & Click Remover, Silence Trimmer / Fader, Noise Reduction, Parametric EQ, Dynamics, Audio Enhancer, Audio Normaliser - and finally Reset Progress and BEGIN REFINERY. The subtitle under the window title names that same order: **Declick -> Trim -> Noise Reduction -> EQ -> Dynamics -> Enhance -> Normalise**. This guide follows the window in that order.
 
 The pipeline is designed to combine several suite tools without repeatedly decoding and encoding the same file. It validates file integrity before expensive DSP work, sizes its worker slots from the CPU count (at most eight), retries transient failures, and records completed files in a hash-based registry.
 
@@ -37,7 +37,7 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## The Setup Tab
 
-![The Setup tab with the seven stage panels, in the order the pipeline runs them](images/setup.png)
+![The Setup tab with the Best Audio row and the seven stage panels, in the order the pipeline runs them](images/setup.png)
 
 The Setup tab holds everything a run needs, in the order you work through it.
 
@@ -81,6 +81,8 @@ While a stage's **Auto** box is ticked, that stage's manual entries are greyed o
 Decisions are taken in pipeline order, on the signal each stage will receive. When the trim decides to cut, the rest is measured on the trimmed audio - otherwise a stretch of leading silence would look like the quietest, flattest noise profile in the file and switch the gate on for a stretch that will not exist by the time the stage runs.
 
 When a run with any Auto stage finishes, it writes `refinery_decisions.csv` beside the run's log: one row per file per stage, naming the measurement, the value, the threshold it was compared against and the parameter it produced. Skipped files appear there too, because a skipped file prints no stage lines. A run with Auto ticked nowhere writes no such file and behaves exactly as it did before.
+
+The run report names the selection on its second line, so a finished run says whether its parameters were measured - for example `Mode: DRY RUN - BEST AUDIO: 3 of 6 stages (declick, trim, enhance)`. A run with Auto ticked on any stage also opens the Results tab with **Level match** already ticked, because the difference a measured run makes is mostly a level difference; untick it to hear the result at its own level, and a run with Best Audio off still opens it unticked.
 
 The written file is measured again afterwards. If it misses what the run claimed - a true-peak ceiling, a loudness target, new clipping - the report says so with both numbers and the audio is left alone.
 

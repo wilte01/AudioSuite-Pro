@@ -9,6 +9,9 @@ than prose (PLAN_docs_consolidation D20).
 Usage:
     python documentation/user_guides/suite_overview/generate_presentation.py
 
+Changed in 2.9.0: the Refinery slide names its seven stages, and Best Audio is
+described there instead of the retired five-stage flow.
+
 Changed in 2.1.0: the closing slide points at the pages that now own the
 content it used to name (the Suite Overview,
 ``documentation/docs/resilience.md`` and the security page); the three orphan
@@ -1133,7 +1136,7 @@ def slide_refinery(prs: Presentation, number: int) -> None:
     add_title(
         slide,
         "Audio Refinery - The Combined Pipeline",
-        "One file, one decode, five stages",
+        "One file, one decode, seven stages",
         REFINE,
     )
     add_flow(
@@ -1142,7 +1145,7 @@ def slide_refinery(prs: Presentation, number: int) -> None:
         1.45,
         12.2,
         0.8,
-        ["Declick", "Trim", "Reduce Noise", "Enhance", "Normalise"],
+        ["Declick", "Trim", "Reduce Noise", "EQ", "Dynamics", "Enhance", "Normalise"],
         REFINE,
     )
     add_textbox(
@@ -1153,7 +1156,7 @@ def slide_refinery(prs: Presentation, number: int) -> None:
         4.4,
         [
             Line(
-                "Five stages back-to-back in a single decode/encode pass - "
+                "Seven stages back-to-back in a single decode/encode pass - "
                 "the lowest-quality-loss way to run several tools at once.",
                 size=14,
                 space_after=9,
@@ -1194,8 +1197,17 @@ def slide_refinery(prs: Presentation, number: int) -> None:
                 accent=REFINE,
             ),
             Line(
+                "Best Audio measures each file and lets the ticked stages "
+                "choose their own parameters - the run report and "
+                "refinery_decisions.csv name every decision.",
+                size=14,
+                space_after=9,
+                marker="\u2022",
+                accent=REFINE,
+            ),
+            Line(
                 "FFmpeg on PATH is required for the Normalise stage; the "
-                "other four stages run via pydub/pedalboard.",
+                "other six stages run via pydub/pedalboard.",
                 size=14,
                 space_after=9,
                 marker="\u2022",

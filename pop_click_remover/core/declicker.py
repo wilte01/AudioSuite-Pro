@@ -223,10 +223,9 @@ def _repair_region(
     """
     Repair ch_samples[start:end+1] in-place via cubic-spline interpolation.
 
-    Returns True if a repair was applied, False if any guard rejects it:
-      * region wider than max_width_samples
-      * local amplitude below the minimum threshold (near-silent section)
-      * both immediate neighbours are saturated
+    Returns True if a repair was applied, False when
+    :func:`_region_is_repairable` rejects the region (width, near-silence
+    or saturation).
 
     Falls back to linear interpolation near signal boundaries.
 
@@ -246,28 +245,17 @@ def _repair_region(
         Sample rate of the audio in Hz; used to derive the amplitude-check
         window width in samples.
     """
+    # The guards live in one place: ``detect_clicks`` counts the regions this
+    # would repair, so a second copy here could drift from that count (D-07).
+    if not _region_is_repairable(
+        ch_samples, start, end, max_width_samples, clip_max, sample_rate
+    ):
+        return False
+
     n = len(ch_samples)
     width = end - start + 1
-
-    if width > max_width_samples:
-        return False
-
-    # Minimum amplitude guard — skip repairs in near-silent sections.
-    # A ±1-count rounding artefact in silence is inaudible; attempting
-    # to repair it would re-introduce a new artefact on the next pass.
-    amp_hw = max(1, int(_AMP_CHECK_WINDOW_S * sample_rate))
-    amp_start = max(0, start - amp_hw)
-    amp_end = min(n, end + amp_hw + 1)
-    local_peak = np.max(np.abs(ch_samples[amp_start:amp_end]))
-    if local_peak < _MIN_AMPLITUDE_FRACTION * clip_max:
-        return False
-
-    # Saturation guard — if both neighbours are clipped this is legitimate
-    # distortion, not a click.
     left_val = float(ch_samples[max(0, start - 1)])
     right_val = float(ch_samples[min(n - 1, end + 1)])
-    if abs(left_val) >= 0.99 * clip_max and abs(right_val) >= 0.99 * clip_max:
-        return False
 
     # Context windows for spline
     ctx_l_start = max(0, start - _REPAIR_CONTEXT)

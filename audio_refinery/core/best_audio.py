@@ -98,9 +98,10 @@ TILT_WINDOW_SECONDS: float = 30.0
 #: justified.  Measured 2026-11-18 (BA-8): the corpus tilts sit at -130.0 to
 #: -0.8 dB, so the brightest track stays 2.2 dB short of a lift.
 TILT_DEFICIT_DB: float = 3.0
-#: The most Auto may lift either shelf, and the most it may lift in total.
+#: The most Auto may lift either shelf.  Both shelves take the same figure,
+#: so the pair's total is twice this and a separate total cap could only
+#: bind at exactly twice this - it never did.
 TILT_MAX_LIFT_DB: float = 2.0
-TILT_MAX_TOTAL_DB: float = 4.0
 #: A source whose top octave stops below this is bandwidth-limited; its missing
 #: top is reported, never boosted.  2026-11-18 (BA-8): the corpus ceilings are
 #: 2.5-11.5 kHz, so every corpus track is reported rather than lifted.
@@ -112,6 +113,11 @@ CLIP_SAMPLE_THRESHOLD: float = 0.999
 #: Post-write guardrail tolerances.
 VERIFY_PEAK_MARGIN_DB: float = 0.1
 VERIFY_LOUDNESS_MARGIN_DB: float = 0.5
+
+#: What a stage Auto was asked for but that is switched off says.  A1 forbids
+#: Auto switching it on, so none of its parameters could ever be read: the
+#: request is reported rather than a measurement the stage would never use.
+_STAGE_OFF_REASON = "the stage is switched off - Auto has nothing to decide"
 
 #: Which toggle decides whether a stage runs at all.  Auto never writes these
 #: (contract rule A1); this table only lets the decision layer skip the work a
@@ -167,7 +173,6 @@ class SourceProfile:
     tools and deliberately not stored.
     """
 
-    path: str
     file_name: str
     true_peak_dbtp: float | None = None
     clipped_sample_share: float | None = None
@@ -376,10 +381,8 @@ def _db(value: float | None, unit: str = "dBFS", places: int = 0) -> str:
 
 def _empty_profile(source_path: Path | str) -> SourceProfile:
     """Return a profile that measured nothing, for a run with no Auto work."""
-    path = str(source_path)
     return SourceProfile(
-        path=path,
-        file_name=Path(path).name,
+        file_name=Path(str(source_path)).name,
         measured_at=datetime.now().isoformat(timespec="seconds"),
     )
 
@@ -388,6 +391,8 @@ def build_profile(
     audio: AudioSegment,
     source_path: Path | str,
     config: StageConfig,
+    *,
+    auto: set[str],
     working: AudioSegment | None = None,
     silence: tuple[int, int] | None = None,
 ) -> tuple[SourceProfile, dict[str, str]]:
@@ -401,8 +406,12 @@ def build_profile(
         audio: The decoded source.
         source_path: The file the audio came from (named in reports and used for
             the one FFmpeg level pass).
-        config: The run's configuration; its ``auto_stages`` selects the
-            measurements.
+        config: The run's configuration: the stage parameters and thresholds
+            each measurement reads.  Its ``auto_stages`` is the request, never
+            the measured set, and is not consulted here.
+        auto: The stages Auto may act on - the request minus the stages whose
+            own switch is off.  Required: deriving it here would mean
+            measuring for a stage that cannot run.
         working: The segment after any in-memory trim, when the Trim decision
             cut.  Hum, noise and tone are measured on this, never on *audio*.
         silence: The already-measured ``(head_ms, tail_ms)`` pair, when the
@@ -414,7 +423,6 @@ def build_profile(
         stage whose measurement raised.  Unmeasured fields stay ``None`` and an
         empty mapping means every measurement that ran succeeded.
     """
-    auto = set(config.auto_stages)
     measured = working if working is not None else audio
     path = str(source_path)
     profile = _empty_profile(source_path)
@@ -867,7 +875,7 @@ def _decide_enhance(
             reason=f"no HF deficit measured ({deficit:+.1f} dB)",
             evidence=evidence,
         )
-    lift = min(TILT_MAX_LIFT_DB, deficit / 2.0, TILT_MAX_TOTAL_DB / 2.0)
+    lift = min(TILT_MAX_LIFT_DB, deficit / 2.0)
     lift = round(lift, 1)
     detail = (
         f"presence +{lift:.1f} dB, high shelf +{lift:.1f} dB "
@@ -1041,51 +1049,46 @@ def decide(
 
     # A stage Auto was ticked on but that is switched off cannot run, and its
     # parameters are not read by anything: measuring for it would buy nothing.
-    # Its decision says so instead of pretending a measurement decided it.
+    # This one resolved set drives both what is measured and what each decision
+    # says, and the run's config is never rebuilt, so the plan reports the
+    # request as the user made it.
     auto = {stage for stage in requested if _STAGE_ENABLED[stage](config)}
+
+    def _declined(stage: str) -> StageDecision:
+        """The decision for a stage Auto took no action on, naming why."""
+        if stage in requested:
+            return _inactive(stage, _STAGE_OFF_REASON, True)
+        return _inactive(stage, "Auto not ticked", False)
+
     if not auto:
         return BestAudioPlan(
             source=_empty_profile(source_path),
-            decisions={
-                stage: (
-                    _inactive(
-                        stage,
-                        "the stage is switched off - Auto has nothing to decide",
-                        True,
-                    )
-                    if stage in requested
-                    else _inactive(stage, "Auto not ticked", False)
-                )
-                for stage in AUTO_STAGES
-            },
+            decisions={stage: _declined(stage) for stage in AUTO_STAGES},
             config=config,
         )
-    # The profile measures only what these stages need; the plan's config still
-    # reports the request as the user made it.
-    requested_order = config.auto_stages
-    config = replace(
-        config, auto_stages=tuple(stage for stage in AUTO_STAGES if stage in auto)
-    )
 
     failures: dict[str, str] = {}
     caveats: list[str] = []
 
     # 1. Trim first: its slice is the signal every later stage will receive.
-    try:
-        trim_decision, trimmed, silence = _decide_trim(audio, config, "trim" in auto)
-    except Exception as exc:  # noqa: BLE001 - a measurement failure disables Auto
-        logger.warning("Trim measurement failed: %s", exc, exc_info=True)
-        failures["trim"] = str(exc)
-        trim_decision, trimmed, silence = (
-            _inactive("trim", f"silence measurement failed ({exc})", True),
-            None,
-            None,
-        )
+    if "trim" in auto:
+        try:
+            trim_decision, trimmed, silence = _decide_trim(audio, config, True)
+        except Exception as exc:  # noqa: BLE001 - a measurement failure disables Auto
+            logger.warning("Trim measurement failed: %s", exc, exc_info=True)
+            failures["trim"] = str(exc)
+            trim_decision, trimmed, silence = (
+                _inactive("trim", f"silence measurement failed ({exc})", True),
+                None,
+                None,
+            )
+    else:
+        trim_decision, trimmed, silence = _declined("trim"), None, None
     working_audio = trimmed if trimmed is not None else audio
 
     # 2. Everything else, measured on the trimmed segment.
     profile, profile_failures = build_profile(
-        audio, source_path, config, working=working_audio, silence=silence
+        audio, source_path, config, auto=auto, working=working_audio, silence=silence
     )
     failures.update(profile_failures)
 
@@ -1102,31 +1105,31 @@ def decide(
                 "declick", f"click measurement failed ({exc})", True
             )
     else:
-        decisions["declick"] = _inactive("declick", "Auto not ticked", False)
+        decisions["declick"] = _declined("declick")
 
     decisions["trim"] = trim_decision
 
     if "reduce_noise" in auto:
         decisions["reduce_noise"] = _decide_reduce_noise(profile, config, True)
     else:
-        decisions["reduce_noise"] = _inactive("reduce_noise", "Auto not ticked", False)
+        decisions["reduce_noise"] = _declined("reduce_noise")
 
     if "eq" in auto:
         decisions["eq"] = _decide_eq(profile, config, True)
     else:
-        decisions["eq"] = _inactive("eq", "Auto not ticked", False)
+        decisions["eq"] = _declined("eq")
 
     if "enhance" in auto:
         decisions["enhance"] = _decide_enhance(profile, config, True)
     else:
-        decisions["enhance"] = _inactive("enhance", "Auto not ticked", False)
+        decisions["enhance"] = _declined("enhance")
 
     if "dynamics" in auto:
         decisions["dynamics"] = _decide_dynamics(
             profile, config, True, _added_peak_gain(config, decisions)
         )
     else:
-        decisions["dynamics"] = _inactive("dynamics", "Auto not ticked", False)
+        decisions["dynamics"] = _declined("dynamics")
 
     # 4. A measurement that raised disables that stage's Auto for this file,
     # with a reason, rather than aborting the run (contract rule A9).
@@ -1168,9 +1171,6 @@ def decide(
         )
 
     effective = _apply_params(config, decisions)
-    if effective.auto_stages != requested_order:
-        # The filtered list was an internal optimisation, not the run's request.
-        effective = replace(effective, auto_stages=requested_order)
     return BestAudioPlan(
         source=profile,
         decisions=decisions,

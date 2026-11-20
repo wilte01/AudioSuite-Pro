@@ -32,7 +32,7 @@ Use this sequence for a normal batch operation:
 
 ### REFINE
 
-REFINE embeds the Audio Refinery setup. Choose a source folder and, if needed, an output folder. A blank output folder means process in place. Select one or more stages: declick, trim, enhance, normalise, and reduce noise. SELECT ALL changes all five stage selections together. The embedded controls also provide Dry Run, Auto Start, Auto End, and Clear Logs. The Refinery does not use the shared Parallel option. Reset Progress clears the completion record for the selected source so files are eligible for another run. At least one stage and a valid source directory are required. In the enhancement stage, selecting Custom opens the Custom DSP editor the stage itself carries, so the stage stays compact and every control is reachable.
+REFINE embeds the Audio Refinery setup. Choose a source folder and, if needed, an output folder. A blank output folder means process in place. Select one or more stages: declick, trim, reduce noise, parametric EQ, dynamics, enhance, and normalise. SELECT ALL changes all seven stage selections together. The **Best Audio** row above the stages measures each file and lets the ticked stages choose their own parameters, exactly as in the standalone window; **Preview decisions** reports what it would decide without starting a run. The embedded controls also provide Dry Run, Auto Start, Auto End, and Clear Logs. The Refinery does not use the shared Parallel option. Reset Progress clears the completion record for the selected source so files are eligible for another run. At least one stage and a valid source directory are required. In the enhancement stage, selecting Custom opens the Custom DSP editor the stage itself carries, so the stage stays compact and every control is reachable.
 
 ### ENRICH
 
@@ -50,7 +50,7 @@ Check a card to include it, expand Settings when a card has options, and click L
 
 UTIL displays the registered utility cards and the LAUNCH UTILITY PROCESS button. Most utilities use the shared directory bar. Standalone utilities such as CD Ripper, Library Statistics Dashboard, Tag-Based File Reorganizer, Mood Analysis Batch Tagger, and Undo Tag Edits open their own window or workflow. Undo Tag Edits is opened with its Open Undo button and is not part of a batch run.
 
-Five audio-processing utilities are no longer shipped as separate tools: Pop & Click Remover, Silence Trimmer, Noise Reduction, Audio Enhancer, and Audio Normalizer were retired, so neither their windows nor their launchers nor their own commands exist any more. REFINE runs their work as the declick, trim, reduce noise, enhance, and normalise stages, and REFINE's Dry Run reports what each enabled stage would change. The stages carry the controls those tools had - including the normalise stage's true-peak ceiling, loudness-range target and lossless mode - so nothing needs a second window to be reached.
+Five audio-processing utilities are no longer shipped as separate tools: Pop & Click Remover, Silence Trimmer, Noise Reduction, Audio Enhancer, and Audio Normalizer were retired, so neither their windows nor their launchers nor their own commands exist any more. REFINE runs their work as the declick, trim, reduce noise, enhance, and normalise stages; it also carries the Parametric EQ and Dynamics stages those tools never had. REFINE's Dry Run reports what each enabled stage would change. The stages carry the controls those tools had - including the normalise stage's true-peak ceiling, loudness-range target and lossless mode - so nothing needs a second window to be reached.
 
 ### SETTINGS
 
@@ -71,7 +71,7 @@ Licences shows the suite's own GPL-3.0 licence and its third-party notices, plus
 ## Shared Run Controls
 
 - **Folder: **The shared directory used by ENRICH and directory-based UTIL tools. Use Browse Folder or enter a path, then confirm that it exists.
-- **SELECT ALL: **Selects or clears the available cards in the current batch-oriented area. In REFINE it controls the five Refinery stages.
+- **SELECT ALL: **Selects or clears the available cards in the current batch-oriented area. In REFINE it controls the seven Refinery stages.
 - **Mode: **Dry Run previews the operation without committing changes. Live Update permits the selected tool to write tags or files.
 - **Auto Start / Auto End: **Passes the corresponding start and end processing options to supported tools.
 - **Clear Logs: **Requests log cleanup before the selected run begins.
