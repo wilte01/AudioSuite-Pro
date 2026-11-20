@@ -19,6 +19,7 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.4.1: the local ``_ThreadSafeSlotVar`` clone is retired
 behind ``audio_suite_shared.thread_safe_slot_var.make_safe_slot_vars``,
 the helper four sibling tools already used (WP-3).
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 
 from __future__ import annotations
@@ -205,6 +206,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         self._progress_bar = proc_widgets["progress"]
         self._stats_label = proc_widgets["stats_label"]
         self._file_listbox = proc_widgets["file_listbox"]
+        # The shared progress tick writes the mixin's declared attributes.
+        self.progress = self._progress_bar
+        self.file_listbox = self._file_listbox
 
         # ── Tab 3: Results ────────────────────────────────────────────────────
         tab_results = tk.Frame(self.notebook, bg=styles.BG_WHITE)
@@ -858,13 +862,10 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         **_extra: Any,
     ) -> None:
         def _update() -> None:
-            pct = (processed / total * 100) if total else 0
-            self._progress_bar["value"] = pct
+            self._render_progress_standard(processed, total, display_text)
             self.overall_status.set(
                 f"Processing… {processed}/{total}  ✓{succeeded}  ⊘{skipped}  ✗{errors}"
             )
-            self._file_listbox.insert(tk.END, display_text)
-            self._file_listbox.see(tk.END)
 
         self.root.after(0, _update)
 

@@ -14,6 +14,7 @@ Changed in 2.1.0: a live run whose Demucs install is missing no longer stops
     first use (verified by an import in a fresh process) and continues, which
     is also the only thing that works when the window was started by an
     interpreter other than the one ``uv sync`` installed into.
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -407,16 +408,13 @@ class StemSeparatorApp(BaseSuiteApp):
         errors: int,
         display_text: str,
     ) -> None:
-        self.progress["maximum"] = max(total, 1)
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, max(total, 1), display_text)
         self.stats_label.config(
             text=(
                 f"Processed: {processed} | Separated: {separated} | "
                 f"Skipped: {skipped} | Errors: {errors}"
             )
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _on_complete(
         self,

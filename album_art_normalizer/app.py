@@ -13,6 +13,7 @@ Changed in 2.0.0: the completion wiring forwards the processor payload
 as published instead of reading each field with ``kw.get(field, 0)``, so
 a renamed or dropped count raises with its name instead of rendering a
 plausible zero in the finished report (PLAN D117).
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -343,16 +344,13 @@ class ArtNormalizerApp(BaseSuiteApp):
         errors: int,
         display_text: str,
     ) -> None:
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, total, display_text)
         updated = processed - skipped - errors
         self.stats_label.config(
             text=(
                 f"Processed: {processed} | Images Updated: {updated} | Errors: {errors}"
             )
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _on_complete(
         self,

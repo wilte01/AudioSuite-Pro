@@ -10,6 +10,7 @@ shared ``ThreadSafeSlotVar``; the app's local clone is gone (WP-3).
 Changed in 2.8.0: the neural broadband engine's three app-side seams are
 locked - the start-time install offer, the Driver/panel re-sync, and the run
 report line the Results tab opens (noise-reduction amalgamation).
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 
 from __future__ import annotations
@@ -836,6 +837,8 @@ class TestProgressD3:
         app.root = MagicMock()
         app._file_listbox = MagicMock()
         app._progress_bar = MagicMock()
+        app.progress = app._progress_bar
+        app.file_listbox = app._file_listbox
         app.stats_label = MagicMock()
         app.overall_status = MagicMock()
 

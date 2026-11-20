@@ -331,8 +331,17 @@ class UIHelperMixin:
         """Show this installation's licence texts (Help > Licences)."""
         open_licence_viewer(getattr(self, "root", None))
 
+    def _append_progress_line(self, display_text: str) -> None:
+        """Append one per-file line and keep it in view (Tk thread).
+
+        Args:
+            display_text: The per-file line the processor published.
+        """
+        self.file_listbox.insert(tk.END, display_text)
+        self.file_listbox.see(tk.END)
+
     def _render_progress_standard(
-        self, processed: int, total: int, display_text: str
+        self, processed: int, total: int, display_text: str | None
     ) -> None:
         """Write one progress tick's universal widgets (Tk thread).
 
@@ -342,10 +351,12 @@ class UIHelperMixin:
 
         Args:
             processed: Files finished so far.
-            total: Files the run will attempt.
-            display_text: The per-file line the processor published.
+            total: The bar's maximum.  A window that reserves extra steps for a
+                later phase passes its own maximum rather than the file count.
+            display_text: The per-file line the processor published, or None
+                when this tick published no line (the bar still moves).
         """
         self.progress["maximum"] = total
         self.progress["value"] = processed
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
+        if display_text is not None:
+            self._append_progress_line(display_text)

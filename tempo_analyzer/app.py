@@ -392,13 +392,10 @@ class TempoAnalyzerApp(UIHelperMixin):
         self, processed: int, total: int, skipped: int, errors: int, display_text: str
     ) -> None:
         """Update progress UI elements (must run on main thread)."""
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, total, display_text)
         self.stats_label.config(
             text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _on_complete(
         self,

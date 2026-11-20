@@ -45,6 +45,17 @@ used once, and every bullet belongs to exactly one of them.
   bases delegate their help/log/folder/progress seams. The per-tool migration
   onto `SuiteApp` stays a follow-on program (see the plan's D7).
 
+- **The eight hand-written progress renderers are now the shared tick.**
+  Tempo Analyzer, Genre Sync, Album Genre Tagger (both phases), Metadata
+  Scrubber, Stem Separator, Album Art Normalizer, Audio Fingerprinter and Audio
+  Refinery each repeated the bar-and-line writes; they call
+  `UIHelperMixin._render_progress_standard`, which composes the new
+  `_append_progress_line` and takes `None` for a tick that publishes no
+  per-file line. Each tool keeps its own counters and passes its bar maximum
+  explicitly where it differs from the file count (the genre tagger reserves a
+  write-phase step, the separator floors at one). The refinery's window now
+  exposes the mixin's `progress`/`file_listbox` names.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

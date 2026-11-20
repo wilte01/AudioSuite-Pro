@@ -9,6 +9,7 @@ otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 
 import os
@@ -331,14 +332,12 @@ class GenreConsolidatorApp(UIHelperMixin):
         display_text: str,
     ) -> None:
         """Update the processing tab (must run on the main thread)."""
-        self.progress["maximum"] = total + 1  # +1 reserves space for write phase
-        self.progress["value"] = processed
+        # +1 reserves space for the write phase.
+        self._render_progress_standard(processed, total + 1, display_text)
         self.stats_label.config(
             text=f"Processed: {processed} | With Genre: {files_with_genre}"
             f" | Errors: {errors}"
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
         self.root.update_idletasks()
 
     def _on_coverage_fail(
@@ -397,8 +396,7 @@ class GenreConsolidatorApp(UIHelperMixin):
 
     def _append_phase2_text(self, display_text: str) -> None:
         """Append a phase-2 line to the log listbox (main thread only)."""
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
+        self._append_progress_line(display_text)
         self.root.update_idletasks()
 
     def _on_complete(

@@ -23,12 +23,15 @@ Covers:
     • open_folder_path: missing folder shows info dialog
     • UIHelperMixin: _browse_folder_standard, _open_help_standard,
       _open_log_standard, _open_folder_standard delegate correctly
+    • UIHelperMixin: _render_progress_standard writes the bar and the line
+
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import audio_suite_shared.ui_helpers as ui_helpers
 
@@ -334,3 +337,33 @@ class TestUIHelperMixin:
         with patch("audio_suite_shared.ui_helpers.open_folder_path") as mock_folder:
             mixin._open_folder_standard()
             mock_folder.assert_called_once_with("")
+
+
+class TestRenderProgressStandard:
+    """The shared progress tick every window base and tool now calls."""
+
+    @staticmethod
+    def _mixin() -> ui_helpers.UIHelperMixin:
+        mixin = ui_helpers.UIHelperMixin()
+        mixin.progress = MagicMock()
+        mixin.file_listbox = MagicMock()
+        return mixin
+
+    def test_sets_the_bar_and_appends_the_line(self) -> None:
+        mixin = self._mixin()
+        mixin._render_progress_standard(3, 10, "song.mp3")
+        assert mixin.progress.__setitem__.call_args_list == [
+            call("maximum", 10),
+            call("value", 3),
+        ]
+        mixin.file_listbox.insert.assert_called_once_with(ui_helpers.tk.END, "song.mp3")
+        mixin.file_listbox.see.assert_called_once_with(ui_helpers.tk.END)
+
+    def test_a_tick_without_a_line_still_moves_the_bar(self) -> None:
+        mixin = self._mixin()
+        mixin._render_progress_standard(3, 10, None)
+        assert mixin.progress.__setitem__.call_args_list == [
+            call("maximum", 10),
+            call("value", 3),
+        ]
+        mixin.file_listbox.insert.assert_not_called()

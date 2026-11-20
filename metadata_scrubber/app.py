@@ -19,6 +19,7 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
 """
 
 import logging
@@ -337,13 +338,10 @@ class MetadataScrubberApp(BaseSuiteApp):
         display_text: str,
         **_extra: Any,
     ) -> None:
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, total, display_text)
         self.stats_label.config(
             text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _on_complete(
         self,
