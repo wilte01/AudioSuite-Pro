@@ -16,7 +16,24 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **One implementation for the helpers the review found duplicated.** A
+  structural clone scan of the 618 shipped modules (146,602 lines) found the
+  remaining verbatim copies, and each now has a single home:
+  `UIHelperMixin._open_source_folder_standard()` (eight inline source-folder
+  openers), `cli_dataclasses.validate_lufs_callback` (two Click callbacks),
+  `suite_paths.find_upwards` (`find_pyproject`/`find_changelog`),
+  `cache_store`'s key and bin classifiers (`core/file_processor` re-exports
+  them, so both import paths still resolve),
+  `sqlite_helpers.enable_auto_vacuum`/`BatchTransactionMixin`/`scope_prefix`
+  (three SQLite caches), `secret_store.SecretStore` (the fingerprinter's two
+  credentials), `event_pump.pump_events` (eight hand-written Tk pollers),
+  `audio_formats.export_segment` (four segment writers, so the F-10 bit-depth
+  pin cannot be dropped from one caller while the others keep it),
+  `analysis_cli` (Key Detector's and Mood Analyzer's byte-identical parser and
+  Click command) and `text_utils.one_line`. Behaviour is unchanged and every
+  public name each module already exported still resolves.
 
 ## [2.9.0] - 2026-11-20
 

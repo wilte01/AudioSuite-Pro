@@ -47,7 +47,7 @@ parallel window bases and eight hand-written Tk pollers.
 | C1 | Converge the four parallel window bases onto `SuiteApp`, staged: first the legacy bases delegate their help/log/folder/progress seams (A1 delivers the folder half), then tools migrate one at a time with `test_suite_app_contract` green throughout. | `[ ]` (staged; stage 1 done via A1) |
 | C2 | `_scope_prefix` / `_path_prefix` → one trailing-separator normaliser in `audio_suite_shared/sqlite_helpers.py`. | `[x]` |
 | C3 | `_one_line` (`launch_failure`, `run_outcome`) → one shared truncation helper. | `[x]` |
-| C4 | `missing_dependency_reason` (`rnnoise_engine`, `demucs_engine`) — share only the probe, keep the per-engine messages. | `[x]` |
+| C4 | `missing_dependency_reason` (`rnnoise_engine`, `demucs_engine`) — share only the probe, keep the per-engine messages. | `[ ]` (optional; not touched — the shared part is one `importlib` probe, so the copy is cheaper than the indirection) |
 
 ## Explicitly out of scope
 
@@ -73,3 +73,5 @@ patch target moved from the tool module to `audio_suite_shared.ui_helpers`.
 | D2 | 2026-11-20 | `SecretStore.load`/`save` take the caller's `key_manager` and config accessor rather than importing `suite_config` themselves: `audio_fingerprinter`'s tests patch those names on the *tool* module, and the resolution order is the shared part, not the accessor. | `audio_suite_shared/secret_store.py`, `audio_fingerprinter/tests/test_api_key.py` |
 | D3 | 2026-11-20 | `file_processor` re-exports the classifiers from `cache_store` in the redundant-alias form, so `library_stats.library_stats`, `library_cache` and the two test modules that import them keep resolving. | `tests/test_public_api_paths.py` `CACHE_NAMES` |
 | D4 | 2026-11-20 | `duplicate_finder`'s third copy of `_enable_auto_vacuum` (found during A5, beyond the two the review listed) also calls the shared helper; the review's count was two because the third is a `@staticmethod` on the cache class. | `duplicate_finder/core/fingerprint_cache.py` |
+| D5 | 2026-11-20 | The Click command factory takes an explicit hyphenated command name. Click derives a command name by lower-casing the function name and turning underscores into hyphens, and an explicit `name=` bypasses that: passing `name="mood_analyzer"` registered a command the documented `mood-analyzer` invocation could not reach, and seven CLI discoverability tests failed. | `audio_suite_shared/analysis_cli.py`, `mood_analyzer/cli.py`, `audio_suite_shared/tests/test_cli_app.py` |
+| D6 | 2026-11-20 | The shared usage label is `_USAGE_LABEL`, not `TOOL_NAME`. `test_undo_gui`'s undo-log scan collects any `TOOL_NAME = "..."` assignment as a tool id and requires a display name for it, so a constant by that name in a CLI module invented two phantom ids. | `audio_suite_shared/tests/test_undo_gui.py` |
