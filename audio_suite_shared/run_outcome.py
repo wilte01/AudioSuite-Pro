@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from .logging_setup import get_logs_dir
+from .text_utils import one_line
 
 #: Namespaced like every other shared module, so its records reach the suite
 #: log through the ``audio_suite`` logger hierarchy
@@ -89,10 +90,7 @@ def _one_line(note: str) -> str:
         Whitespace-collapsed text of at most :data:`MAX_NOTE_CHARS` characters,
         with an ASCII ellipsis when it was cut.
     """
-    collapsed = " ".join(note.split())
-    if len(collapsed) <= MAX_NOTE_CHARS:
-        return collapsed
-    return collapsed[: MAX_NOTE_CHARS - 3].rstrip() + "..."
+    return one_line(note, MAX_NOTE_CHARS)
 
 
 def shortfall(count: int, total: int, noun: str, outcome: str) -> str:

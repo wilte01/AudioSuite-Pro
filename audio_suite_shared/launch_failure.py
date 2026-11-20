@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from .logging_setup import get_logs_dir
+from .text_utils import one_line
 
 #: Namespaced like every other shared module, so its records reach the suite
 #: log through the ``audio_suite`` logger hierarchy.
@@ -110,10 +111,7 @@ def _one_line(reason: str) -> str:
         Whitespace-collapsed text of at most :data:`MAX_REASON_CHARS`
         characters, with an ASCII ellipsis when it was cut.
     """
-    collapsed = " ".join(reason.split())
-    if len(collapsed) <= MAX_REASON_CHARS:
-        return collapsed
-    return collapsed[: MAX_REASON_CHARS - 3].rstrip() + "..."
+    return one_line(reason, MAX_REASON_CHARS)
 
 
 def record_launch_failure(script_path: str, reason: str) -> str:
