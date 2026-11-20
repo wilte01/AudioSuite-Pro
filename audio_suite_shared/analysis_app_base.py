@@ -32,6 +32,7 @@ Changed in 2.6.0: the shared duration widget starts at
 dataclass and Master Driver value are one number (D140).
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
+Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
 """
 
 from __future__ import annotations
@@ -474,13 +475,10 @@ class AnalysisAppBase(UIHelperMixin):
         self, processed: int, total: int, skipped: int, errors: int, display_text: str
     ) -> None:
         """Update progress UI elements (must run on main thread)."""
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, total, display_text)
         self.stats_label.config(
             text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _on_complete(
         self,

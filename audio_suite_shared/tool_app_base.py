@@ -29,6 +29,7 @@ callback-payload lock instead of hiding behind a local wrapper (Sprint 6).
 Changed in 2.8.0: the docstring no longer cites the denoiser as an example window.
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
+Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -287,13 +288,10 @@ class AnalysisTagToolApp(UIHelperMixin):
         display_text: str,
     ) -> None:
         """Update progress UI elements (must be called on main thread)."""
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, total, display_text)
         self.stats_label.config(
             text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _summary_extras(self) -> list[tuple[str, str]]:
         """Return ``(label, value)`` rows to add to this run's summary.
@@ -863,16 +861,13 @@ class NoisePopToolApp(UIHelperMixin, AuditionMixin):
         display_text: str,
     ) -> None:
         """Update progress bar and file list (must be called on main thread)."""
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
+        self._render_progress_standard(processed, total, display_text)
         self.stats_label.config(
             text=(
                 f"Processed: {processed} | {self.RESULTS_LABEL}: {succeeded}"
                 f" | Skipped: {skipped} | Errors: {errors}"
             )
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
 
     def _on_complete(
         self,

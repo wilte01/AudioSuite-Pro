@@ -14,10 +14,11 @@ Changed in 1.3.0: bootstrap_tool_app schedules the shared What's New panel, so
 every tool offers the release notes for the version it is running.
 Changed in 1.4.0: ``BaseSuiteApp`` resolves its worker count from
 ``default_max_workers()`` when none is supplied.
+
+Changed in 2.9.0: ``BaseSuiteApp._open_folder`` uses the shared opener (C1).
 """
 
 import logging
-import os
 import tkinter as tk
 from queue import Queue
 from tkinter import messagebox, ttk
@@ -29,7 +30,7 @@ from .constants import default_max_workers
 from .error_logger import ErrorLogger, get_logger
 from .logging_setup import _log_uncaught
 from .logging_setup import configure_logging as configure_logging
-from .ui_helpers import UIHelperMixin
+from .ui_helpers import UIHelperMixin, open_folder_path
 from .whats_new import offer_pending
 
 
@@ -172,13 +173,10 @@ class BaseSuiteApp(UIHelperMixin):
         Child classes should set self._out_dir or override this.
         """
         folder_path = getattr(self, "_out_dir", "")
-        if not folder_path and hasattr(self, "folder_path"):
-            folder_path = self.folder_path.get()
-
-        if folder_path and os.path.exists(folder_path):
-            platform_utils.open_path(folder_path)
-        else:
-            messagebox.showinfo("Folder", "Target folder not available.")
+        folder_variable = getattr(self, "folder_path", None)
+        if not folder_path and folder_variable is not None:
+            folder_path = folder_variable.get()
+        open_folder_path(folder_path, "Target folder not available.")
 
     def _on_error(self, message: str) -> None:
         """Standard error callback."""

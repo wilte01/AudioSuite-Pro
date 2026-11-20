@@ -39,6 +39,7 @@ what this repository forbids.  ``music_format_converter`` is the worked
 example.
 
 Changed in 2.4.3: adds SuiteApp (PLAN_2026-11-03_2.4.3_structure.md, WP-8).
+Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
 """
 
 from __future__ import annotations
@@ -225,10 +226,7 @@ class SuiteApp(UIHelperMixin):
 
     def _render_progress(self, processed: int, total: int, display_text: str) -> None:
         """Write one progress tick to the widgets (Tk thread)."""
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
+        self._render_progress_standard(processed, total, display_text)
 
     def render_completion(self, *, duration_secs: float, output_dir: str) -> None:
         """Record the run's target and switch the window to its results.

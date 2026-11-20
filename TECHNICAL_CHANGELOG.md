@@ -35,6 +35,16 @@ used once, and every bullet belongs to exactly one of them.
   Click command) and `text_utils.one_line`. Behaviour is unchanged and every
   public name each module already exported still resolves.
 
+- **The window bases share one progress tick and one folder opener.** The
+  progress tick — the bar's range and position, the per-file line and its
+  scroll — was written once per base; it is now
+  `UIHelperMixin._render_progress_standard`, and `SuiteApp`, `AnalysisAppBase`,
+  `AnalysisTagToolApp` and `NoisePopToolApp` keep only their own counters
+  around it. `BaseSuiteApp._open_folder` calls `ui_helpers.open_folder_path`
+  instead of a private copy of it. This is the first stage of C1: the legacy
+  bases delegate their help/log/folder/progress seams. The per-tool migration
+  onto `SuiteApp` stays a follow-on program (see the plan's D7).
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

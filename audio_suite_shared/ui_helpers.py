@@ -15,6 +15,7 @@ stages can be read from the app (Help > Licences) instead of by browsing the
 install folder.
 
 Changed in 2.9.0: the source-folder opener and its message live here (A1).
+Changed in 2.9.0: the progress-tick writes are one helper (C1).
 """
 
 import logging
@@ -282,6 +283,12 @@ class UIHelperMixin:
     #: it without every adopter re-declaring the attribute.
     folder_path: Any
 
+    #: The tool's progress bar and per-file list, provided by the window that
+    #: composes this mixin.  Declared so ``_render_progress_standard`` can
+    #: write them without every adopter re-declaring the attributes.
+    progress: Any
+    file_listbox: Any
+
     def _browse_folder_standard(
         self,
         title: str = "Select Folder",
@@ -323,3 +330,22 @@ class UIHelperMixin:
     def _open_licences_standard(self) -> None:
         """Show this installation's licence texts (Help > Licences)."""
         open_licence_viewer(getattr(self, "root", None))
+
+    def _render_progress_standard(
+        self, processed: int, total: int, display_text: str
+    ) -> None:
+        """Write one progress tick's universal widgets (Tk thread).
+
+        The four writes every queue-driven window repeated: the bar's range and
+        position, then the per-file line and its scroll.  A caller adds its own
+        counters around this call, and must already be on the Tk thread.
+
+        Args:
+            processed: Files finished so far.
+            total: Files the run will attempt.
+            display_text: The per-file line the processor published.
+        """
+        self.progress["maximum"] = total
+        self.progress["value"] = processed
+        self.file_listbox.insert(tk.END, display_text)
+        self.file_listbox.see(tk.END)
