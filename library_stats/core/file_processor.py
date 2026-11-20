@@ -84,6 +84,10 @@ from audio_suite_shared.plugin_system import (
 from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 from audio_suite_shared.tag_helper_art import image_dimensions
 
+from ..cache_store import _bpm_bin as _bpm_bin
+from ..cache_store import _classify_key_mode as _classify_key_mode
+from ..cache_store import _decade_bin as _decade_bin
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,90 +135,12 @@ class StatsReport:
 
 
 # ── Key classification helpers ──────────────────────────────────────────────
-
-_MAJOR_KEYS = {
-    "C",
-    "C#",
-    "Db",
-    "D",
-    "D#",
-    "Eb",
-    "E",
-    "F",
-    "F#",
-    "Gb",
-    "G",
-    "G#",
-    "Ab",
-    "A",
-    "A#",
-    "Bb",
-    "B",
-    "Cb",
-}
-_MINOR_KEYS = {
-    "Cm",
-    "C#m",
-    "Dbm",
-    "Dm",
-    "D#m",
-    "Ebm",
-    "Em",
-    "Fm",
-    "F#m",
-    "Gbm",
-    "Gm",
-    "G#m",
-    "Abm",
-    "Am",
-    "A#m",
-    "Bbm",
-    "Bm",
-}
-
-
-def _classify_key_mode(key: str) -> tuple[str, str] | None:
-    """Return (root, mode) e.g. ('C', 'major') or (None, None) if unparseable."""
-    k = key.strip()
-    if k in _MAJOR_KEYS:
-        return (k, "major")
-    if k in _MINOR_KEYS:
-        return (k, "minor")
-    # Handle "C major", "A minor", "C# minor" text format
-    lower = k.lower().replace("\u266d", "b").replace("\u266f", "#")
-    for suffix in (" major", " minor"):
-        if lower.endswith(suffix):
-            root = k[: -len(suffix)]
-            mode = suffix.strip()
-            return (root, mode)
-    return None
-
-
-def _bpm_bin(bpm: int | None) -> str:
-    if bpm is None:
-        return "Unknown"
-    if bpm < 60:
-        return "<60"
-    if bpm < 80:
-        return "60\u201379"
-    if bpm < 100:
-        return "80\u201399"
-    if bpm < 120:
-        return "100\u2013119"
-    if bpm < 140:
-        return "120\u2013139"
-    if bpm < 160:
-        return "140\u2013159"
-    if bpm < 180:
-        return "160\u2013179"
-    return "180+"
-
-
-def _decade_bin(year: int | None) -> str:
-    if year is None:
-        return "Unknown"
-    decade = (year // 10) * 10
-    return f"{decade}s"
+#
+# One home: ``library_stats.cache_store`` owns the key sets and the BPM/decade
+# bucket edges for the cached-scan aggregate, and this module's full scan
+# publishes the same buckets.  Importing them means the two report paths cannot
+# disagree about a bucket edge, and the names stay resolvable here - and
+# through ``library_stats.library_stats`` - in the redundant-alias form.
 
 
 def _extract_year_from_tags(raw_tags: Any) -> int | None:
