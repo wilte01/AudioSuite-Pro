@@ -37,6 +37,8 @@ and nowhere else, so a tool cannot opt out of an assertion by stubbing it.
 Changed in 2.4.3: initial version (WP-8); WP-8 order #2 adds the reorganiser.
 Changed in 2.4.3: adds the run-report lock — the View Log defect fix's lesson is
 that the pointer, not the file, is what a test usually asserts (D-16).
+Changed in 2.9.0: the Stem Separator adopts the shell (C1 stage 2), so the table
+is four tools and the separator gains a run-report drive.
 """
 
 from __future__ import annotations
@@ -61,12 +63,16 @@ from library_stats.core.file_processor import StatsReport
 from music_format_converter import app as converter_app
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
+from stem_separator import app as stem_separator_app
+from stem_separator.app import StemSeparatorApp
+from stem_separator.core.models import DEFAULT_MODEL
 
 #: The tools that have adopted the shared shell, in migration order.
 MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     MusicFormatConverterApp,
     FileReorganizerApp,
     LibraryStatsApp,
+    StemSeparatorApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -98,11 +104,41 @@ def _stub_library_stats_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library_stats_app, "LibraryCache", lambda *a, **k: cache)
 
 
+def _stub_stem_separator_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the separator's argv, its saved output folder and the torch probe."""
+    monkeypatch.setattr(
+        stem_separator_app.cli_args,
+        "parse",
+        lambda: SimpleNamespace(
+            folder_path=None,
+            live_mode=None,
+            auto_start=False,
+            auto_end=False,
+            output_dir="",
+            model=DEFAULT_MODEL,
+            stems=(),
+            mix=False,
+            device="auto",
+            clear_logs=False,
+            parallel_run=False,
+        ),
+    )
+    monkeypatch.setattr(
+        stem_separator_app.suite_config, "load_value", lambda *a, **k: ""
+    )
+    monkeypatch.setattr(
+        stem_separator_app,
+        "resolve_device",
+        lambda _choice: SimpleNamespace(label=lambda: "CPU", reason="stubbed"),
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
     FileReorganizerApp: _stub_reorganizer_edges,
     LibraryStatsApp: _stub_library_stats_edges,
+    StemSeparatorApp: _stub_stem_separator_edges,
 }
 
 
@@ -140,11 +176,31 @@ def _complete_library_stats_run(app: LibraryStatsApp, tmp_path: Path) -> None:
     app._write_run_log()
 
 
+def _complete_stem_separator_run(app: StemSeparatorApp, tmp_path: Path) -> None:
+    """Drive the separator's completion: it serialises the report there."""
+    app._on_complete(
+        total=1,
+        processed=1,
+        separated=1,
+        files_written=4,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[SEPARATED] song.wav\n"],
+        output_dir=str(tmp_path),
+        device="CPU",
+    )
+    # The report is written before the render is scheduled; run it now so the
+    # queued widget update lands while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
     FileReorganizerApp: _complete_reorganizer_run,
     LibraryStatsApp: _complete_library_stats_run,
+    StemSeparatorApp: _complete_stem_separator_run,
 }
 
 
@@ -315,6 +371,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "MusicFormatConverterApp",
         "FileReorganizerApp",
         "LibraryStatsApp",
+        "StemSeparatorApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

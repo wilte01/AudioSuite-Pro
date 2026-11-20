@@ -32,6 +32,10 @@ Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
 Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
+Changed in 2.9.0: the pool is a ``StemSeparationProcessor`` class rather than
+the shared base built inline, so the slot-grid lock can compare it with the
+GUI's grid (C1 stage 2).
+
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -66,12 +70,24 @@ logger = logging.getLogger(__name__)
 #: Progress label shown while the model runs.
 DSP_LABEL = "Separating stems"
 
-#: Worker-pool size, imported by ``app.py`` to size its slot display.
+#: Worker-pool size: the pool's default and what the GUI's grid tracks.
 MAX_WORKERS = DEFAULT_MAX_WORKERS
 
 
+class StemSeparationProcessor(BaseFileProcessor):
+    """The separator's worker pool: the shared base, pinned to this tool's count.
+
+    The slot-grid lock compares a tool-owned grid against every
+    ``BaseFileProcessor`` subclass in the package, so the pool is a named class
+    instead of the base built inline.
+    """
+
+    def __init__(self, max_workers: int = MAX_WORKERS) -> None:
+        super().__init__(max_workers=max_workers, operation_type="stem_separation")
+
+
 def _build_processor() -> BaseFileProcessor:
-    return BaseFileProcessor(max_workers=MAX_WORKERS, operation_type="stem_separation")
+    return StemSeparationProcessor()
 
 
 def track_folder(output_dir: str, filename: str) -> Path:

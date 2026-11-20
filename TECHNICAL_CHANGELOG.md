@@ -56,6 +56,22 @@ used once, and every bullet belongs to exactly one of them.
   write-phase step, the separator floors at one). The refinery's window now
   exposes the mixin's `progress`/`file_listbox` names.
 
+- **Stem Separator is the first tool migrated onto the shared shell (C1 stage
+  2).** `StemSeparatorApp` composes `SuiteApp`: the class carries the tool's
+  identity and its own tab labels, `_build_setup_tab` supplies the controls,
+  and the shell builds the Help bar, the Processing tab and the Results tab.
+  Its two one-line tab delegates (`ui/processing_tab.py`, `ui/results_tab.py`)
+  are deleted, as WP-8's first migration deleted the converter's. The migration
+  exposed a report gap: the written `stem_separation_log.txt` had no summary
+  block, so `_on_complete` now writes the file itself and ends it with
+  `SUMMARY:` plus the run's counters and time.
+  `tests/test_suite_app_contract.py` gains the tool and its report drive. The
+  slot-grid lock now covers the window as well, which caught two real drifts:
+  the grid was sized from the processor's `MAX_WORKERS` (now the shared
+  `DEFAULT_MAX_WORKERS`) and the package built `BaseFileProcessor` inline, so
+  the lock had no processor to compare against — it is now a named
+  `StemSeparationProcessor` with the same defaults.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

@@ -15,6 +15,9 @@ Changed in 2.1.0: a live run whose Demucs install is missing no longer stops
     is also the only thing that works when the window was started by an
     interpreter other than the one ``uv sync`` installed into.
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell
+owns the Help bar and the Processing and Results tabs; the report now ends
+with the SUMMARY block the shell's contract reads.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -25,23 +28,26 @@ import logging
 import os
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from queue import Queue
+from tkinter import messagebox
 from typing import Any, cast
 
-from audio_suite_shared import optional_deps, styles, suite_config, ui_common
-from audio_suite_shared.app_bootstrap import BaseSuiteApp
+from audio_suite_shared import optional_deps, suite_config, ui_common
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import failure_reason
 from audio_suite_shared.gpu_utils import resolve_device
+from audio_suite_shared.suite_app import SuiteApp
 
 from .core import demucs_engine
-from .core.file_processor import MAX_WORKERS, run_stem_separation
+from .core.file_processor import run_stem_separation
 from .core.models import (
     DEFAULT_MODEL,
     STEM_NAMES,
     StemSeparationParams,
     normalise_stems,
 )
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 
 logger = logging.getLogger(__name__)
@@ -52,21 +58,18 @@ TOOL_ID = "stem_separator"
 LAST_OUTPUT_KEY = "stem_separator_output_dir"
 
 
-class StemSeparatorApp(BaseSuiteApp):
+class StemSeparatorApp(SuiteApp):
     """Stem Separator application GUI."""
 
-    HELP_GUIDE = "Stem_Separator_User_Guide.docx"
+    title = "Stem Separator"
+    window_key = "stem_separator_window"
+    program_name = TOOL_ID
+    guide_name = "Stem_Separator_User_Guide.docx"
+    completion_text = "Stem Separation Complete!"
+    # The labels this window has always shown; the shell does not renumber them.
+    tab_labels = (" Setup ", " Processing ", " Results ")
 
     def __init__(self, root: tk.Tk) -> None:
-        super().__init__(
-            root,
-            "Stem Separator",
-            "stem_separator_window",
-            TOOL_ID,
-            help_guide=self.HELP_GUIDE,
-            num_workers=MAX_WORKERS,
-        )
-
         self.folder_path: tk.StringVar = tk.StringVar()
         saved_output = suite_config.load_value(LAST_OUTPUT_KEY, "")
         self.output_dir: tk.StringVar = tk.StringVar(
@@ -87,11 +90,19 @@ class StemSeparatorApp(BaseSuiteApp):
         self.parallel_var: tk.BooleanVar = tk.BooleanVar(value=False)
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
-        self._log_entries: list[str] = []
-        self._log_path: str = ""
-        self._out_dir: str = ""
+        # The shell renders the worker grid from these before the tabs exist,
+        # so the pool has to be ready before ``SuiteApp.__init__`` runs.
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
+        self.slot_queue: Queue[int] = Queue()
+        for index in range(DEFAULT_MAX_WORKERS):
+            self.slot_queue.put(index)
+        self.cli_handler = UniversalCLIHandler(self)
 
-        self._build_ui()
+        self._log_entries: list[str] = []
+
+        super().__init__(root)
         self._refresh_device_status()
         self._apply_cli_args()
 
@@ -100,36 +111,12 @@ class StemSeparatorApp(BaseSuiteApp):
             if last:
                 self.folder_path.set(last)
 
-    # ── UI ────────────────────────────────────────────────────────────────
+    # ── Setup tab ─────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        """Construct the full application UI."""
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook: ttk.Notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" Setup ")
-        self.notebook.add(tab_processing, text=" Processing ")
-        self.notebook.add(tab_results, text=" Results ")
-
-        setup_widgets = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folder, output, stem and device controls into *parent*."""
+        widgets = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             output_dir=self.output_dir,
             model=self.model,
@@ -148,29 +135,8 @@ class StemSeparatorApp(BaseSuiteApp):
             parallel_var=self.parallel_var,
             driver_locked=self._launched_from_driver,
         )
-        self.start_btn: tk.Button = cast(tk.Button, setup_widgets["start_btn"])
-
-        proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status: tk.StringVar = cast(
-            tk.StringVar, proc_widgets["overall_status"]
-        )
-        self.progress: ttk.Progressbar = cast(ttk.Progressbar, proc_widgets["progress"])
-        self.stats_label: tk.Label = cast(tk.Label, proc_widgets["stats_label"])
-        self.file_listbox: tk.Listbox = cast(tk.Listbox, proc_widgets["file_listbox"])
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = cast(
-            tk.Label, res_widgets["completion_label"]
-        )
-        self.time_label: tk.Label = cast(tk.Label, res_widgets["time_label"])
-        self.summary_label: tk.Label = cast(tk.Label, res_widgets["summary_label"])
-
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.start_btn: tk.Button = cast(tk.Button, widgets["start_btn"])
+        self.controls_panel: Any = widgets.get("controls_panel")
 
     def _apply_cli_args(self) -> None:
         """Parse and apply any command-line arguments."""
@@ -326,7 +292,7 @@ class StemSeparatorApp(BaseSuiteApp):
         )
 
         self.start_btn.config(state="disabled")
-        self.notebook.select(self._tab_processing)
+        self.notebook.select(self.processing_frame)
         self.overall_status.set("Separating stems...")
 
         threading.Thread(
@@ -367,11 +333,6 @@ class StemSeparatorApp(BaseSuiteApp):
         return cast(list[Any], self.slot_vars)
 
     # ── Callbacks ─────────────────────────────────────────────────────────
-
-    def _reset_progress_ui(self) -> None:
-        self.progress["value"] = 0
-        self.stats_label.config(text="Processed: 0 | Separated: 0 | Errors: 0")
-        self.file_listbox.delete(0, tk.END)
 
     def _on_progress(
         self,
@@ -430,7 +391,18 @@ class StemSeparatorApp(BaseSuiteApp):
         device: str,
         **_extra: Any,
     ) -> None:
-        """Completion seam: forward the published payload to the UI render."""
+        """Completion seam: write the report here, render it on the Tk thread."""
+        self._write_run_report(
+            output_dir=output_dir,
+            log_entries=log_entries,
+            total=total,
+            separated=separated,
+            files_written=files_written,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            device=device,
+        )
         self.root.after(
             0,
             self._update_ui_on_complete,
@@ -446,6 +418,45 @@ class StemSeparatorApp(BaseSuiteApp):
             device,
         )
 
+    def _write_run_report(
+        self,
+        *,
+        output_dir: str,
+        log_entries: list[str],
+        total: int,
+        separated: int,
+        files_written: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        device: str,
+    ) -> None:
+        """Serialise the run report View Log opens; a failed write is logged."""
+        log_path = os.path.join(output_dir, "stem_separation_log.txt")
+        self._log_path = log_path
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        summary = [
+            "",
+            "=" * 60,
+            "SUMMARY:",
+            f"Files examined: {total}",
+            f"Separated: {separated}",
+            f"Stem files written: {files_written}",
+            f"Skipped: {skipped}",
+            f"Errors: {errors}",
+            f"Device: {device}",
+            f"Output: {output_dir}",
+            f"Time: {minutes:02d}:{seconds:02d}",
+        ]
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            with open(log_path, "w", encoding="utf-8") as handle:
+                for line in [*log_entries, *summary]:
+                    handle.write(line if line.endswith("\n") else line + "\n")
+        except OSError as exc:
+            logger.error("Failed to write log '%s': %s", log_path, exc, exc_info=True)
+
     def _update_ui_on_complete(
         self,
         total: int,
@@ -459,22 +470,7 @@ class StemSeparatorApp(BaseSuiteApp):
         output_dir: str,
         device: str,
     ) -> None:
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
-
-        # The processor's log lines are the report; the live handler appended
-        # as the run went, so rewrite the file from the completion payload.
-        log_path = os.path.join(output_dir, "stem_separation_log.txt")
-        self._log_path = log_path
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-            with open(log_path, "w", encoding="utf-8") as handle:
-                for line in log_entries:
-                    handle.write(line if line.endswith("\n") else line + "\n")
-        except OSError as exc:
-            logger.error("Failed to write log '%s': %s", log_path, exc, exc_info=True)
-
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+        """Render the finished run (must run on the main thread)."""
         self.summary_label.config(
             text=(
                 f"Files examined: {total}\n"
@@ -486,10 +482,10 @@ class StemSeparatorApp(BaseSuiteApp):
                 f"Output: {output_dir}"
             )
         )
-        self.completion_label.config(text="Stem Separation Complete!")
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
+        self.render_completion(duration_secs=duration_secs, output_dir=output_dir)
 
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
         logger.info(
             "Stem separation complete - total=%d separated=%d files=%d "
             "skipped=%d errors=%d device=%s time=%02d:%02d",

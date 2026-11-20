@@ -16,6 +16,9 @@ run_stem_separation``, so patching ``file_processor.run_stem_separation`` left
 the real processor running: it found no audio in the temporary folder, returned
 normally, and the test failed on a zero-call ``_on_error`` instead of exercising
 the error path at all (PLAN_feature_expansion D11).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2); the completion stub
+supplies the shell's results frame, and the report write moved into
+``_on_complete`` so the seam that publishes the payload is the one that writes.
 """
 
 from __future__ import annotations
@@ -89,7 +92,7 @@ def _shell(tmp_path: Path) -> StemSeparatorApp:
     app.completion_label = MagicMock()
     app.notebook = MagicMock()
     app.start_btn = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.auto_end_var = MagicMock()
     app.auto_end_var.get.return_value = False
     app.progress = MagicMock()
