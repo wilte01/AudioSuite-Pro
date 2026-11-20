@@ -14,6 +14,10 @@ as published instead of reading each field with ``kw.get(field, 0)``, so
 a renamed or dropped count raises with its name instead of rendering a
 plausible zero in the finished report (PLAN D117).
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell
+owns the Help bar and the Processing and Results tabs; ``_on_complete`` now
+writes the report (with the SUMMARY block the shell's contract reads) on
+the worker thread, before it renders.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -25,15 +29,16 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any, cast
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import BaseSuiteApp
+from audio_suite_shared import suite_config
 from audio_suite_shared.batch_undo import active_batch
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
 )
+from audio_suite_shared.suite_app import SuiteApp
 
 from .core import file_processor
 from .core.art_processor import (
@@ -42,7 +47,7 @@ from .core.art_processor import (
     FolderImageError,
     process_folder_jpg,
 )
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 
 logger = logging.getLogger(__name__)
@@ -71,20 +76,18 @@ def _size_to_resolution(size: str) -> str:
     return key if key in RESOLUTION_MAP else ""
 
 
-class ArtNormalizerApp(BaseSuiteApp):
+class ArtNormalizerApp(SuiteApp):
     """Album Art Normalizer application GUI."""
 
-    HELP_GUIDE = "Album_Art_Normalizer_User_Guide.docx"
+    title = "Album Art Normalizer"
+    window_key = "art_normalizer_window"
+    program_name = TOOL_ID
+    guide_name = "Album_Art_Normalizer_User_Guide.docx"
+    completion_text = "Artwork Normalization Complete!"
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" Setup ", " Processing ", " Results ")
 
     def __init__(self, root: tk.Tk) -> None:
-        super().__init__(
-            root,
-            "Album Art Normalizer",
-            "art_normalizer_window",
-            "album_art_normalizer",
-            help_guide=self.HELP_GUIDE,
-        )
-
         # Tk variables
         self.folder_path: tk.StringVar = tk.StringVar()
         self.resolution: tk.StringVar = tk.StringVar(value="800×800")
@@ -102,8 +105,11 @@ class ArtNormalizerApp(BaseSuiteApp):
         self._log_path: str = ""
         self._dir_path: str = ""
 
-        # Build UI
-        self._build_ui()
+        # The Setup tab's run controls call the handler while the shell
+        # builds the window, so it has to exist before the shell runs.
+        self.cli_handler = UniversalCLIHandler(self)
+
+        super().__init__(root)
 
         # Apply CLI arguments
         self._apply_cli_args()
@@ -114,34 +120,12 @@ class ArtNormalizerApp(BaseSuiteApp):
             if last:
                 self.folder_path.set(last)
 
-    def _build_ui(self) -> None:
-        """Construct the full application UI."""
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
+    # ── Setup tab ─────────────────────────────────────────────────────────
 
-        self.notebook: ttk.Notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" Setup ")
-        self.notebook.add(tab_processing, text=" Processing ")
-        self.notebook.add(tab_results, text=" Results ")
-
-        setup_widgets = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folder, resolution and mode controls into *parent*."""
+        widgets = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             resolution=self.resolution,
             run_mode=self.run_mode,
@@ -153,29 +137,8 @@ class ArtNormalizerApp(BaseSuiteApp):
             parallel_var=self.parallel_var,
             driver_locked=self._launched_from_driver,
         )
-        self.start_btn: tk.Button = cast(tk.Button, setup_widgets["start_btn"])
-
-        proc_widgets = processing_tab.build(tab_processing)
-        self.overall_status: tk.StringVar = cast(
-            tk.StringVar, proc_widgets["overall_status"]
-        )
-        self.progress: ttk.Progressbar = cast(ttk.Progressbar, proc_widgets["progress"])
-        self.stats_label: tk.Label = cast(tk.Label, proc_widgets["stats_label"])
-        self.file_listbox: tk.Listbox = cast(tk.Listbox, proc_widgets["file_listbox"])
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = cast(
-            tk.Label, res_widgets["completion_label"]
-        )
-        self.time_label: tk.Label = cast(tk.Label, res_widgets["time_label"])
-        self.summary_label: tk.Label = cast(tk.Label, res_widgets["summary_label"])
-
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.start_btn: tk.Button = cast(tk.Button, widgets["start_btn"])
+        self.controls_panel: Any = widgets.get("controls_panel")
 
     def _apply_cli_args(self) -> None:
         """Parse and apply any command-line arguments."""
@@ -251,7 +214,7 @@ class ArtNormalizerApp(BaseSuiteApp):
         )
 
         self.start_btn.config(state="disabled")
-        self.notebook.select(self._tab_processing)
+        self.notebook.select(self.processing_frame)
         self.overall_status.set("Normalising artwork...")
 
         threading.Thread(
@@ -362,6 +325,14 @@ class ArtNormalizerApp(BaseSuiteApp):
         log_entries: list[str],
         **_extra: Any,
     ) -> None:
+        """Completion seam: write the report here, render it on the Tk thread."""
+        self._write_run_report(
+            total=total,
+            processed=processed,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+        )
         self.root.after(
             0,
             self._update_ui_on_complete,
@@ -372,6 +343,39 @@ class ArtNormalizerApp(BaseSuiteApp):
             duration_secs,
         )
 
+    def _write_run_report(
+        self,
+        *,
+        total: int,
+        processed: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+    ) -> None:
+        """Serialise the run report View Log opens; a failed write is logged."""
+        log_path = os.path.join(self._dir_path, "art_normalize_log.txt")
+        self._log_path = log_path
+        updated = processed - skipped - errors
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        summary = [
+            "",
+            "=" * 60,
+            "SUMMARY:",
+            f"Files examined: {total}",
+            f"Images updated: {updated}",
+            f"Skipped: {skipped}",
+            f"Errors: {errors}",
+            f"Output: {self._dir_path}",
+            f"Time: {minutes:02d}:{seconds:02d}",
+        ]
+        try:
+            with open(log_path, "w", encoding="utf-8") as handle:
+                for line in [*self._log_entries, *summary]:
+                    handle.write(line if line.endswith("\n") else line + "\n")
+        except OSError as exc:
+            logger.error("Failed to write log '%s': %s", log_path, exc, exc_info=True)
+
     def _update_ui_on_complete(
         self,
         total: int,
@@ -380,20 +384,11 @@ class ArtNormalizerApp(BaseSuiteApp):
         errors: int,
         duration_secs: float,
     ) -> None:
+        """Render the finished run (must run on the main thread)."""
+        updated = processed - skipped - errors
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
-        updated = processed - skipped - errors
 
-        # Write log file
-        log_path = os.path.join(self._dir_path, "art_normalize_log.txt")
-        self._log_path = log_path
-        try:
-            with open(log_path, "w", encoding="utf-8") as f:
-                f.writelines(f"{line}\n" for line in self._log_entries)
-        except OSError as exc:
-            logger.error("Failed to write log '%s': %s", log_path, exc, exc_info=True)
-
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
         self.summary_label.config(
             text=(
                 f"Files examined: {total}\n"
@@ -402,9 +397,7 @@ class ArtNormalizerApp(BaseSuiteApp):
                 f"Errors: {errors}"
             )
         )
-        self.completion_label.config(text="Artwork Normalization Complete!")
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
 
         logger.info(
             "Processing complete - total=%d updated=%d"

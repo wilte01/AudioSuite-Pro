@@ -39,6 +39,8 @@ Changed in 2.4.3: adds the run-report lock — the View Log defect fix's lesson 
 that the pointer, not the file, is what a test usually asserts (D-16).
 Changed in 2.9.0: the Stem Separator adopts the shell (C1 stage 2), so the table
 is four tools and the separator gains a run-report drive.
+Changed in 2.9.0: the Album Art Normalizer follows it in D8's wave 1, so the
+table is five tools.
 """
 
 from __future__ import annotations
@@ -53,6 +55,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from album_art_normalizer import app as art_normalizer_app
+from album_art_normalizer.app import ArtNormalizerApp
 from audio_suite_shared import suite_app
 from file_reorganizer import app as reorganizer_app
 from file_reorganizer.app import FileReorganizerApp
@@ -73,6 +77,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     FileReorganizerApp,
     LibraryStatsApp,
     StemSeparatorApp,
+    ArtNormalizerApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -133,12 +138,30 @@ def _stub_stem_separator_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_album_art_normalizer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the normaliser's launcher argv (it parses inside the constructor)."""
+    monkeypatch.setattr(
+        art_normalizer_app.cli_args,
+        "parse",
+        lambda: SimpleNamespace(
+            folder_path=None,
+            live_mode=None,
+            auto_start=False,
+            auto_end=False,
+            size="",
+            clear_logs=False,
+            parallel_run=False,
+        ),
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
     FileReorganizerApp: _stub_reorganizer_edges,
     LibraryStatsApp: _stub_library_stats_edges,
     StemSeparatorApp: _stub_stem_separator_edges,
+    ArtNormalizerApp: _stub_album_art_normalizer_edges,
 }
 
 
@@ -195,12 +218,30 @@ def _complete_stem_separator_run(app: StemSeparatorApp, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_album_art_normalizer_run(app: ArtNormalizerApp, tmp_path: Path) -> None:
+    """Drive the normaliser's completion: it serialises the report there."""
+    app._dir_path = str(tmp_path)
+    app._log_entries = ["=== Session started ===\n", "[OK] a.wav\n"]
+    app._on_complete(
+        total=1,
+        processed=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[OK] a.wav\n"],
+    )
+    # The report is written before the render is scheduled; run it now so the
+    # queued widget update lands while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
     FileReorganizerApp: _complete_reorganizer_run,
     LibraryStatsApp: _complete_library_stats_run,
     StemSeparatorApp: _complete_stem_separator_run,
+    ArtNormalizerApp: _complete_album_art_normalizer_run,
 }
 
 
@@ -372,6 +413,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "FileReorganizerApp",
         "LibraryStatsApp",
         "StemSeparatorApp",
+        "ArtNormalizerApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

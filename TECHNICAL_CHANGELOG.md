@@ -72,6 +72,14 @@ used once, and every bullet belongs to exactly one of them.
   the lock had no processor to compare against — it is now a named
   `StemSeparationProcessor` with the same defaults.
 
+- **The Album Art Normalizer follows it (C1 stage 2, wave 1).**
+  `ArtNormalizerApp` composes `SuiteApp` as well: the class carries the tool's
+  identity and its own tab labels, `_build_setup_tab` supplies the resolution
+  panel, and the shell builds the Help bar and the Processing and Results tabs.
+  Its two one-line tab delegates are deleted. Its report gained the `SUMMARY:`
+  block the contract reads — `_on_complete` now writes
+  `art_normalize_log.txt` on the worker thread instead of from the render.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

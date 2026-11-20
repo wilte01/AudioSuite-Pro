@@ -3,6 +3,8 @@
 Changed in 1.0.1: adds ``--size``-to-resolution pre-fill tests.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_normalization`` into the completion handler (PLAN D117).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell
+owns the Processing and Results frames and the stubs carry those names.
 """
 
 import sys
@@ -50,7 +52,7 @@ def _shell() -> Any:
     app.overall_status = MagicMock()
     app.notebook = MagicMock()
     app.start_btn = MagicMock()
-    app._tab_processing = MagicMock()
+    app.processing_frame = MagicMock()
     return app
 
 
@@ -74,7 +76,7 @@ class TestStartProcessingD3:
         app.overall_status = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_processing = MagicMock()
+        app.processing_frame = MagicMock()
         return app
 
     def test_missing_folder_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,7 +244,7 @@ def _completion_shell(directory: Path) -> ArtNormalizerApp:
     app.summary_label = MagicMock()
     app.completion_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     app.auto_end_var = MagicMock()
     app.auto_end_var.get.return_value = False

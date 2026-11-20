@@ -2,6 +2,8 @@
 
 Changed in 1.0.1: fixed os.path patch in TestGuiRunModeIsHonoured._start() to use
 patch("os.path.exists") instead of patch.object(app_mod, "os.path", ...).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the start-path
+stub carries the shell's ``processing_frame`` instead of ``_tab_processing``.
 
 Audit A1 (iteration 7, Stage 0) recorded two halves of one user-visible lie:
 
@@ -242,7 +244,7 @@ class TestGuiRunModeIsHonoured:
         app._run_normalization = MagicMock()
         app.start_btn = MagicMock()
         app.overall_status = MagicMock()
-        app._tab_processing = None
+        app.processing_frame = None
         app.notebook = MagicMock()
         return app
 
