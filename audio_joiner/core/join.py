@@ -24,8 +24,7 @@ from pydub import AudioSegment
 
 from audio_suite_shared.audio_formats import (
     SUPPORTED_EXTENSIONS,
-    get_export_args,
-    preserve_depth_params,
+    export_segment,
 )
 from audio_suite_shared.audio_probe import probe_stream
 from audio_suite_shared.exceptions import AudioConfigValueError, AudioSuiteError
@@ -167,10 +166,7 @@ def combine(segments: Sequence[AudioSegment], settings: JoinSettings) -> AudioSe
 
 def _export(audio: AudioSegment, destination: Path, template: Path) -> None:
     """Encode *audio* to *destination*, pinning a lossless template's depth."""
-    extension = destination.suffix.lower()
-    pydub_format, params = get_export_args(extension)
-    depth = preserve_depth_params(extension, str(template))
-    audio.export(str(destination), format=pydub_format, parameters=[*params, *depth])
+    export_segment(audio, destination, str(template))
 
 
 def join_files(

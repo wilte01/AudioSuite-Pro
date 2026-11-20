@@ -728,3 +728,50 @@ class TestNarrowedTupleIsLoadBearing:
         with patch("mutagen.File", side_effect=RuntimeError("programming error")):
             with pytest.raises(RuntimeError):
                 source_bit_depth(str(path))
+
+
+class TestExportSegment:
+    """``export_segment`` keeps the depth the parameter list promises."""
+
+    @requires_ffmpeg
+    def test_a_24_bit_source_is_written_back_at_24_bit(self, tmp_path: Path) -> None:
+        """Decode the written file and measure it (F-10/D-13).
+
+        The assertion is on the artefact, not on the parameters the writer
+        computed: a pin that is passed but ignored still leaves 16-bit audio on
+        disk, which is exactly the defect the parameter list cannot detect.
+        """
+        import subprocess
+
+        from pydub import AudioSegment
+
+        from audio_suite_shared.audio_formats import export_segment, source_bit_depth
+        from audio_suite_shared.ffmpeg import FFPROBE_PATH
+
+        source = tmp_path / "source.wav"
+        AudioSegment.silent(duration=120, frame_rate=44100).set_sample_width(3).export(
+            str(source), format="wav", parameters=["-c:a", "pcm_s24le"]
+        )
+        assert source_bit_depth(str(source)) == 24, "the fixture is not 24-bit"
+
+        destination = tmp_path / "written.wav"
+        export_segment(AudioSegment.from_file(str(source)), destination, str(source))
+
+        probe = subprocess.run(
+            [
+                str(FFPROBE_PATH),
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=bits_per_raw_sample",
+                "-of",
+                "default=noprint_wrappers=1",
+                str(destination),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "bits_per_raw_sample=24" in probe.stdout, probe.stdout

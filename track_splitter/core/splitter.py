@@ -30,8 +30,7 @@ from pydub import AudioSegment
 
 from audio_suite_shared.audio_formats import (
     SUPPORTED_EXTENSIONS,
-    get_export_args,
-    preserve_depth_params,
+    export_segment,
 )
 from audio_suite_shared.exceptions import AudioConfigValueError, AudioSuiteError
 
@@ -124,10 +123,7 @@ def _write_track(audio: AudioSegment, destination: Path, source: Path) -> None:
         source: The file the slice came from, whose declared depth the encoder
             pins for a lossless container.
     """
-    extension = destination.suffix.lower()
-    pydub_format, params = get_export_args(extension)
-    depth = preserve_depth_params(extension, str(source))
-    audio.export(str(destination), format=pydub_format, parameters=[*params, *depth])
+    export_segment(audio, destination, str(source))
 
 
 def split_file(

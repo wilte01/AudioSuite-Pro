@@ -25,9 +25,8 @@ from typing import Any, Callable
 from pydub import AudioSegment
 
 from .audio_formats import (
-    get_export_args,
+    export_segment,
     is_read_only_extension,
-    preserve_depth_params,
 )
 from .batch_undo import (
     get_active_batch_id,
@@ -181,17 +180,10 @@ class InplaceWorkflowMixin:
                 status = "FOUND"  # dry run: detected but not written
                 if not is_dry_run:
                     slot_vars[slot_idx].set(f"Exporting: {name[:25]}...")
-                    fmt, export_params = get_export_args(ext)
-                    # Pin a lossless source's bit depth: FFmpeg's WAV/AIFF
+                    # Pins a lossless source's bit depth: FFmpeg's WAV/AIFF
                     # encoders default to 16-bit and silently truncated a
                     # 24-bit source on every in-place rewrite (F-10).
-                    export_params = [
-                        *export_params,
-                        *preserve_depth_params(ext, full_path),
-                    ]
-                    outcome.audio.export(
-                        temp_output, format=fmt, parameters=export_params
-                    )
+                    export_segment(outcome.audio, temp_output, full_path)
 
                     slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
                     write_tags_raw(temp_output, original_tags, record_snapshot=False)

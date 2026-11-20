@@ -23,12 +23,17 @@ extension instead of silently writing MP3.
 Changed in 2.6.0: :func:`ffmpeg_encoder_args` exposes the matrix's own encoder,
 so a writer that must reach a container the normaliser refuses (a peak target on
 WAV/AIFF) resolves it from this one table instead of keeping a second (F-E2).
+Changed in 2.9.1: :func:`export_segment` is the one three-step write (encoder,
+depth pin, export) the segment-producing tools shared by hand, so the F-10 pin
+cannot be dropped from one caller while the others keep it.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from audio_suite_shared.exceptions import AudioFormatError
 
@@ -498,6 +503,33 @@ def preserve_depth_params(ext: str, file_path: str) -> list[str]:
         return ["-sample_fmt", "s32"]
     codec = _DEPTH_CODECS[ext].get((bits + 7) // 8)
     return ["-c:a", codec] if codec else []
+
+
+def export_segment(audio: Any, destination: str | Path, template: str) -> None:
+    """Encode *audio* to *destination*, pinning a lossless template's depth.
+
+    The three-step write every segment-producing tool performs by hand — resolve
+    the encoder for the destination's extension, pin the source file's integer
+    bit depth, then export — in one place.  The depth pin is the part that
+    matters: FFmpeg's WAV/AIFF muxers default to 16-bit PCM, so a writer that
+    forgets :func:`preserve_depth_params` silently truncates a 24-bit source
+    (F-10/D-13).  Sharing the write means one caller cannot lose the pin while
+    the others keep it.
+
+    Args:
+        audio: The decoded pydub segment to write.
+        destination: File to write; its extension selects the encoder.
+        template: The file the audio came from, whose declared depth is pinned
+            for a lossless destination.
+
+    Raises:
+        AudioFormatError: When the destination extension has no export path.
+    """
+    target = Path(destination)
+    extension = target.suffix.lower()
+    pydub_format, params = get_export_args(extension)
+    depth = preserve_depth_params(extension, str(template))
+    audio.export(str(target), format=pydub_format, parameters=[*params, *depth])
 
 
 # ── Bitrate constants for MP3 VBR/CBR ────────────────────────────────────────

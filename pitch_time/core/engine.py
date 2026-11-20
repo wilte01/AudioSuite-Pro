@@ -25,9 +25,8 @@ from pydub import AudioSegment
 
 from audio_suite_shared.audio_formats import (
     SUPPORTED_EXTENSIONS,
-    get_export_args,
+    export_segment,
     is_read_only_extension,
-    preserve_depth_params,
 )
 from audio_suite_shared.dsp_time_pitch import (
     TimePitchResult,
@@ -140,11 +139,8 @@ def _write(
         frame_rate=sample_rate,
         channels=channels,
     )
-    extension = destination.suffix.lower()
-    pydub_format, params = get_export_args(extension)
-    depth = preserve_depth_params(extension, str(source))
     destination.parent.mkdir(parents=True, exist_ok=True)
-    segment.export(str(destination), format=pydub_format, parameters=[*params, *depth])
+    export_segment(segment, destination, str(source))
 
 
 def _transform(
