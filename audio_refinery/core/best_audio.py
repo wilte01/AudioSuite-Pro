@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 from pydub import AudioSegment
 
 from audio_refinery.core.models import AUTO_STAGES, StageConfig
@@ -267,7 +268,7 @@ class VerificationResult:
 # ── Small measurement helpers ─────────────────────────────────────────────────
 
 
-def _segment_samples(audio: AudioSegment) -> tuple[np.ndarray, int]:
+def _segment_samples(audio: AudioSegment) -> tuple[npt.NDArray[np.float64], int]:
     """Return ``(mono float64 samples, sample_rate)`` for *audio*.
 
     Args:
@@ -285,7 +286,9 @@ def _segment_samples(audio: AudioSegment) -> tuple[np.ndarray, int]:
     return samples.mean(axis=0, dtype=np.float64), int(rate)
 
 
-def _bounded_window(mono: np.ndarray, rate: int) -> np.ndarray:
+def _bounded_window(
+    mono: npt.NDArray[np.float64], rate: int
+) -> npt.NDArray[np.float64]:
     """Return at most :data:`TILT_WINDOW_SECONDS` from the centre of *mono*."""
     limit = int(rate * TILT_WINDOW_SECONDS)
     if mono.size <= limit:
@@ -294,7 +297,12 @@ def _bounded_window(mono: np.ndarray, rate: int) -> np.ndarray:
     return mono[start : start + limit]
 
 
-def _band_db(freqs: np.ndarray, power: np.ndarray, low: float, high: float) -> float:
+def _band_db(
+    freqs: npt.NDArray[np.floating[Any]],
+    power: npt.NDArray[Any],
+    low: float,
+    high: float,
+) -> float:
     """Return the mean power density of one band, in dB."""
     mask = (freqs >= low) & (freqs < high)
     if not np.any(mask):
@@ -302,7 +310,10 @@ def _band_db(freqs: np.ndarray, power: np.ndarray, low: float, high: float) -> f
     return float(10.0 * np.log10(float(np.mean(power[mask])) + 1e-24))
 
 
-def _brightness_ceiling(freqs: np.ndarray, power: np.ndarray) -> int | None:
+def _brightness_ceiling(
+    freqs: npt.NDArray[np.floating[Any]],
+    power: npt.NDArray[Any],
+) -> int | None:
     """Return the highest frequency still carrying real content, in Hz.
 
     The spectrum is sampled in :data:`_CEILING_STEP_HZ` bands and the highest
