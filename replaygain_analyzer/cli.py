@@ -4,6 +4,8 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+
+Changed in 2.9.0: --target-lufs uses the shared Click callback (A2).
 """
 
 from __future__ import annotations

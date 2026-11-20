@@ -29,6 +29,8 @@ Design rules:
   a note from an earlier run impossible to display against a fresh batch;
   :func:`read_outcome` additionally treats a missing, unreadable or malformed
   file as "no note" rather than raising into the batch report.
+
+Changed in 2.9.0: _one_line is the shared text_utils.one_line (C3).
 """
 
 from __future__ import annotations

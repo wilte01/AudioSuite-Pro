@@ -15,6 +15,8 @@ itself (WP-4, C-M8).
 Changed in 2.6.0: ``BPMArgs.duration`` defaults to the shared
 ``DEFAULT_BPM_ANALYSIS_SECONDS`` (30 s), the window the periodicity floor
 was calibrated on, instead of 90 s while the CLI used 30 (D139).
+
+Changed in 2.9.0: validate_lufs_callback is the shared Click wrapper (A2).
 """
 
 from collections.abc import Collection, Sequence

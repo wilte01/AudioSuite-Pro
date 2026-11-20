@@ -29,6 +29,8 @@ standard library already handles correctly.
 Changed in 2.1.6: the import block is re-sorted against the corrected ruff
 target py311, so ``tomllib`` sits in the standard-library block the 3.11 floor
 puts it in (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.9.0: the walk-up lookup is suite_paths.find_upwards (A3).
 """
 
 from __future__ import annotations

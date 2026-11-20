@@ -5,6 +5,8 @@ The key is stored at the top level of ``audio_suite_config.json`` under
 Resolution order is:
 
     ``ACOUSTID_API_KEY`` env var  >  decrypted ``acoustid_api_key`` config value
+
+Changed in 2.9.0: the credential store is the shared SecretStore (A6).
 """
 
 from __future__ import annotations

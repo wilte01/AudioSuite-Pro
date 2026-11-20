@@ -46,6 +46,8 @@ Changed in 2.5.0: new module. The suite root had no shared implementation, so
 every caller derived it itself; :func:`suite_root` and :func:`suite_path` are
 now the only derivation, and the reuse lock's ``_hunts_the_suite_root_by_name``
 fails on a module that goes back to matching a directory name (plan D-44).
+
+Changed in 2.9.0: find_upwards is the one walk-up lookup (A3).
 """
 
 from __future__ import annotations

@@ -6,6 +6,8 @@ Contains no business logic itself; it only coordinates.
 Changed in 1.4.0: the saved worker default, slot grid and report header all
 resolve through ``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56);
 an over-grid typed count is logged rather than shown when unattended (D70).
+
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 
 from __future__ import annotations

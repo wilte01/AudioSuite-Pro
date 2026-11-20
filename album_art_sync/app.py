@@ -13,6 +13,8 @@ Changed in 2.5.0: presets moved off a tool-local ``presets.json`` onto the
 shared ``suite_config`` preset store, and the save/delete prompts are the
 shared ``ui_presets`` dialogs. A file left by an earlier version is imported
 once and renamed (plan D-49).
+
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 
 import json

@@ -33,6 +33,10 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.text_utils
+:members:
+```
+
 ## CLI plumbing
 
 ```{automodule} audio_suite_shared.cli_app
@@ -44,6 +48,10 @@ claim is proven from where a consumer actually stands.
 ```
 
 ```{automodule} audio_suite_shared.cli_helpers
+:members:
+```
+
+```{automodule} audio_suite_shared.analysis_cli
 :members:
 ```
 
@@ -148,6 +156,10 @@ claim is proven from where a consumer actually stands.
 ```
 
 ```{automodule} audio_suite_shared.launch_failure
+:members:
+```
+
+```{automodule} audio_suite_shared.secret_store
 :members:
 ```
 
@@ -342,6 +354,10 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.sqlite_helpers
+:members:
+```
+
 ```{automodule} audio_suite_shared.undo_schema
 :members:
 ```
@@ -425,6 +441,10 @@ claim is proven from where a consumer actually stands.
 ```
 
 ```{automodule} audio_suite_shared.ui_helpers
+:members:
+```
+
+```{automodule} audio_suite_shared.event_pump
 :members:
 ```
 

@@ -6,6 +6,8 @@ exercise the wiring and callback logic without a real GUI.
 Changed in 1.4.0: the slot grid is sized from DEFAULT_MAX_WORKERS.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_processing`` into the completion handler (PLAN D117).
+
+Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 """
 
 from pathlib import Path

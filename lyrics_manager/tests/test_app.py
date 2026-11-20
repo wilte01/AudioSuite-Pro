@@ -8,6 +8,8 @@ Changed in 1.4.1: pins that a tool which overrides no summary hook gets exactly
 the old completion summary, no extra rows (PLAN D109).
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_fetch`` into the completion handler (PLAN D117).
+
+Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 """
 
 from __future__ import annotations

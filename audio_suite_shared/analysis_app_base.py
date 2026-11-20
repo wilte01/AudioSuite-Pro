@@ -30,6 +30,8 @@ report writer (PLAN D80).
 Changed in 2.6.0: the shared duration widget starts at
 ``DEFAULT_ANALYSIS_SECONDS``, so Key Detector's command line, GUI, argument
 dataclass and Master Driver value are one number (D140).
+
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 
 from __future__ import annotations

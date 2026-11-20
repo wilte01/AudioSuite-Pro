@@ -6,6 +6,8 @@ multi-line note in a one-line field breaks the reader's layout, and an
 unbounded one can carry a whole traceback.  Both therefore collapsed their text
 the same way — whitespace to single spaces, cut to a limit, ASCII ellipsis —
 with their own copy of the four lines.
+
+Changed in 2.9.0: new module - the truncation two record writers shared (C3).
 """
 
 from __future__ import annotations

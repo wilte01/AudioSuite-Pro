@@ -12,6 +12,8 @@ edits in the user's name.  The environment variable covers one-off runs.
 
 Changed in 1.2.0: new module — the credential for ``--submit-isrc``
 (PLAN_feature_expansion.md D27).
+
+Changed in 2.9.0: the credential store is the shared SecretStore (A6).
 """
 
 from __future__ import annotations

@@ -26,6 +26,8 @@ WAV/AIFF) resolves it from this one table instead of keeping a second (F-E2).
 Changed in 2.9.1: :func:`export_segment` is the one three-step write (encoder,
 depth pin, export) the segment-producing tools shared by hand, so the F-10 pin
 cannot be dropped from one caller while the others keep it.
+
+Changed in 2.9.0: export_segment is the one three-step write (B2).
 """
 
 from __future__ import annotations

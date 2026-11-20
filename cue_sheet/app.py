@@ -8,6 +8,8 @@ that called ``root.after`` (or any widget method) would raise on 3.14 and leave
 the window waiting for a result that never arrives.
 
 Changed in 2.6.0: new module (PLAN_2026-11-03_2.6.0_feature_wave_2.md F-E8).
+
+Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
 """
 
 from __future__ import annotations

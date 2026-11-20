@@ -21,7 +21,7 @@ Changed in 2.6.0: ``--target-mode peak`` with ``--target-peak`` (F-E2) targets
 the true peak with one static gain instead of pushing integrated loudness to a
 LUFS figure, and the pair is refused beside ``--album-mode``.
 
-Changed in 2.9.0: ``--best-audio`` and ``--auto-stage`` select the stages whose
+Changed in 2.9.0: --target-lufs uses the shared Click callback (A2).
 parameters Best Audio measures per file.  Both resolve to one ``auto_stages``
 list, so the flag surface cannot describe a run the pipeline cannot read.
 """

@@ -13,6 +13,8 @@ Changed in 2.7.0: adds :func:`open_licence_viewer` and
 ``UIHelperMixin._open_licences_standard``, so the licence texts the installer
 stages can be read from the app (Help > Licences) instead of by browsing the
 install folder.
+
+Changed in 2.9.0: the source-folder opener and its message live here (A1).
 """
 
 import logging
@@ -274,6 +276,11 @@ class UIHelperMixin:
     Applications can inherit from this mixin to get standardized UI functionality
     without duplicating code.
     """
+
+    #: The tool's source-folder variable, provided by the window that composes
+    #: this mixin.  Declared here so ``_open_source_folder_standard`` can read
+    #: it without every adopter re-declaring the attribute.
+    folder_path: Any
 
     def _browse_folder_standard(
         self,

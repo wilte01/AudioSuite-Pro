@@ -30,6 +30,8 @@ _on_scheme_change
 Changed in 2.0.0: adds ``TestCompletionSeam``, which drives
 ``run_analysis`` into the bound handler and replaces the capture-only
 payload case this module used to rely on (PLAN D117).
+
+Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 """
 
 from __future__ import annotations

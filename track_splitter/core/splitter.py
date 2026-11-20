@@ -13,6 +13,8 @@ between them: a boundary moves *where* the silence falls, never whether the
 samples survive.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E4).
+
+Changed in 2.9.0: the segment write is the shared export_segment (B2).
 """
 
 from __future__ import annotations

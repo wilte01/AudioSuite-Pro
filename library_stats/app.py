@@ -45,6 +45,8 @@ run-controls Mode; the worker hands its result to the Tk thread through a
 ``SimpleQueue`` instead of calling ``root.after`` from the scan thread; and every
 scan writes ``<scanned folder>/library_stats_scan_log.txt``, the report View Log
 opens, with the suite's header/SUMMARY shape.
+
+Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
 """
 
 from __future__ import annotations

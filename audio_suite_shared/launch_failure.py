@@ -39,6 +39,8 @@ scans ``*.pyw`` so a fourth cannot appear (plan D-42).
 
 Changed in 2.4.3: initial version — a refused launch explains itself
 (PLAN_2026-11-03_2.4.3_structure.md D-22).
+
+Changed in 2.9.0: _one_line is the shared text_utils.one_line (C3).
 """
 
 from __future__ import annotations

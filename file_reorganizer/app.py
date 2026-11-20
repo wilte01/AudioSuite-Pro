@@ -43,6 +43,8 @@ Results tabs, the Dry Run checkbox becomes the run-controls Mode, the preview
 list becomes the shared Processing list and the completion modal becomes the
 shared Results tab.  The driver handshake's ``--live``/``--start``/``--end``
 flags, parsed but previously dropped, now reach the panel they belong to.
+
+Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
 """
 
 from __future__ import annotations

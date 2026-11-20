@@ -1,4 +1,7 @@
-"""Tests for audio_fingerprinter.utils.api_key."""
+"""Tests for audio_fingerprinter.utils.api_key.
+
+Changed in 2.9.0: the env patch target follows the read into secret_store (A6).
+"""
 
 from __future__ import annotations
 

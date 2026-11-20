@@ -72,6 +72,8 @@ button. Every released section of the same changelog renders newest first
 through the renderer both windows now share (``_build_panel``), and closing the
 archive records nothing as seen, so browsing the history cannot hide the
 pending notes the panel exists to show.
+
+Changed in 2.9.0: the walk-up lookup is suite_paths.find_upwards (A3).
 """
 
 from __future__ import annotations

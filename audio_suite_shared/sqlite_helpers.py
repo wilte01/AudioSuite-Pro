@@ -16,6 +16,8 @@ with its own copy of the same code:
 
 Both are now one implementation.  The DDL, the migrations and the queries stay
 where they are: those are each cache's own schema, not a shared capability.
+
+Changed in 2.9.0: new module - the cache helpers three modules shared (A5, A7, C2).
 """
 
 from __future__ import annotations

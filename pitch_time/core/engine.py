@@ -8,6 +8,8 @@ themselves are ``audio_suite_shared.dsp_time_pitch``; the tags come across
 through ``audio_suite_shared.tag_copy``.
 
 Changed in 2.7.0: new module (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
+
+Changed in 2.9.0: the segment write is the shared export_segment (B2).
 """
 
 from __future__ import annotations

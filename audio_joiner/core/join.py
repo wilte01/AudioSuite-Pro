@@ -8,6 +8,8 @@ so a run's result can be checked against its plan rather than against itself.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E5).
 Changed in 2.7.0: the easy-tag copy moved to ``audio_suite_shared.tag_copy`` (F-S4).
+
+Changed in 2.9.0: the segment write is the shared export_segment (B2).
 """
 
 from __future__ import annotations

@@ -13,6 +13,8 @@ each tool's own ``tests/test_app.py``.
 
 Changed in 1.4.0: `start_processing` and `_run_batch` cap a typed worker count
 at the slot grid (D66).
+
+Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 """
 
 import logging

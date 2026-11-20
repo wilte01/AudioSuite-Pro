@@ -5,6 +5,8 @@ Focus: CLI-driven Run Controls mirroring and handler wiring, using the
 object.__new__ + MagicMock shell pattern (no real display required).
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_analysis`` into the completion handler (PLAN D117).
+
+Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 """
 
 import os

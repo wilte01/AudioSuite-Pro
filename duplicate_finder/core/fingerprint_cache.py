@@ -37,6 +37,8 @@ them and a version-1 row is upgraded in place rather than discarded (F-E9).
 
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
+
+Changed in 2.9.0: auto_vacuum, batch() and scope_prefix are shared (A5, A7, C2).
 """
 
 from __future__ import annotations

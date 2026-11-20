@@ -13,6 +13,8 @@ completion, progress and error seams.  ``_on_complete``'s ``skipped``, ``errors`
 ``duration_secs`` and ``log_entries`` lost their defaults, so a payload that
 omits a count raises with its name instead of printing ``Errors: 0`` and
 ``Time: 00:00`` from a run that never reported.
+
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 
 import argparse

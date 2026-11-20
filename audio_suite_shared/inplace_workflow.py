@@ -8,6 +8,8 @@ unaffected.
 
 Changed in 2.4.3: split out of ``audio_suite_shared.file_processor_base``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+
+Changed in 2.9.0: the in-place rewrite uses the shared export_segment (B2).
 """
 
 from __future__ import annotations

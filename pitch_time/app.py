@@ -12,6 +12,8 @@ Changed in 2.7.0: new module (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
 Changed in 2.7.0: the Tempo / Pitch row is labelled "Change:" rather than
 "Mode:", which the run-mode row above it already used; two rows sharing one
 word read as one control.
+
+Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
 """
 
 from __future__ import annotations

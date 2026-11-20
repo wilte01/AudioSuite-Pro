@@ -101,6 +101,8 @@ Changed in 2.6.0: the cache carries the artwork coverage fact (F-E10) -
 schema version 4's ``has_art`` column, written by ``upsert_file`` and read
 back by ``get_cached_art`` - so an incremental scan can report
 ``missing_data["no_art"]`` without reading an unchanged file's tags.
+
+Changed in 2.9.0: batch() and _commit() come from the shared mixin (A7).
 """
 
 from __future__ import annotations

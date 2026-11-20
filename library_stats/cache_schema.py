@@ -15,6 +15,8 @@ coverage fact (F-E10).  The column lives on ``files``, on the
 existing cache by one ``ALTER TABLE`` in :func:`migrate`.  A row written
 before the upgrade keeps NULL, which the cached scan reads as "not measured
 yet" and re-reads once, the same healing rule as a NULL ``size``.
+
+Changed in 2.9.0: auto_vacuum is the shared sqlite_helpers helper (A5).
 """
 
 from __future__ import annotations

@@ -20,6 +20,8 @@ Changed in 1.4.0: ``max_workers`` defaults to ``default_max_workers()``.
 Changed in 2.6.0: ``analysis_duration`` defaults to
 ``DEFAULT_ANALYSIS_SECONDS``, the window the GUI and the command line use
 (D140).
+
+Changed in 2.9.0: the parser and validation come from analysis_cli (B3).
 """
 
 from dataclasses import dataclass

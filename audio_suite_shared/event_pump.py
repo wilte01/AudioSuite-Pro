@@ -17,6 +17,8 @@ keeps a ``_dispatch`` method holding its own rendering.
 that is closing must not drain anything at all, while a window whose worker has
 finished drains what is left and then stops re-arming; collapsing the two would
 either lose the last events or spin forever.
+
+Changed in 2.9.0: new module - the Tk poller eight windows wrote by hand (B1).
 """
 
 from __future__ import annotations

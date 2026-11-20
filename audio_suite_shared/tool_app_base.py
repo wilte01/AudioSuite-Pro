@@ -27,6 +27,8 @@ Changed in 2.0.0: ``NoisePopToolApp``'s progress and completion handlers accept
 callback-payload lock instead of hiding behind a local wrapper (Sprint 6).
 
 Changed in 2.8.0: the docstring no longer cites the denoiser as an example window.
+
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.

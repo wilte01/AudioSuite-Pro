@@ -55,6 +55,8 @@ coverage without re-reading an unchanged file's tags.  A row cached before
 the fact existed carries NULL and is re-read once, the healing rule a NULL
 ``size`` already follows; the full scan reports the same key so the two
 report shapes stay identical.
+
+Changed in 2.9.0: the key/BPM/decade classifiers come from cache_store (A4).
 """
 
 # Changed in 2.6.0: per-file artwork facts (F-E10) - ``has_art`` and the

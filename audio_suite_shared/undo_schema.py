@@ -11,6 +11,7 @@ Changed in 2.4.3: split out of ``audio_suite_shared.batch_undo``
 Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
+Changed in 2.9.0: auto_vacuum is the shared sqlite_helpers helper (A5).
 """
 
 from __future__ import annotations

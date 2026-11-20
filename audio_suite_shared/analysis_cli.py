@@ -10,6 +10,8 @@ change to the handshake or to the duration bounds had to be made twice.
 This module owns that surface.  A tool keeps a module with its own name and
 docstring, its argument record (a subclass, so a future tool-specific option
 has somewhere to live) and a two-line ``parse`` wrapper; the behaviour is here.
+
+Changed in 2.9.0: new module - the parser and command two analysis tools shared (B3).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from __future__ import annotations
 import json as _json_mod
 import os
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -115,7 +117,7 @@ def validate_analysis_args(args: AnalysisCLIArgs, tool_name: str) -> list[Any]:
 def parse_analysis_args(
     args_type: type[_ArgsT],
     tool_name: str,
-    argv: Sequence[str] | None = None,
+    argv: list[str] | None = None,
 ) -> _ArgsT:
     """Parse the Master Driver handshake and the shared option tail.
 

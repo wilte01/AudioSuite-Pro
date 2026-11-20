@@ -15,6 +15,8 @@ invariant, the ``tag_writable``/``TagHandlerFactory`` agreement, the
 export refusal that replaced the MP3 fallback, and a measured round trip
 per writable row. They live here rather than in a composite file because
 this module is the one under test.
+
+Changed in 2.9.0: TestExportSegment measures the written depth (B2).
 """
 
 import shutil

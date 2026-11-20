@@ -6,6 +6,8 @@ Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
 Changed in 2.6.0: ``--duration`` defaults to ``DEFAULT_ANALYSIS_SECONDS``, the
 window the GUI and the Master Driver use (D140).
+
+Changed in 2.9.0: the command is built by analysis_cli.analysis_command (B3).
 """
 
 from __future__ import annotations

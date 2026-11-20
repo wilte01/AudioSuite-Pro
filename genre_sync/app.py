@@ -12,6 +12,7 @@ the processor adds is ignored instead of aborting a running batch
 Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 
 import logging

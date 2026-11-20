@@ -15,6 +15,8 @@ module is where a test (and a future alternative store) substitutes them; the
 shared part is the order and the encryption, not the config file.  Nothing here
 logs or returns a credential value: a decrypt failure warns and yields ``""``,
 which every caller already treats as "not configured".
+
+Changed in 2.9.0: new module - the credential order two secrets shared (A6).
 """
 
 from __future__ import annotations

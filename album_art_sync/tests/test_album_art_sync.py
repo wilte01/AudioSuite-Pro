@@ -45,6 +45,8 @@ and the pipeline resolve the same file, a legacy JSON + ``.key`` pair is
 migrated without touching the originals, and no caller may pass an argument to
 ``load_config``/``save_config`` again (audit R-04,
 ``PLAN_audit_2026-10-24_remediation.md`` B1).
+
+Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 """
 
 from __future__ import annotations

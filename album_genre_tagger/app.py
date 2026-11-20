@@ -7,6 +7,8 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+
+Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 """
 
 import os

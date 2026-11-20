@@ -10,6 +10,8 @@ Changed in 2.4.3: split out of ``library_stats.library_cache``
 Changed in 2.6.0: ``upsert_file`` takes the artwork coverage fact and
 ``get_cached_art`` reads it back scoped, so the incremental scan can report
 ``missing_data["no_art"]`` for files it never reopens (F-E10).
+
+Changed in 2.9.0: _path_prefix delegates to scope_prefix (C2).
 """
 
 from __future__ import annotations
@@ -158,6 +160,10 @@ class CacheStoreMixin:
 
     def _connect(self) -> sqlite3.Connection:
         """Provided by ``LibraryCache`` itself; composed ahead of this mixin."""
+        raise NotImplementedError
+
+    def _commit(self) -> None:
+        """Provided by ``BatchTransactionMixin``; composed ahead of this mixin."""
         raise NotImplementedError
 
     @staticmethod

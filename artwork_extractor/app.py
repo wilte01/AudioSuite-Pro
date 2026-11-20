@@ -14,6 +14,8 @@ it again when the run finishes.  The extraction itself is
 through the same shared artwork helpers ``audiosuite artwork extract`` uses.
 
 Changed in 2.6.0: new module — the Artwork Extractor's window.
+
+Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
 """
 
 from __future__ import annotations
