@@ -49,7 +49,11 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from audio_suite_shared.sqlite_helpers import BatchTransactionMixin, enable_auto_vacuum
+from audio_suite_shared.sqlite_helpers import (
+    BatchTransactionMixin,
+    enable_auto_vacuum,
+    scope_prefix,
+)
 
 from .models import FingerprintRecord
 
@@ -222,7 +226,8 @@ class FingerprintCache(BatchTransactionMixin):
         """Return *dir_path* normalised with a trailing separator.
 
         The trailing separator is what keeps ``D:\\\\Music`` from also matching
-        ``D:\\\\Musicology``.
+        ``D:\\\\Musicology``; the rule itself lives once, in
+        :func:`audio_suite_shared.sqlite_helpers.scope_prefix`.
 
         Args:
             dir_path: The directory a scan is rooted at.
@@ -230,10 +235,7 @@ class FingerprintCache(BatchTransactionMixin):
         Returns:
             The normalised scope prefix.
         """
-        normalised = os.path.normpath(dir_path)
-        if not normalised.endswith(os.sep):
-            normalised += os.sep
-        return normalised
+        return scope_prefix(dir_path)
 
     def load_under(self, dir_path: str) -> dict[str, FingerprintRecord]:
         """Return every cached record under *dir_path*, keyed by path.

@@ -21,6 +21,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from audio_suite_shared.sqlite_helpers import scope_prefix
+
 from .cache_schema import (
     _CLEAR_SCOPE_SQL,
     _POPULATE_SCOPE_INDEXED,
@@ -160,15 +162,13 @@ class CacheStoreMixin:
 
     @staticmethod
     def _path_prefix(dir_path: str) -> str:
-        """Normalize a directory path into a prefix for INSTR matching.
+        """Return *dir_path* normalised into a prefix for INSTR matching.
 
-        Ensures a trailing separator so that ``D:\\Music`` becomes
-        ``D:\\Music\\`` and correctly matches only files under that tree.
+        The trailing separator is what keeps ``D:\\Music`` from also matching
+        ``D:\\Musicology``; the rule itself lives once, in
+        :func:`audio_suite_shared.sqlite_helpers.scope_prefix`.
         """
-        normalized = os.path.normpath(dir_path)
-        if not normalized.endswith(os.sep):
-            normalized += os.sep
-        return normalized
+        return scope_prefix(dir_path)
 
     def scope_plan_kind(self, dir_path: str) -> str:
         """Return which scope plan *dir_path* would use: ``indexed``/``sequential``.
