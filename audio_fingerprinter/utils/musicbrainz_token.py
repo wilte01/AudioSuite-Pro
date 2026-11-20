@@ -19,7 +19,8 @@ from __future__ import annotations
 import logging
 import os
 
-from audio_suite_shared.exceptions import AudioProcessingError, handle_audio_errors
+from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.secret_store import SecretStore
 from audio_suite_shared.security.key_manager import KeyManager
 from audio_suite_shared.suite_config import CONFIG_PATH, load_value, save_value
 
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 CONFIG_KEY = "musicbrainz_token"
 ENV_VAR = "MUSICBRAINZ_TOKEN"
+
+#: Same shared resolution order as the AcoustID key; only the credential, its
+#: environment variable and its user-facing label differ.
+_STORE = SecretStore(config_key=CONFIG_KEY, env_var=ENV_VAR, label="MusicBrainz token")
 
 
 def get_key_manager() -> KeyManager:
@@ -50,21 +55,7 @@ def load_token() -> str:
     Returns:
         The token string, or ``""`` when none is configured.
     """
-    from_env = os.environ.get(ENV_VAR, "").strip()
-    if from_env:
-        return from_env
-
-    stored = load_value(CONFIG_KEY, "")
-    if not isinstance(stored, str) or not stored:
-        return ""
-
-    try:
-        return get_key_manager().decrypt_string(stored)
-    except AudioProcessingError:
-        logger.warning(
-            "Stored MusicBrainz token could not be decrypted.", exc_info=True
-        )
-        return ""
+    return _STORE.load(get_key_manager(), load_value)
 
 
 def save_token(token: str) -> None:
@@ -76,15 +67,12 @@ def save_token(token: str) -> None:
     Raises:
         AudioProcessingError: If encryption fails.
     """
-    value = ""
-    if token:
-        value = get_key_manager().encrypt_string(token.strip())
-    save_value(CONFIG_KEY, value)
+    _STORE.save(token, get_key_manager(), save_value)
 
 
 def clear_token() -> None:
     """Remove the stored MusicBrainz token from the config."""
-    save_value(CONFIG_KEY, "")
+    _STORE.clear(save_value)
 
 
 def has_token() -> bool:

@@ -10,9 +10,9 @@ Resolution order is:
 from __future__ import annotations
 
 import logging
-import os
 
-from audio_suite_shared.exceptions import AudioProcessingError, handle_audio_errors
+from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.secret_store import SecretStore
 from audio_suite_shared.security.key_manager import KeyManager
 from audio_suite_shared.suite_config import CONFIG_PATH, load_value, save_value
 
@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 CONFIG_KEY = "acoustid_api_key"
 ENV_VAR = "ACOUSTID_API_KEY"
+
+#: The resolution order and the encryption live in ``audio_suite_shared``; this
+#: module only names which credential it is and where the config accessors come
+#: from, so the fingerprinter's two secrets cannot drift apart.
+_STORE = SecretStore(config_key=CONFIG_KEY, env_var=ENV_VAR, label="AcoustID API key")
 
 
 def get_key_manager() -> KeyManager:
@@ -41,19 +46,7 @@ def load_api_key() -> str:
     Returns:
         The key string, or ``""`` when none is configured.
     """
-    from_env = os.environ.get(ENV_VAR, "").strip()
-    if from_env:
-        return from_env
-
-    stored = load_value(CONFIG_KEY, "")
-    if not isinstance(stored, str) or not stored:
-        return ""
-
-    try:
-        return get_key_manager().decrypt_string(stored)
-    except AudioProcessingError:
-        logger.warning("Stored AcoustID API key could not be decrypted.", exc_info=True)
-        return ""
+    return _STORE.load(get_key_manager(), load_value)
 
 
 def save_api_key(api_key: str) -> None:
@@ -65,15 +58,12 @@ def save_api_key(api_key: str) -> None:
     Raises:
         AudioProcessingError: If encryption fails.
     """
-    value = ""
-    if api_key:
-        value = get_key_manager().encrypt_string(api_key.strip())
-    save_value(CONFIG_KEY, value)
+    _STORE.save(api_key, get_key_manager(), save_value)
 
 
 def clear_api_key() -> None:
     """Remove the stored AcoustID API key from the config."""
-    save_value(CONFIG_KEY, "")
+    _STORE.clear(save_value)
 
 
 def has_api_key() -> bool:

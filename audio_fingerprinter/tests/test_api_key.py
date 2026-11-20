@@ -34,18 +34,18 @@ class TestGetKeyManager:
 
 
 class TestLoadApiKey:
-    @patch("audio_fingerprinter.utils.api_key.os.environ", {})
+    @patch("audio_suite_shared.secret_store.os.environ", {})
     @patch("audio_fingerprinter.utils.api_key.load_value", return_value="")
     def test_no_key_returns_empty(self, mock_load):
         result = load_api_key()
         assert result == ""
 
-    @patch("audio_fingerprinter.utils.api_key.os.environ", {ENV_VAR: "env_key"})
+    @patch("audio_suite_shared.secret_store.os.environ", {ENV_VAR: "env_key"})
     def test_env_var_takes_priority(self):
         result = load_api_key()
         assert result == "env_key"
 
-    @patch("audio_fingerprinter.utils.api_key.os.environ", {})
+    @patch("audio_suite_shared.secret_store.os.environ", {})
     @patch("audio_fingerprinter.utils.api_key.load_value", return_value="encrypted_val")
     @patch("audio_fingerprinter.utils.api_key.get_key_manager")
     def test_stored_key_decrypted(self, mock_km, mock_load):
@@ -53,7 +53,7 @@ class TestLoadApiKey:
         result = load_api_key()
         assert result == "decrypted_key"
 
-    @patch("audio_fingerprinter.utils.api_key.os.environ", {})
+    @patch("audio_suite_shared.secret_store.os.environ", {})
     @patch("audio_fingerprinter.utils.api_key.load_value", return_value="encrypted_val")
     @patch("audio_fingerprinter.utils.api_key.get_key_manager")
     def test_decrypt_failure_returns_empty(self, mock_km, mock_load):
@@ -63,7 +63,7 @@ class TestLoadApiKey:
         result = load_api_key()
         assert result == ""
 
-    @patch("audio_fingerprinter.utils.api_key.os.environ", {ENV_VAR: "  env_key  "})
+    @patch("audio_suite_shared.secret_store.os.environ", {ENV_VAR: "  env_key  "})
     def test_env_var_stripped(self):
         result = load_api_key()
         assert result == "env_key"
