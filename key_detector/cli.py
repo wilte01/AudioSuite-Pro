@@ -10,63 +10,24 @@ window the GUI and the Master Driver use (D140).
 
 from __future__ import annotations
 
-import json as _json_mod
+from collections.abc import Callable
+from typing import Any
 
-import click
-
-from audio_suite_shared.batch_undo import active_batch
-from audio_suite_shared.cli_base import (
-    _opt_dir,
-    _opt_dry_run,
-    _opt_json,
-    _opt_parallel,
-    _opt_workers,
-    _run_tool,
-    cli,
-    finish_run,
-)
-from audio_suite_shared.constants import DEFAULT_ANALYSIS_SECONDS
+from audio_suite_shared.analysis_cli import analysis_command
 
 
-@cli.command()
-@_opt_dir
-@_opt_dry_run
-@_opt_json
-@_opt_parallel
-@_opt_workers
-@click.option(
-    "--duration",
-    default=DEFAULT_ANALYSIS_SECONDS,
-    type=int,
-    help=f"Analysis duration in seconds (default {DEFAULT_ANALYSIS_SECONDS}).",
-)
-def key(
-    directory: str,
-    dry_run: bool,
-    json: bool,
-    duration: int,
-    parallel: bool,
-    workers: int,
-) -> None:
-    """Detect and tag musical key."""
+def _processor() -> Callable[..., Any]:
+    """Return this tool's batch processor, imported on first use."""
     from key_detector.core.file_processor import run_analysis
 
-    with active_batch("key_detector", "tag_edit"):
-        result = _run_tool(
-            "Key Detector",
-            run_analysis,
-            dir_path=directory,
-            is_dry_run=dry_run,
-            analysis_duration=duration,
-            parallel_mode=parallel,
-            max_workers=workers,
-        )
-    if json:
-        click.echo(_json_mod.dumps(result.to_payload("key", dry_run=dry_run), indent=2))
-    else:
-        click.echo(
-            f"  Summary: {result.processed} files, "
-            f"{result.skipped} skipped, {result.errors} errors "
-            f"in {result.duration_secs:.1f}s"
-        )
-    finish_run(result)
+    return run_analysis
+
+
+key = analysis_command(
+    name="key",
+    tool_title="Key Detector",
+    payload_tag="key",
+    batch_tool="key_detector",
+    summary="Detect and tag musical key.",
+    processor=_processor,
+)
