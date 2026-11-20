@@ -108,10 +108,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from audio_suite_shared.sqlite_helpers import BatchTransactionMixin
 
 from .cache_prune import _HISTORY_SNAPSHOTS as _HISTORY_SNAPSHOTS
 from .cache_prune import CachePruneMixin as CachePruneMixin
@@ -151,7 +151,7 @@ logger = logging.getLogger(__name__)
 _DB_LOCK = threading.Lock()
 
 
-class LibraryCache(CacheStoreMixin, CachePruneMixin):
+class LibraryCache(BatchTransactionMixin, CacheStoreMixin, CachePruneMixin):
     """SQLite-backed persistent cache for audio file tag metadata.
 
     Designed for incremental scanning: compare current file mtimes against
@@ -198,34 +198,6 @@ class LibraryCache(CacheStoreMixin, CachePruneMixin):
                     enable_auto_vacuum(self._conn)
                     self._conn.execute(_SCOPE_TABLE_SQL)
         return self._conn
-
-    def _commit(self) -> None:
-        """Commit now, unless a ``batch()`` block owns the transaction."""
-        if self._batch_depth == 0 and self._conn is not None:
-            self._conn.commit()
-
-    @contextmanager
-    def batch(self) -> Iterator[None]:
-        """Group every write inside the block into one transaction.
-
-        Commit-per-row is the cache's dominant scan cost (37.3 s for 20 000
-        rows against 0.18 s batched), so a cached scan wraps its upserts in
-        this block.  Nested blocks are reference-counted; only the outermost
-        commits, and any exception rolls the whole group back.
-        """
-        conn = self._connect()
-        self._batch_depth += 1
-        try:
-            yield
-        except BaseException:
-            self._batch_depth -= 1
-            if self._batch_depth == 0:
-                conn.rollback()
-            raise
-        else:
-            self._batch_depth -= 1
-            if self._batch_depth == 0:
-                conn.commit()
 
     def close(self) -> None:
         if self._conn is not None:

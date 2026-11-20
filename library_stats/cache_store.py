@@ -158,10 +158,6 @@ class CacheStoreMixin:
         """Provided by ``LibraryCache`` itself; composed ahead of this mixin."""
         raise NotImplementedError
 
-    def _commit(self) -> None:
-        """Provided by ``LibraryCache`` itself; composed ahead of this mixin."""
-        raise NotImplementedError
-
     @staticmethod
     def _path_prefix(dir_path: str) -> str:
         """Normalize a directory path into a prefix for INSTR matching.

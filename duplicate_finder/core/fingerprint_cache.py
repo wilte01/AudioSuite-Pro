@@ -46,10 +46,10 @@ import logging
 import os
 import sqlite3
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from audio_suite_shared.sqlite_helpers import BatchTransactionMixin, enable_auto_vacuum
 
 from .models import FingerprintRecord
 
@@ -100,9 +100,6 @@ _HASH_COLUMN_UPGRADES: tuple[tuple[str, str], ...] = (
     ),
 )
 
-_AUTO_VACUUM_FULL = 1
-
-
 #: Environment override for the cache location.  The same escape hatch
 #: ``AUDIOSUITE_LOG_DIR`` and ``AUDIOSUITE_UNDO_DB`` give: the suite's own tests
 #: redirect it, so no test writes into the developer's home directory, and a
@@ -140,7 +137,7 @@ def _path_hash(filepath: str) -> str:
     return hashlib.sha256(os.path.normpath(filepath).encode("utf-8")).hexdigest()
 
 
-class FingerprintCache:
+class FingerprintCache(BatchTransactionMixin):
     """Persistent ``path -> FingerprintRecord`` store with stamp freshness."""
 
     def __init__(self, cache_path: str | Path | None = None) -> None:
@@ -171,7 +168,7 @@ class FingerprintCache:
                     self._conn.execute("PRAGMA busy_timeout=30000")
                     self._conn.executescript(_SCHEMA_SQL)
                     self._migrate(self._conn)
-                    self._enable_auto_vacuum(self._conn)
+                    enable_auto_vacuum(self._conn)
                     self._conn.commit()
         return self._conn
 
@@ -198,23 +195,6 @@ class FingerprintCache:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
         conn.commit()
 
-    @staticmethod
-    def _enable_auto_vacuum(conn: sqlite3.Connection) -> None:
-        """Set the persistent ``auto_vacuum=FULL`` flag, converting once.
-
-        A file created before the flag was set is converted in place with a
-        one-time ``VACUUM``; afterwards the flag is only read.
-
-        Args:
-            conn: An open connection with no transaction in flight.
-        """
-        row = conn.execute("PRAGMA auto_vacuum").fetchone()
-        if row is not None and int(row[0]) == _AUTO_VACUUM_FULL:
-            return
-        conn.execute("PRAGMA auto_vacuum = FULL")
-        conn.commit()
-        conn.execute("VACUUM")
-
     def close(self) -> None:
         """Close the connection, if one is open."""
         if self._conn is not None:
@@ -229,33 +209,6 @@ class FingerprintCache:
     def __exit__(self, *args: Any) -> None:
         """Close the cache when the context ends."""
         self.close()
-
-    @contextmanager
-    def batch(self) -> Iterator[None]:
-        """Group every write inside the block into one transaction.
-
-        Commit-per-row dominates a scan's write cost, so a fingerprinted library
-        is written in one transaction.  Nested blocks are reference-counted;
-        any exception rolls the whole group back.
-        """
-        conn = self._connect()
-        self._batch_depth += 1
-        try:
-            yield
-        except BaseException:
-            self._batch_depth -= 1
-            if self._batch_depth == 0:
-                conn.rollback()
-            raise
-        else:
-            self._batch_depth -= 1
-            if self._batch_depth == 0:
-                conn.commit()
-
-    def _commit(self) -> None:
-        """Commit now, unless a :meth:`batch` block owns the transaction."""
-        if self._batch_depth == 0 and self._conn is not None:
-            self._conn.commit()
 
     @property
     def db_path(self) -> Path:

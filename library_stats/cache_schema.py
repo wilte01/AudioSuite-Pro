@@ -24,6 +24,13 @@ import logging
 import os
 import sqlite3
 
+from audio_suite_shared.sqlite_helpers import AUTO_VACUUM_FULL
+from audio_suite_shared.sqlite_helpers import enable_auto_vacuum as enable_auto_vacuum
+
+#: ``PRAGMA auto_vacuum``'s FULL mode.  Kept resolvable from this module: the
+#: public API lock pins ``cache_schema._AUTO_VACUUM_FULL``.
+_AUTO_VACUUM_FULL = AUTO_VACUUM_FULL
+
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _SCHEMA_SQL = """
@@ -129,8 +136,6 @@ _SCOPED_CLEAR_INDEXED = "DELETE FROM files WHERE path_fold >= ? AND path_fold < 
 
 _SCOPED_CLEAR_SEQUENTIAL = "DELETE FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
 
-_AUTO_VACUUM_FULL = 1
-
 
 def _path_hash(filepath: str) -> str:
     return hashlib.sha256(os.path.normpath(filepath).encode("utf-8")).hexdigest()
@@ -144,25 +149,6 @@ def _path_fold(filepath: str) -> str:
     upsert or backfilled by the migration.
     """
     return os.path.normpath(filepath).lower()
-
-
-def enable_auto_vacuum(conn: sqlite3.Connection) -> None:
-    """Ensure the cache reclaims freed pages automatically.
-
-    Sets the persistent ``auto_vacuum=FULL`` file flag so every prune
-    (``remove_orphans``/``clear_dir``/``clear_all``/``INSERT OR REPLACE``)
-    returns freed pages to the operating system at commit instead of
-    leaving them inside a permanently growing database file.  Files that
-    predate the flag are converted in place with a one-time ``VACUUM``;
-    once the flag is set, later connects only read it and skip.  Must be
-    called under ``_DB_LOCK`` with no open transaction.
-    """
-    row = conn.execute("PRAGMA auto_vacuum").fetchone()
-    if row is not None and int(row[0]) == _AUTO_VACUUM_FULL:
-        return
-    conn.execute("PRAGMA auto_vacuum = FULL")
-    conn.commit()
-    conn.execute("VACUUM")
 
 
 def migrate(conn: sqlite3.Connection) -> None:
