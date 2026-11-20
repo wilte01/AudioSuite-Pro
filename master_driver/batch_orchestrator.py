@@ -46,6 +46,13 @@ batch schedules its window like any other step and gets the run report back;
 the step depends on nothing another tool produces.
 
 Changed in 2.8.0: the denoiser's batch leaf leaves with the tool.
+
+Changed in 2.9.0: ``run()`` records each completed step's duration
+through ``suite_config.save_batch_durations``, so the per-tool history
+``_emit_progress`` reads is populated.  The ETA prices each step still to
+run from its own tool's average, falling back to this batch's average of
+completed steps when a tool has no history, so a batch of mixed tools is
+no longer quoted one batch-wide number.
 """
 
 from __future__ import annotations
@@ -497,13 +504,16 @@ class BatchOrchestrator:
         failed_steps: list[str] = []
 
         if parallel:
-            return self._run_parallel(
+            report = self._run_parallel(
                 total, max_workers, progress_callback, completed_count, failed_steps
             )
+        else:
+            report = self._run_sequential(
+                total, progress_callback, completed_count, failed_steps
+            )
 
-        return self._run_sequential(
-            total, progress_callback, completed_count, failed_steps
-        )
+        self._record_step_durations(report)
+        return report
 
     def _run_sequential(
         self,
@@ -814,24 +824,33 @@ class BatchOrchestrator:
         elapsed_secs = time.monotonic() - (self._start_time or time.monotonic())
         elapsed = timedelta(seconds=int(elapsed_secs))
 
-        # Estimate remaining based on completed steps' average duration
+        # Price each step still to run (PENDING, or RUNNING at the moment it is
+        # reported) from its own recorded history, so a batch mixing a long tool
+        # with a short one is not quoted one batch-wide number.  A tool with no
+        # history borrows this batch's average of completed steps; before the
+        # batch has completed anything it adds nothing.  Concurrent steps each
+        # count in full, so a parallel batch reports an upper bound.
         completed_durations = [
             s.duration
             for s in self._steps
             if s.duration is not None and s.status == StepStatus.COMPLETED
         ]
-        remaining = total - completed_count
-        estimated_remaining_secs = 0.0
-        if completed_durations and remaining > 0:
-            avg = sum(completed_durations) / len(completed_durations)
-            estimated_remaining_secs = avg * remaining
-        elif completed_count == 0 and remaining > 0:
-            # No completed data yet; use historical average from config
-            from audio_suite_shared import suite_config as _cfg
+        batch_avg = (
+            sum(completed_durations) / len(completed_durations)
+            if completed_durations
+            else None
+        )
+        from audio_suite_shared import suite_config as _cfg
 
-            avg_dur = _cfg.load_average_tool_duration(current.tool_id)
-            if avg_dur is not None:
-                estimated_remaining_secs = avg_dur * remaining
+        estimated_remaining_secs = 0.0
+        for step in self._steps:
+            if step.status not in (StepStatus.PENDING, StepStatus.RUNNING):
+                continue
+            step_avg = _cfg.load_average_tool_duration(step.tool_id)
+            if step_avg is None:
+                step_avg = batch_avg
+            if step_avg is not None:
+                estimated_remaining_secs += step_avg
 
         estimated_remaining = timedelta(seconds=int(estimated_remaining_secs))
 
@@ -870,6 +889,44 @@ class BatchOrchestrator:
             notes={s.tool_id: s.note for s in self._steps if s.note},
         )
         callback(progress)
+
+    def _record_step_durations(self, report: BatchReport) -> None:
+        """Append each completed step's duration to the shared config.
+
+        :meth:`_emit_progress` prices each step still to run from
+        ``suite_config.load_average_tool_duration``, and this is the only
+        writer of that history: without it the key never appears and every
+        step falls back to whatever the current batch has measured.
+
+        Only a completed step counts.  A failed step measured work that did
+        not finish and a skipped step measured none, so recording either would
+        bias the average the next estimate is built from.
+
+        Recording is best-effort: the batch has already finished, so a config
+        that cannot be written is logged and never raised into the UI.
+
+        Args:
+            report: The batch report whose steps carry measured durations.
+        """
+        durations: dict[str, float] = {}
+        for step in report.steps:
+            seconds = step.duration
+            if step.status == StepStatus.COMPLETED and seconds is not None:
+                durations[step.tool_id] = seconds
+        if not durations:
+            return
+
+        from audio_suite_shared import suite_config as _cfg
+
+        try:
+            _cfg.save_batch_durations(durations)
+        except OSError as exc:
+            logger.warning(
+                "Could not record batch durations for %s: %s",
+                ", ".join(sorted(durations)),
+                exc,
+                exc_info=True,
+            )
 
     def _build_report(
         self,

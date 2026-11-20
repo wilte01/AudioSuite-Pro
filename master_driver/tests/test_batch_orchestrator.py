@@ -25,13 +25,21 @@ the step, the panel and the report (audit R-10, plan C4).
 
 Changed in 2.3.1 (U-03, released in 2.6.0): the graph-coverage lock counts the
 driver's population, so a tool retired from the tab stops demanding a node.
+
+Changed in 2.9.0: a finished batch records its completed steps' durations in
+the shared config, and each step still to run is then priced from its own
+tool's recorded average - with this batch's completed average as the fallback
+for a tool that has no history.
 """
 
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -1424,3 +1432,142 @@ class TestBatchVerdict:
         )
 
         assert progress.verdict == ""
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Duration history
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture()
+def isolated_durations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Any]:
+    """Point ``suite_config`` at a scratch file for the duration history.
+
+    ``_emit_progress`` reads and ``run`` writes whatever ``CONFIG_PATH`` holds,
+    so a test that records real durations must not reach the developer's live
+    file (the session guard refuses that save, which would fail the test).
+    """
+    from audio_suite_shared import suite_config
+
+    config_file = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(
+        suite_config, "_LOCK_PATH", config_file.with_suffix(".json.lock")
+    )
+    suite_config._invalidate_cache()
+    yield suite_config
+    suite_config._invalidate_cache()
+
+
+class TestDurationHistory:
+    """The writer that the ETA reader was missing."""
+
+    def test_a_finished_batch_records_each_completed_step(
+        self, isolated_durations: Any
+    ) -> None:
+        steps = [_make_step("bpm"), _make_step("replaygain")]
+
+        def _run_step(step: BatchStep) -> bool:
+            time.sleep(0.01)
+            return True
+
+        with patch.object(
+            BatchOrchestrator, "_execute_with_retry", side_effect=_run_step
+        ):
+            report = BatchOrchestrator(steps).run(parallel=False)
+
+        assert [s.status for s in report.steps] == [
+            StepStatus.COMPLETED,
+            StepStatus.COMPLETED,
+        ]
+        for step in report.steps:
+            measured = step.duration
+            assert measured is not None and measured >= 0.01
+            history = isolated_durations.load_tool_durations(step.tool_id)
+            assert history == pytest.approx([measured]), step.tool_id
+            assert isolated_durations.load_average_tool_duration(
+                step.tool_id
+            ) == pytest.approx(measured)
+
+    def test_failed_and_skipped_steps_are_not_recorded(
+        self, isolated_durations: Any
+    ) -> None:
+        # bpm fails, so tempo (which depends on bpm) is skipped; replaygain runs.
+        steps = [_make_step("bpm"), _make_step("tempo"), _make_step("replaygain")]
+
+        with patch.object(
+            BatchOrchestrator, "_execute_with_retry", side_effect=[False, True]
+        ):
+            report = BatchOrchestrator(steps).run(parallel=False)
+
+        assert [s.status for s in report.steps] == [
+            StepStatus.FAILED,
+            StepStatus.SKIPPED,
+            StepStatus.COMPLETED,
+        ]
+        assert isolated_durations.load_tool_durations("bpm") == []
+        assert isolated_durations.load_tool_durations("tempo") == []
+        assert len(isolated_durations.load_tool_durations("replaygain")) == 1
+
+    def test_a_recorded_run_feeds_the_next_batch_estimate(
+        self, isolated_durations: Any
+    ) -> None:
+        # Batch A records one 12 s run of bpm; batch B must price its first
+        # step from that history, which is only populated by run()'s writer.
+        with (
+            patch.object(BatchOrchestrator, "_execute_with_retry", return_value=True),
+            patch.object(
+                BatchStep, "duration", new_callable=PropertyMock, return_value=12.0
+            ),
+        ):
+            BatchOrchestrator([_make_step("bpm")]).run(parallel=False)
+        assert isolated_durations.load_average_tool_duration("bpm") == 12.0
+
+        seen: list[BatchProgress] = []
+        steps = [_make_step("bpm"), _make_step("tempo")]
+        with patch.object(BatchOrchestrator, "_execute_with_retry", return_value=True):
+            BatchOrchestrator(steps).run(parallel=False, progress_callback=seen.append)
+
+        assert seen, "the batch emitted no progress"
+        first = seen[0]
+        assert first.completed_steps == 0
+        # bpm is priced from its one recorded 12 s run; tempo has no history
+        # and this batch has measured nothing, so it adds nothing yet.
+        assert first.estimated_remaining == timedelta(seconds=12)
+
+    def test_each_step_is_priced_from_its_own_history(
+        self, isolated_durations: Any
+    ) -> None:
+        # Two tools with very different histories: one batch-wide average
+        # would only land on 42 s by coincidence, so this pins each step to
+        # the average of its own tool.
+        isolated_durations.save_batch_durations({"bpm": 12.0, "replaygain": 30.0})
+        seen: list[BatchProgress] = []
+        steps = [_make_step("bpm"), _make_step("replaygain")]
+        with patch.object(BatchOrchestrator, "_execute_with_retry", return_value=True):
+            BatchOrchestrator(steps).run(parallel=False, progress_callback=seen.append)
+
+        first = seen[0]
+        assert first.completed_steps == 0
+        assert first.current_step == "bpm"
+        # bpm is running (12 s) and replaygain is pending (30 s).
+        assert first.estimated_remaining == timedelta(seconds=42)
+
+    def test_a_tool_without_history_borrows_the_batch_average(
+        self, isolated_durations: Any
+    ) -> None:
+        # bpm has finished in 10 s, key has just started and has no history:
+        # key can only be judged by what this batch has measured.
+        isolated_durations.save_batch_durations({"bpm": 12.0})
+        bpm, key = _make_step("bpm"), _make_step("key")
+        bpm.status = StepStatus.COMPLETED
+        bpm.start_time, bpm.end_time = 0.0, 10.0
+        key.status = StepStatus.RUNNING
+
+        seen: list[BatchProgress] = []
+        BatchOrchestrator([bpm, key])._emit_progress(key, 2, 1, [], seen.append)
+
+        # 10 s is the batch average, not bpm's 12 s history and not nothing.
+        assert seen[0].estimated_remaining == timedelta(seconds=10)
