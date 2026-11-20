@@ -484,9 +484,9 @@ class TestOpenFolder:
     def test_opens_existing_folder(self, app: TempoAnalyzerApp) -> None:
         app.folder_path.get.return_value = "/music"
         with (
-            patch("tempo_analyzer.app.os.path.exists", return_value=True),
-            patch("tempo_analyzer.app.platform_utils") as mock_pu,
-            patch("tempo_analyzer.app.messagebox") as mock_mb,
+            patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=True),
+            patch("audio_suite_shared.ui_helpers.platform_utils") as mock_pu,
+            patch("audio_suite_shared.ui_helpers.messagebox") as mock_mb,
         ):
             app._open_folder()
         mock_pu.open_path.assert_called_once_with("/music")
@@ -495,9 +495,9 @@ class TestOpenFolder:
     def test_shows_info_when_folder_empty(self, app: TempoAnalyzerApp) -> None:
         app.folder_path.get.return_value = ""
         with (
-            patch("tempo_analyzer.app.os.path.exists", return_value=False),
-            patch("tempo_analyzer.app.platform_utils") as mock_pu,
-            patch("tempo_analyzer.app.messagebox") as mock_mb,
+            patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=False),
+            patch("audio_suite_shared.ui_helpers.platform_utils") as mock_pu,
+            patch("audio_suite_shared.ui_helpers.messagebox") as mock_mb,
         ):
             app._open_folder()
         mock_pu.open_path.assert_not_called()
@@ -508,9 +508,9 @@ class TestOpenFolder:
     def test_shows_info_when_folder_does_not_exist(self, app: TempoAnalyzerApp) -> None:
         app.folder_path.get.return_value = "/no/such/path"
         with (
-            patch("tempo_analyzer.app.os.path.exists", return_value=False),
-            patch("tempo_analyzer.app.platform_utils") as mock_pu,
-            patch("tempo_analyzer.app.messagebox") as mock_mb,
+            patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=False),
+            patch("audio_suite_shared.ui_helpers.platform_utils") as mock_pu,
+            patch("audio_suite_shared.ui_helpers.messagebox") as mock_mb,
         ):
             app._open_folder()
         mock_pu.open_path.assert_not_called()

@@ -138,18 +138,24 @@ def open_log_file(log_path: str) -> None:
         )
 
 
-def open_folder_path(folder_path: str) -> None:
+def open_folder_path(
+    folder_path: str, missing_message: str = "Output folder not available."
+) -> None:
     """
     Open a folder in the system file manager.
 
     Args:
         folder_path: Path to the folder to open
+        missing_message: What to say when the folder is not set or gone.  A
+            tool that processes files in place passes its source-folder
+            wording, so the two intents keep their own sentence without a
+            second copy of this body.
     """
     try:
         if folder_path and os.path.exists(folder_path):
             platform_utils.open_path(folder_path)
         else:
-            messagebox.showinfo("Folder", "Output folder not available.")
+            messagebox.showinfo("Folder", missing_message)
     except (OSError, PermissionError) as exc:
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
@@ -301,6 +307,11 @@ class UIHelperMixin:
         """Standard folder opening."""
         folder_path = getattr(self, "_out_dir", "")
         open_folder_path(folder_path)
+
+    def _open_source_folder_standard(self) -> None:
+        """Open the folder this tool processes in place."""
+        folder_path = self.folder_path.get()
+        open_folder_path(folder_path, "Source folder not available.")
 
     def _open_licences_standard(self) -> None:
         """Show this installation's licence texts (Help > Licences)."""

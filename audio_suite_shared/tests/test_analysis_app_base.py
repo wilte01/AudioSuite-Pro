@@ -699,14 +699,14 @@ class TestFolderAndHelpActions:
     def test_open_folder_targets_the_source_directory(self, tmp_path):
         app = _make_app()
         app.folder_path = MagicMock(**{"get.return_value": str(tmp_path)})
-        with patch("audio_suite_shared.analysis_app_base.platform_utils") as platform:
+        with patch("audio_suite_shared.ui_helpers.platform_utils") as platform:
             app._open_folder()
         platform.open_path.assert_called_once_with(str(tmp_path))
 
     def test_open_folder_reports_a_missing_directory(self):
         app = _make_app()
         app.folder_path = MagicMock(**{"get.return_value": "C:/gone"})
-        with patch("audio_suite_shared.analysis_app_base.messagebox") as mock_box:
+        with patch("audio_suite_shared.ui_helpers.messagebox") as mock_box:
             app._open_folder()
         mock_box.showinfo.assert_called_once_with(
             "Folder", "Source folder not available."

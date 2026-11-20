@@ -203,14 +203,16 @@ class TestSimpleDelegates:
     def test_open_folder_opens_existing_path(self, tmp_path: Path):
         app = _make_shell_app()
         app.folder_path.get.return_value = str(tmp_path)
-        with patch("lyrics_manager.app.platform_utils.open_path") as open_path:
+        with patch(
+            "audio_suite_shared.ui_helpers.platform_utils.open_path"
+        ) as open_path:
             app._open_folder()
         open_path.assert_called_once_with(str(tmp_path))
 
     def test_open_folder_shows_info_when_missing(self):
         app = _make_shell_app()
         app.folder_path.get.return_value = ""
-        with patch("lyrics_manager.app.messagebox.showinfo") as showinfo:
+        with patch("audio_suite_shared.ui_helpers.messagebox.showinfo") as showinfo:
             app._open_folder()
         showinfo.assert_called_once()
 

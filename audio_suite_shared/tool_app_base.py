@@ -42,7 +42,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, Callable, ClassVar, cast
 
-from audio_suite_shared import platform_utils, styles, suite_config
+from audio_suite_shared import styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
@@ -193,11 +193,7 @@ class AnalysisTagToolApp(UIHelperMixin):
 
     def _open_folder(self) -> None:
         """Open the source folder in the system file manager."""
-        folder_path: str = self.folder_path.get()
-        if folder_path and os.path.exists(folder_path):
-            platform_utils.open_path(folder_path)
-        else:
-            messagebox.showinfo("Folder", "Source folder not available.")
+        self._open_source_folder_standard()
 
     # ── Presets ─────────────────────────────────────────────────────────
 

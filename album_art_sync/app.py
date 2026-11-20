@@ -21,7 +21,7 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import ttk
 from typing import Any, Optional
 
 from audio_suite_shared import platform_utils, styles, suite_config
@@ -334,11 +334,7 @@ class AudioSuiteV6(UIHelperMixin):
 
     def _open_folder(self) -> None:
         """Open the source folder since Album Art Sync processes files in-place."""
-        folder_path = self.folder_path.get()
-        if folder_path and os.path.exists(folder_path):
-            platform_utils.open_path(folder_path)
-        else:
-            messagebox.showinfo("Folder", "Source folder not available.")
+        self._open_source_folder_standard()
 
     def _open_log(self) -> None:
         platform_utils.open_path(

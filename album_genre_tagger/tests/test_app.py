@@ -488,9 +488,9 @@ class TestDeletePreset:
 class TestOpenFolder:
     """_open_folder opens the folder or shows an info dialog."""
 
-    @patch("album_genre_tagger.app.messagebox")
-    @patch("album_genre_tagger.app.platform_utils")
-    @patch("album_genre_tagger.app.os.path.exists", return_value=True)
+    @patch("audio_suite_shared.ui_helpers.messagebox")
+    @patch("audio_suite_shared.ui_helpers.platform_utils")
+    @patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=True)
     def test_existing_folder_opens_path(self, mock_exists, mock_pu, mock_mb):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/music/dir"
@@ -500,9 +500,9 @@ class TestOpenFolder:
         mock_pu.open_path.assert_called_once_with("/some/music/dir")
         mock_mb.showinfo.assert_not_called()
 
-    @patch("album_genre_tagger.app.messagebox")
-    @patch("album_genre_tagger.app.platform_utils")
-    @patch("album_genre_tagger.app.os.path.exists", return_value=False)
+    @patch("audio_suite_shared.ui_helpers.messagebox")
+    @patch("audio_suite_shared.ui_helpers.platform_utils")
+    @patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=False)
     def test_missing_folder_shows_info(self, mock_exists, mock_pu, mock_mb):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/nonexistent"
@@ -514,8 +514,8 @@ class TestOpenFolder:
             "Folder", "Source folder not available."
         )
 
-    @patch("album_genre_tagger.app.messagebox")
-    @patch("album_genre_tagger.app.platform_utils")
+    @patch("audio_suite_shared.ui_helpers.messagebox")
+    @patch("audio_suite_shared.ui_helpers.platform_utils")
     def test_empty_path_shows_info(self, mock_pu, mock_mb):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = ""
@@ -527,9 +527,9 @@ class TestOpenFolder:
             "Folder", "Source folder not available."
         )
 
-    @patch("album_genre_tagger.app.messagebox")
-    @patch("album_genre_tagger.app.platform_utils")
-    @patch("album_genre_tagger.app.os.path.exists", return_value=True)
+    @patch("audio_suite_shared.ui_helpers.messagebox")
+    @patch("audio_suite_shared.ui_helpers.platform_utils")
+    @patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=True)
     def test_existing_folder_with_spaces(self, mock_exists, mock_pu, mock_mb):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "C:\\My Music\\Collection"

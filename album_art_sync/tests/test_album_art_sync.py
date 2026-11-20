@@ -3669,7 +3669,9 @@ class TestAppGuiMethods:
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
         app.folder_path.get.return_value = str(tmp_path)
 
-        with patch("album_art_sync.app.platform_utils.open_path") as mock_open:
+        with patch(
+            "audio_suite_shared.ui_helpers.platform_utils.open_path"
+        ) as mock_open:
             app._open_folder()
 
         mock_open.assert_called_once_with(str(tmp_path))
@@ -3679,7 +3681,7 @@ class TestAppGuiMethods:
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
         app.folder_path.get.return_value = ""
 
-        with patch("album_art_sync.app.messagebox.showinfo") as mock_info:
+        with patch("audio_suite_shared.ui_helpers.messagebox.showinfo") as mock_info:
             app._open_folder()
 
         mock_info.assert_called_once()
@@ -3689,7 +3691,7 @@ class TestAppGuiMethods:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path / "nonexistent")
 
-        with patch("album_art_sync.app.messagebox.showinfo") as mock_info:
+        with patch("audio_suite_shared.ui_helpers.messagebox.showinfo") as mock_info:
             app._open_folder()
 
         mock_info.assert_called_once()

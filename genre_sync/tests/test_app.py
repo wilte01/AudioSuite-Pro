@@ -317,15 +317,17 @@ class TestGenreSetterAppActions:
 
     def test_open_folder_with_valid_path(self, mock_tk_app):
         mock_tk_app.folder_path.set("/some/valid/path")
-        with patch("genre_sync.app.os.path.exists", return_value=True):
-            with patch("genre_sync.app.platform_utils.open_path") as mock_open:
+        with patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=True):
+            with patch(
+                "audio_suite_shared.ui_helpers.platform_utils.open_path"
+            ) as mock_open:
                 mock_tk_app._open_folder()
                 mock_open.assert_called_once_with("/some/valid/path")
 
     def test_open_folder_with_invalid_path_shows_info(self, mock_tk_app):
         mock_tk_app.folder_path.set("/invalid/path")
-        with patch("genre_sync.app.os.path.exists", return_value=False):
-            with patch("genre_sync.app.messagebox") as mock_msg:
+        with patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=False):
+            with patch("audio_suite_shared.ui_helpers.messagebox") as mock_msg:
                 mock_tk_app._open_folder()
                 mock_msg.showinfo.assert_called_once()
 

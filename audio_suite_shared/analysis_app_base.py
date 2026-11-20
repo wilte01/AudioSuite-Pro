@@ -42,7 +42,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, ClassVar
 
-from . import platform_utils, styles
+from . import styles
 from . import suite_config as _suite_config
 from .app_bootstrap import bootstrap_tool_app
 from .batch_undo import active_batch
@@ -328,11 +328,7 @@ class AnalysisAppBase(UIHelperMixin):
 
     def _open_folder(self) -> None:
         """Open the source folder, since this tool processes files in-place."""
-        folder_path = self.folder_path.get()
-        if folder_path and os.path.exists(folder_path):
-            platform_utils.open_path(folder_path)
-        else:
-            messagebox.showinfo("Folder", "Source folder not available.")
+        self._open_source_folder_standard()
 
     def _open_help(self) -> None:
         self._open_help_standard(self.HELP_GUIDE)
