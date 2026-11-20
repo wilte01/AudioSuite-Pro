@@ -49,15 +49,7 @@ from audio_suite_shared.cli_base import (
     cli,
     finish_run,
 )
-from audio_suite_shared.cli_dataclasses import validate_target_lufs
-
-
-def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> float:
-    """Reject a --target-lufs that is not a permitted preset (M4)."""
-    errors = validate_target_lufs(value)
-    if errors:
-        raise click.BadParameter(errors[0])
-    return value
+from audio_suite_shared.cli_dataclasses import validate_lufs_callback
 
 
 def _validate_trim_range(
@@ -354,7 +346,7 @@ def _validate_trim_range(
     "--target-lufs",
     default=-14.0,
     type=float,
-    callback=_validate_lufs,
+    callback=validate_lufs_callback,
     help=("Normalisation target LUFS (default -14.0; one of -12, -14, -16, -18, -23)."),
 )
 @click.option(

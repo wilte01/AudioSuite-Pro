@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
+import click
+
 from .cli_helpers import DriverHandshake
 from .cli_helpers import parse_driver_handshake as _parse_driver_handshake
 from .constants import DEFAULT_BPM_ANALYSIS_SECONDS, default_max_workers
@@ -255,6 +257,33 @@ def validate_target_lufs(target_lufs: float) -> list[str]:
         errors.append(f"Target LUFS must be one of: {valid_str}, got: {target_lufs}")
 
     return errors
+
+
+def validate_lufs_callback(
+    ctx: click.Context, param: click.Parameter, value: float
+) -> float:
+    """Reject a ``--target-lufs`` that is not a permitted preset.
+
+    The Click half of :func:`validate_target_lufs`, shared so every command
+    that exposes the option fails the same way with the same message instead
+    of each CLI module writing its own wrapper around the same two lines.
+
+    Args:
+        ctx: The Click context.  Unused; part of the callback contract.
+        param: The parameter being validated.  Unused, as above.
+        value: The parsed target loudness.
+
+    Returns:
+        The value, unchanged, when it is a permitted preset.
+
+    Raises:
+        click.BadParameter: The value is not one of
+            :data:`VALID_TARGET_LUFS_VALUES`.
+    """
+    errors = validate_target_lufs(value)
+    if errors:
+        raise click.BadParameter(errors[0])
+    return value
 
 
 def validate_tempo_scheme(scheme: str, valid_schemes: list[str]) -> list[str]:
