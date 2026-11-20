@@ -62,6 +62,7 @@ from typing import Any, Literal
 
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.cli_helpers import was_launched_from_driver
+from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import AudioSuiteError
 from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.platform_utils import open_path
@@ -987,25 +988,31 @@ class LibraryStatsApp(SuiteApp):
 
     def _poll_events(self) -> None:
         """Apply every queued worker result, then re-arm while it still runs."""
-        self._poll_id = ""
-        if self._closing:
-            return
-        while True:
-            try:
-                kind, payload = self._events.get_nowait()
-            except queue.Empty:
-                break
-            if kind == "done":
-                report, completeness = payload
-                self._on_scan_complete(report, completeness)
-            elif kind == "covers":
-                self._on_covers_complete(payload)
-            elif kind == "covers_error":
-                self._on_covers_error(payload)
-            else:
-                self._on_scan_error(payload)
-        if self._thread is not None and self._thread.is_alive():
-            self._poll_id = self.root.after(100, self._poll_events)
+        self._poll_id = pump_events(
+            self.root,
+            self._events,
+            self._dispatch,
+            is_active=lambda: not self._closing,
+            is_running=lambda: self._thread is not None and self._thread.is_alive(),
+            next_tick=self._poll_events,
+        )
+
+    def _dispatch(self, item: tuple[str, Any]) -> None:
+        """Render one queued ``(kind, payload)`` on the Tk thread."""
+        kind, payload = item
+        if kind == "done":
+            report, completeness = payload
+
+            self._on_scan_complete(report, completeness)
+
+        elif kind == "covers":
+            self._on_covers_complete(payload)
+
+        elif kind == "covers_error":
+            self._on_covers_error(payload)
+
+        else:
+            self._on_scan_error(payload)
 
     def _on_scan_complete(
         self, report: StatsReport, completeness: CompletenessReport

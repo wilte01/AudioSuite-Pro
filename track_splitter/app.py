@@ -22,6 +22,7 @@ from typing import Any
 
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.cli_helpers import was_launched_from_driver
+from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import AudioConfigValueError
 from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.suite_app import SuiteApp
@@ -450,34 +451,35 @@ class TrackSplitterApp(SuiteApp):
 
     def _poll_events(self) -> None:
         """Apply every queued worker result, then re-arm while it still runs."""
-        self._poll_id = ""
-        if self._closing:
-            return
-        while True:
-            try:
-                kind, payload = self._events.get_nowait()
-            except queue.Empty:
-                break
-            if kind == "progress":
-                self.render_progress(
-                    processed=int(payload.get("processed", 0)),
-                    total=int(payload.get("total", 0)),
-                    display_text=str(payload.get("display_text", "")),
+        self._poll_id = pump_events(
+            self.root,
+            self._events,
+            self._dispatch,
+            is_active=lambda: not self._closing,
+            is_running=lambda: self._thread is not None and self._thread.is_alive(),
+            next_tick=self._poll_events,
+        )
+
+    def _dispatch(self, item: tuple[str, Any]) -> None:
+        """Render one queued ``(kind, payload)`` on the Tk thread."""
+        kind, payload = item
+        if kind == "progress":
+            self.render_progress(
+                processed=int(payload.get("processed", 0)),
+                total=int(payload.get("total", 0)),
+                display_text=str(payload.get("display_text", "")),
+            )
+            processed = payload.get("processed", 0)
+            total = payload.get("total", 0)
+            self.stats_label.config(
+                text=(
+                    f"Files: {processed}/{total} | Errors: {payload.get('errors', 0)}"
                 )
-                processed = payload.get("processed", 0)
-                total = payload.get("total", 0)
-                self.stats_label.config(
-                    text=(
-                        f"Files: {processed}/{total}"
-                        f" | Errors: {payload.get('errors', 0)}"
-                    )
-                )
-            elif kind == "complete":
-                self._finish(payload)
-            else:
-                self._failed(payload if isinstance(payload, str) else str(payload))
-        if self._thread is not None and self._thread.is_alive():
-            self._poll_id = self.root.after(100, self._poll_events)
+            )
+        elif kind == "complete":
+            self._finish(payload)
+        else:
+            self._failed(payload if isinstance(payload, str) else str(payload))
 
     def _finish(self, payload: dict[str, Any]) -> None:
         """Render a finished run on the Results tab."""

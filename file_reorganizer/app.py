@@ -60,6 +60,7 @@ from typing import Any
 
 from audio_suite_shared import styles, suite_config, ui_common
 from audio_suite_shared.batch_undo import active_batch
+from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import (
     AudioSuiteError,
     handle_audio_errors,
@@ -700,15 +701,14 @@ class FileReorganizerApp(SuiteApp):
 
     def _poll_events(self) -> None:
         """Apply every queued worker event, then re-arm while the run lives."""
-        self._poll_id = ""
-        while True:
-            try:
-                event = self._events.get_nowait()
-            except queue.Empty:
-                break
-            self._handle_event(event)
-        if self._thread is not None and self._thread.is_alive():
-            self._poll_id = self.root.after(_POLL_MS, self._poll_events)
+        self._poll_id = pump_events(
+            self.root,
+            self._events,
+            self._handle_event,
+            is_running=lambda: self._thread is not None and self._thread.is_alive(),
+            next_tick=self._poll_events,
+            poll_ms=_POLL_MS,
+        )
 
     def _handle_event(self, event: _RunEvent) -> None:
         """Turn one queued event into widget writes (Tk thread only)."""
