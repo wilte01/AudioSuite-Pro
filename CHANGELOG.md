@@ -22,6 +22,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.9.0] - 2026-11-20
+
 ### Added
 
 - **Audio Refinery can work out its own settings from the file.** A new

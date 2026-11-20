@@ -16,6 +16,10 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.9.0] - 2026-11-20
+
 ### Added
 
 - **`audio_refinery/core/best_audio.py`: a per-file decision layer over the
