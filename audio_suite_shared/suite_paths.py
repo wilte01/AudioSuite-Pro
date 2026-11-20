@@ -55,6 +55,7 @@ import sys
 from pathlib import Path
 
 __all__ = [
+    "find_upwards",
     "package_path",
     "ROOT_SOURCE_BUNDLE",
     "ROOT_SOURCE_CHECKOUT",
@@ -133,6 +134,32 @@ def suite_root() -> Path:
         return Path(sys.executable).resolve().parent
 
     return _SHARED_DIR.parent
+
+
+def find_upwards(filename: str, start: Path | None = None) -> Path | None:
+    """Return the nearest file called *filename* at or above *start*.
+
+    A source checkout ships ``pyproject.toml`` and ``CHANGELOG.md`` beside the
+    code, and two readers used to walk up from the root looking for one of
+    them with the same five lines each.  The walk is one question - "where is
+    this file, looking upwards" - so it is asked once, here, and each caller
+    names only the file it wants.
+
+    Args:
+        filename: The file to look for, e.g. ``"CHANGELOG.md"``.
+        start: Directory to search upwards from.  Defaults to
+            :func:`suite_root`, which is the checkout root in a source tree.
+
+    Returns:
+        The nearest matching path, or ``None`` for an install that does not
+        ship the file at all.
+    """
+    base = (start or suite_root()).resolve()
+    for directory in (base, *base.parents):
+        candidate = directory / filename
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def suite_path(*parts: str) -> Path:

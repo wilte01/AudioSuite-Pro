@@ -87,7 +87,7 @@ from tkinter import ttk
 from . import styles, suite_config
 from .cli_helpers import was_launched_from_driver
 from .project_version import declared_version
-from .suite_paths import suite_root
+from .suite_paths import find_upwards
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -174,12 +174,7 @@ def find_changelog(start: Path | None = None) -> Path | None:
     Returns:
         The changelog path, or ``None`` for an install that does not ship one.
     """
-    base = (start or suite_root()).resolve()
-    for directory in (base, *base.parents):
-        candidate = directory / "CHANGELOG.md"
-        if candidate.is_file():
-            return candidate
-    return None
+    return find_upwards("CHANGELOG.md", start)
 
 
 def section_body(changelog_text: str, version: str) -> str | None:

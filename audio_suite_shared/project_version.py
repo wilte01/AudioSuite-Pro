@@ -38,7 +38,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .suite_paths import suite_root
+from .suite_paths import find_upwards
 
 _PACKAGE_NAME = "audiosuite-pro"
 
@@ -56,12 +56,7 @@ def find_pyproject(start: Path | None = None) -> Path | None:
         The path to the nearest ``pyproject.toml``, or ``None`` when the
         package is installed without its source tree beside it.
     """
-    base = (start or suite_root()).resolve()
-    for directory in (base, *base.parents):
-        candidate = directory / "pyproject.toml"
-        if candidate.is_file():
-            return candidate
-    return None
+    return find_upwards("pyproject.toml", start)
 
 
 def parse_project_version(text: str) -> str | None:
