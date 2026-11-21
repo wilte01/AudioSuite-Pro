@@ -14,6 +14,7 @@ Covers:
     • build_results_tab: extra_labels are created and returned
     • build_processing_tab: return dict has expected keys
     • build_processing_tab: slot_vars panel omitted when None
+    • build_processing_tab: the panel handle is the widgets' parent
     • path_row / slider_row: do not raise with valid args
     • show_message: does not raise; dialog destroyed on OK
     • BaseSetupFrame: skeleton layout, set_driven gating, preset row,
@@ -29,6 +30,8 @@ Changed in 2.4.3: three patch targets follow the code they patch —
 ``ui_tabs.run_secure_subprocess`` for the log opener and
 ``ui_dialogs._log`` for ``show_message`` — after the WP-9 split. No
 assertion changed.
+Changed in 2.9.0: covers the ``panel`` key ``build_processing_tab`` returns,
+the parent a tool adds its own Processing-tab control to (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -214,6 +217,19 @@ class TestBuildProcessingTab:
         assert "progress" in result
         assert "stats_label" in result
         assert "file_listbox" in result
+
+    def test_panel_is_the_parent_the_widgets_are_packed_into(
+        self, setup_tk: tk.Tk
+    ) -> None:
+        """The returned panel is what a tool parents its own control on."""
+        from audio_suite_shared.ui_common import build_processing_tab
+
+        parent = self._make_parent(setup_tk)
+        result = build_processing_tab(parent)
+        assert isinstance(result["panel"], tk.Frame)
+        assert result["panel"].master is parent
+        assert result["progress"].master is result["panel"]
+        assert result["file_listbox"].master is result["panel"]
 
     def test_overall_status_is_string_var(self, setup_tk: tk.Tk) -> None:
         from audio_suite_shared.ui_common import build_processing_tab

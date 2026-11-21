@@ -40,6 +40,10 @@ example.
 
 Changed in 2.4.3: adds SuiteApp (PLAN_2026-11-03_2.4.3_structure.md, WP-8).
 Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
+Changed in 2.9.0: the shell publishes the Processing tab's panel as
+``processing_panel``, so a tool that adds a control of its own beside the
+shared ones names that parent instead of reaching through ``progress.master``
+(C1 stage 2).
 """
 
 from __future__ import annotations
@@ -79,6 +83,9 @@ class SuiteApp(UIHelperMixin):
             frames, in notebook order.
         progress, stats_label, file_listbox, overall_status: Processing-tab
             widgets.
+        processing_panel: The frame those Processing-tab widgets are packed
+            into; a tool that adds a control of its own beside them (Album Art
+            Sync's Cancel button) packs it here.
         completion_label, summary_label, time_label: Results-tab widgets.
         start_btn: The tool's start button, once its Setup tab has built it.
         controls_panel: The Setup tab's run-controls strip, when the tool
@@ -177,6 +184,7 @@ class SuiteApp(UIHelperMixin):
         """Build the shared Processing tab, including the worker grid."""
         slot_vars: list[tk.StringVar] | None = getattr(self, "slot_vars", None)
         widgets = build_processing_tab(parent, slot_vars)
+        self.processing_panel: tk.Frame = widgets["panel"]
         self.overall_status: tk.StringVar = widgets["overall_status"]
         self.progress: ttk.Progressbar = widgets["progress"]
         self.stats_label: tk.Label = widgets["stats_label"]

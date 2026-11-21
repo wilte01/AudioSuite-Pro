@@ -103,6 +103,18 @@ used once, and every bullet belongs to exactly one of them.
   `SUMMARY:` block the contract reads. `ui/main_tabs.py` loses the two tab
   builders the shell replaced.
 
+### Fixed
+
+- **Album Art Sync's stats line counts the run.** The Processing tab's
+  `Processed: 0 | Skipped: 0 | Errors: 0` line never changed: the window wrote
+  no counter, so a live run finished at zero. It now shows the file total as
+  soon as the folder is read and advances with the applier's per-file ticks
+  (`Processed: 3 / 12`); a dry run writes nothing and so ticks nothing, and
+  reports the list it examined when the phase ends. The tool's Cancel button
+  parents on the shell's new `processing_panel` handle instead of reaching
+  through `progress.master`, which was an accident of the shared builder's
+  layout.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

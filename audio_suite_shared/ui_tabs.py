@@ -14,6 +14,10 @@ Changed in 2.4.3: split out of ``audio_suite_shared.ui_common``
 Changed in 2.5.0: ``_default_open_log`` reads the suite log through
 ``suite_paths.suite_path`` instead of counting directories up from this file,
 so a packaged build finds its ``logs/`` directory (D-44).
+Changed in 2.9.0: ``build_processing_tab`` returns the panel it packs the
+shared widgets into as ``"panel"``, so a tool that adds its own control beside
+them names that parent instead of reaching through ``progress.master`` (C1
+stage 2).
 """
 
 import logging
@@ -207,7 +211,11 @@ def build_processing_tab(
                 'progress':       ttk.Progressbar,
                 'stats_label':    tk.Label,
                 'file_listbox':   tk.Listbox,
+                'panel':          tk.Frame,
             }
+
+        ``panel`` is the frame every other widget is packed into, so a tool
+        that adds a control of its own beside them has a parent it can name.
     """
     frame = tk.Frame(parent, padx=15, pady=15, bg=styles.BG_WHITE)
     frame.pack(expand=True, fill="both")
@@ -287,4 +295,5 @@ def build_processing_tab(
         "progress": progress,
         "stats_label": stats_label,
         "file_listbox": file_listbox,
+        "panel": frame,
     }

@@ -13,6 +13,9 @@ What is locked, and why each one is not visible to another check:
   private second shell beside the shared one;
 * the Processing and Results tabs come from the shared builders, so a tool that
   hand-rolls its own progress/results wiring fails here;
+* the shell publishes the Processing tab's panel, so a tool that adds a control
+  of its own beside the shared ones parents it on that handle rather than on
+  an accident of the builder's layout;
 * the Help / View Log / Open Folder buttons actually reach the shell's helpers
   (invoked, not inspected through ``cget("command")``, which is a Tcl name);
 * the run-controls strip still exposes Mode / Auto Start / Auto End, the
@@ -43,6 +46,8 @@ Changed in 2.9.0: the Album Art Normalizer follows it in D8's wave 1, so the
 table is five tools.
 Changed in 2.9.0: the Metadata Scrubber closes that wave, so the table is six.
 Changed in 2.9.0: wave 2 opens with the Album Art Sync, so the table is seven.
+Changed in 2.9.0: the shell's ``processing_panel`` handle is locked, and the
+synchroniser's Cancel button is read back as its child (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -416,6 +421,22 @@ def test_the_progress_and_results_tabs_are_the_shared_builders(
 
 
 @pytest.mark.parametrize("window", MIGRATED, ids=MIGRATED_NAMES, indirect=True)
+def test_the_shell_publishes_the_panel_the_processing_widgets_live_in(
+    window: SimpleNamespace,
+) -> None:
+    """A tool adds its own Processing-tab control to a documented parent.
+
+    ``progress.master`` happens to be that frame today; a tool that reaches
+    through the widget instead of the handle breaks silently the day the
+    builder nests the bar one level deeper.
+    """
+    app = window.app
+    assert isinstance(app.processing_panel, tk.Frame)
+    assert app.processing_panel.master is app.processing_frame
+    assert app.progress.master is app.processing_panel
+
+
+@pytest.mark.parametrize("window", MIGRATED, ids=MIGRATED_NAMES, indirect=True)
 def test_the_header_buttons_reach_the_shell_helpers(
     window: SimpleNamespace,
 ) -> None:
@@ -479,6 +500,31 @@ def test_a_finished_run_leaves_a_report_the_log_button_can_open(
     assert report.parent == tmp_path, "a run publishes its report in the run's folder"
     assert report.is_file(), f"{window.cls.__name__} finished without writing a report"
     assert "SUMMARY:" in report.read_text(encoding="utf-8")
+
+
+def test_the_album_art_sync_cancel_button_rides_the_shell_panel(
+    root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one adopter with a control of its own on the Processing tab.
+
+    Read back from the real window: the button is packed into the frame the
+    shell published, so it sits with the shared widgets instead of on whatever
+    parent the progress bar happened to have.
+    """
+    monkeypatch.setattr(
+        suite_app, "bootstrap_tool_app", lambda *args, **kwargs: (MagicMock(), None)
+    )
+    monkeypatch.setattr(reorganizer_app.suite_config, "load_last_directory", lambda: "")
+    _stub_album_art_sync_edges(monkeypatch)
+
+    app = AudioSuiteV6(root)
+    try:
+        assert isinstance(app.cancel_btn, tk.Button)
+        assert app.cancel_btn.master is app.processing_panel
+        assert app.cancel_btn.winfo_manager() == "pack"
+    finally:
+        for frame in (app.setup_frame, app.processing_frame, app.results_frame):
+            frame.destroy()
 
 
 def test_every_migrated_tool_has_a_run_report_drive() -> None:

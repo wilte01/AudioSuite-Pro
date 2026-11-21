@@ -17,8 +17,12 @@ once and renamed (plan D-49).
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell owns
 the Help bar and the Processing and Results tabs; this tool adds its Cancel
-button to the shared Processing panel, its log lines fill the shared file list,
-and the run report ends with the SUMMARY block the shell's contract reads.
+button to the shell's ``processing_panel``, its log lines fill the shared file
+list, and the run report ends with the SUMMARY block the shell's contract
+reads.
+Changed in 2.9.0: the Processing tab's stats line counts the run — the file
+total as soon as the folder is read, then the applier's per-file ticks — so it
+no longer sits at zero for the whole run.
 """
 
 import json
@@ -149,11 +153,8 @@ class AudioSuiteV6(SuiteApp):
     def _build_processing_tab(self, parent: tk.Frame) -> None:
         """Build the shared Processing tab, then add this tool's Cancel button."""
         super()._build_processing_tab(parent)
-        # The shared builder returns the widgets, not the panel it packed them
-        # into; the progress bar's master is that panel.
-        panel = self.progress.master
         self.cancel_btn = tk.Button(
-            panel,
+            self.processing_panel,
             text="Cancel",
             bg="#999",
             fg="white",
@@ -377,6 +378,14 @@ class AudioSuiteV6(SuiteApp):
         else:
             self.progress.config(value=value, maximum=maximum)
 
+    def _set_stats(self, processed: int, total: int) -> None:
+        """Update the stats line's file counter from any thread."""
+        self.root.after(0, self._apply_stats, processed, total)
+
+    def _apply_stats(self, processed: int, total: int) -> None:
+        """Write the stats line (must run on the main thread)."""
+        self.stats_label.config(text=f"Processed: {processed} / {total}")
+
     def _show_result(
         self,
         text: str,
@@ -456,6 +465,10 @@ class AudioSuiteV6(SuiteApp):
             self._running = False
             self._restore_controls()
             return
+
+        # The stats line counts this run from the moment the folder is read, so
+        # it shows the file total through the artwork search as well.
+        self._set_stats(0, len(files))
 
         # Read artist/album from first file.
         try:
@@ -541,6 +554,7 @@ class AudioSuiteV6(SuiteApp):
 
             def _on_file_progress(i: int) -> None:
                 self._set_progress(i)
+                self._set_stats(i, len(files))
 
             success = False
             with active_batch("album_art_sync", "tag_edit"):
@@ -555,6 +569,12 @@ class AudioSuiteV6(SuiteApp):
                     cancel_flag=lambda: self._cancel_requested,
                     on_file_progress=_on_file_progress,
                 )
+
+            if applier_mode == "Dry Run":
+                # A dry run writes nothing, so the applier reports no per-file
+                # ticks; it still examined the whole list, and the line says so
+                # rather than freezing at the starting count.
+                self._set_stats(len(files), len(files))
 
             if success:
                 outcome = f"Sync Complete via {source_used}"

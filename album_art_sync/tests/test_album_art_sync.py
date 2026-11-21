@@ -50,6 +50,9 @@ Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
 Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the bare-app
 stubs carry the shell's frames and result widgets, and View Log is the shell's
 report opener.
+Changed in 2.9.0: the Processing tab's stats line is locked against the run's
+file count and the applier's per-file ticks, and against its main-thread
+marshalling.
 """
 
 from __future__ import annotations
@@ -2732,6 +2735,7 @@ class TestAppRunLogic:
         app.completion_label = Mock()
         app.summary_label = Mock()
         app.time_label = Mock()
+        app.stats_label = Mock()
         app.notebook = Mock()
         app.start_btn = Mock()
         app.cancel_btn = Mock()
@@ -3070,6 +3074,80 @@ class TestAppRunLogic:
         ]
         assert len(destroy_calls) == 1
 
+    # ---- the stats line ----------------------------------------------------
+
+    def test_stats_line_reports_the_file_total_once_the_folder_is_read(
+        self, tmp_path: Path
+    ) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        (tmp_path / "track01.mp3").write_bytes(b"fake")
+        (tmp_path / "track02.mp3").write_bytes(b"fake")
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        with (
+            patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
+            patch("album_art_sync.app.read_album_artist", return_value=""),
+            patch(
+                "album_art_sync.app.source_resolver.resolve",
+                return_value=(None, None),
+            ),
+        ):
+            app._run_logic()
+        # A run that finds no artwork still reports its denominator rather than
+        # leaving the builder's "Processed: 0 | Skipped: 0 | Errors: 0" text.
+        assert app.stats_label.config.call_args.kwargs["text"] == "Processed: 0 / 2"
+
+    def test_file_progress_ticks_advance_the_stats_line(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        (tmp_path / "track01.mp3").write_bytes(b"fake")
+        (tmp_path / "track02.mp3").write_bytes(b"fake")
+        app = self._make_bare_app(AudioSuiteV6, tmp_path, mode="Update Artwork")
+
+        def fake_apply(**kwargs: Any) -> bool:
+            for index in range(1, 3):
+                kwargs["on_file_progress"](index)
+            return True
+
+        with (
+            patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
+            patch("album_art_sync.app.read_album_artist", return_value=""),
+            patch(
+                "album_art_sync.app.source_resolver.resolve",
+                return_value=(b"IMG", "Deezer"),
+            ),
+            patch("album_art_sync.app.apply_artwork", side_effect=fake_apply),
+        ):
+            app._run_logic()
+
+        texts = [
+            call_.kwargs["text"] for call_ in app.stats_label.config.call_args_list
+        ]
+        assert texts == ["Processed: 0 / 2", "Processed: 1 / 2", "Processed: 2 / 2"]
+
+    def test_a_dry_run_reports_its_examined_count_when_the_phase_ends(
+        self, tmp_path: Path
+    ) -> None:
+        """A dry run writes nothing, so the applier ticks nothing."""
+        AudioSuiteV6 = self._import_app_class()
+        (tmp_path / "track01.mp3").write_bytes(b"fake")
+        (tmp_path / "track02.mp3").write_bytes(b"fake")
+        app = self._make_bare_app(AudioSuiteV6, tmp_path, mode="Dry Run")
+        with (
+            patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
+            patch("album_art_sync.app.read_album_artist", return_value=""),
+            patch(
+                "album_art_sync.app.source_resolver.resolve",
+                return_value=(b"IMG", "Deezer"),
+            ),
+            patch("album_art_sync.app.apply_artwork", return_value=True),
+        ):
+            app._run_logic()
+
+        texts = [
+            call_.kwargs["text"] for call_ in app.stats_label.config.call_args_list
+        ]
+        assert texts[0] == "Processed: 0 / 2"
+        assert texts[-1] == "Processed: 2 / 2"
+
     # ---- small guard-clause methods ----------------------------------------
 
     def test_cancel_operation_sets_flag_and_disables_button(
@@ -3127,6 +3205,7 @@ class TestAppRunLogic:
         assert app._append_log_line in callbacks
         assert app._apply_status in callbacks
         assert app._apply_progress in callbacks
+        assert app._apply_stats in callbacks
         assert app._apply_result in callbacks
         assert app._apply_controls in callbacks
         # The status text and the result message reached the main thread.
@@ -3147,6 +3226,7 @@ class TestAppRunLogic:
         app.start_btn.config.assert_not_called()
         app.notebook.select.assert_not_called()
         app.progress.config.assert_not_called()
+        app.stats_label.config.assert_not_called()
 
     def test_start_thread_snapshots_tk_vars_and_starts_daemon_worker(
         self, tmp_path: Path
@@ -3287,6 +3367,7 @@ class TestAppGuiMethods:
         app.completion_label = Mock()
         app.summary_label = Mock()
         app.time_label = Mock()
+        app.stats_label = Mock()
         app.notebook = Mock()
         app.start_btn = Mock()
         app.cancel_btn = Mock()
