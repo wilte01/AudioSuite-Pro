@@ -35,7 +35,7 @@ def _completion_shell(log_path: Path) -> ReplayGainAnalyzerApp:
     app = object.__new__(ReplayGainAnalyzerApp)
     app.root = MagicMock()
     app._run_mode = "Dry Run"
-    app._dir_path = str(log_path.parent)
+    app._run_path = str(log_path.parent)
     app.time_label = MagicMock()
     app.summary_label = MagicMock()
     app.completion_label = MagicMock()

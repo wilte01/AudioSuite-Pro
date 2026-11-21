@@ -434,7 +434,7 @@ def _complete_replaygain_analyzer_run(
 ) -> None:
     """Drive the analyzer's completion: it serialises the report there."""
     app._run_mode = "Dry Run"
-    app._dir_path = str(tmp_path)
+    app._run_path = str(tmp_path)
     app._log_path = str(tmp_path / "replaygain_dry_run_log.txt")
     app._on_complete(
         header=["REPLAYGAIN ANALYSIS REPORT\n"],

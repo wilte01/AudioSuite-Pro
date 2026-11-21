@@ -87,7 +87,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
 
         # ── State ─────────────────────────────────────────────────────────────
         self._log_path: str = ""
-        self._dir_path: str = ""
         self.auto_end: bool = False
         # The run's inputs, snapshotted by start_processing on the Tk thread.
         self._run_path: str = ""
@@ -303,7 +302,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
         is_dry_run = self._run_mode == "Dry Run"
         target = self._run_target_lufs
 
-        self._dir_path = dir_path
         self._log_path = os.path.join(
             dir_path,
             "replaygain_dry_run_log.txt" if is_dry_run else "replaygain_sync_log.txt",
@@ -378,7 +376,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
         ``run_analysis`` sends it unconditionally: a count the handler would
         accept a stand-in for is a count the summary can print wrong.
         """
-        is_dry_run = self._run_mode == "Dry Run"
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
         # ``processed`` counts successes already; errors are counted apart from it.
@@ -412,7 +409,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
         self.root.after(
             0,
             self._update_ui_on_complete,
-            is_dry_run,
             total,
             succeeded,
             errors,
@@ -421,7 +417,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
 
     def _update_ui_on_complete(
         self,
-        is_dry_run: bool,
         total: int,
         succeeded: int,
         errors: int,
@@ -436,9 +431,11 @@ class ReplayGainAnalyzerApp(SuiteApp):
         # This window has always labelled a finished run by its mode; the shell
         # renders ``completion_text``, so point it at this run's wording first.
         self.completion_text = (
-            "Analysis Complete!" if is_dry_run else "ReplayGain Tagging Complete!"
+            "Analysis Complete!"
+            if self._run_mode == "Dry Run"
+            else "ReplayGain Tagging Complete!"
         )
-        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
+        self.render_completion(duration_secs=duration_secs, output_dir=self._run_path)
 
         if self.auto_end:
             self.root.after(2000, self.root.destroy)
