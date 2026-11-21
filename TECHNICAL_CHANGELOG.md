@@ -244,6 +244,18 @@ used once, and every bullet belongs to exactly one of them.
   `Examined: 2 / 2 (dry run, nothing written)` from the moment the folder is
   read, and a live run keeps `Processed: n / N`.
 
+- **The Audio Fingerprinter's workers no longer call `root.after`.**
+  `_on_slot_update` runs on the processor's pool, where a Tk call raises
+  `RuntimeError: main thread is not in main loop` on 3.14 and leaves the run's
+  status rows frozen — the shape AGENTS.md forbids for a raw worker thread. It
+  now queues the line, and `_poll_slot_updates`, started by `start_processing`
+  on the Tk thread, writes it and re-schedules until the run's thread ends (with
+  a final drain for a worker that queued its last line as it finished). The
+  queue is built per run, so no line from an earlier run can reach a row. The
+  completion's ISRC note is read once and recorded for the Master Driver on the
+  worker again, and the Results summary text is built there too, so the Tk
+  thread only writes widgets.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

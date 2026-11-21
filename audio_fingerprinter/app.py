@@ -26,6 +26,11 @@ through ``render_completion``: the report is written on the worker thread, then
 every widget write — the summary, the ISRC line, the sorted file list and the
 completion — happens on the Tk thread, so a finished run no longer touches Tk
 from the processor's thread.  View Log and Open Folder are the shell's.
+
+Changed in 2.9.0: the worker slot lines are queued by the processor's threads
+and written by a poller the Tk thread starts, so no worker calls ``root.after``
+at all, and the completion builds its summary text and records the ISRC note on
+the worker, leaving the Tk thread only widget writes (D22).
 """
 
 from __future__ import annotations
@@ -35,7 +40,7 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue, SimpleQueue
 from tkinter import filedialog, messagebox
 from typing import Any
 
@@ -83,6 +88,24 @@ TOOL_ID = "audio_fingerprinter"
 DRIVER_TOOL_ID = "fingerprinter"
 _DEFAULT_THRESHOLD = "0.5"
 
+#: How often the Tk thread drains the slot lines the workers queue.
+_SLOT_POLL_MS = 100
+
+
+def _isrc_outcome_text(submission: dict[str, Any] | None) -> tuple[str, str]:
+    """The submission's outcome note and its reason.
+
+    Args:
+        submission: The run's ``isrc_submission`` record, or None.
+
+    Returns:
+        ``(note, reason)``, both empty when the run did not submit.  The report
+        and the Results tab show the same pair, so it is read once.
+    """
+    if not submission:
+        return "", ""
+    return isrc_submission_note(submission), str(submission.get("reason") or "").strip()
+
 
 class FingerprinterApp(SuiteApp):
     """Audio Fingerprinter application GUI."""
@@ -110,6 +133,10 @@ class FingerprinterApp(SuiteApp):
     _cli_api_key: str = ""
     #: Built by the shell from ``result_extra_labels``.
     isrc_label: tk.Label
+    #: Slot lines the processor's threads queue for the Tk poller; built per run.
+    _slot_updates: SimpleQueue[tuple[int, str]]
+    #: The run's thread; the slot poller stops when it ends.
+    _run_thread: threading.Thread | None = None
 
     def __init__(self, root: tk.Tk) -> None:
         # ── Tk variables ──────────────────────────────────────────────────────
@@ -139,9 +166,6 @@ class FingerprinterApp(SuiteApp):
         self.clear_logs_var = tk.BooleanVar(value=False)
         self.parallel_var = tk.BooleanVar(value=False)
         self._launched_from_driver = cli_args.was_launched_from_driver()
-
-        # ── State ─────────────────────────────────────────────────────────────
-        self._cli_api_key = ""
 
         # ── Worker slot pool ──────────────────────────────────────────────────
         # Built before super().__init__: the shell renders the grid from it.
@@ -476,7 +500,14 @@ class FingerprinterApp(SuiteApp):
                 write_isrc=self.write_isrc.get(),
                 submit_isrc=self.submit_isrc.get(),
             )
-            threading.Thread(target=self._run, args=(params,), daemon=True).start()
+            # A fresh queue per run: the poller drains it and stops with the
+            # run's thread, so no line from an earlier run can reach a row.
+            self._slot_updates = SimpleQueue()
+            self._run_thread = threading.Thread(
+                target=self._run, args=(params,), daemon=True
+            )
+            self._run_thread.start()
+            self._poll_slot_updates()
 
         except Exception as exc:
             mapped = map_to_audio_error(exc)
@@ -530,10 +561,42 @@ class FingerprinterApp(SuiteApp):
                 mb_auth=(mb_token_store.build_auth() if params.submit_isrc else None),
             )
 
-    # ── Callbacks (called from the worker thread — all UI via root.after) ────
+    # ── Callbacks (called from the processor's threads — no widget writes) ───
 
     def _on_slot_update(self, slot_idx: int, text: str) -> None:
-        self.root.after(0, self.slot_vars[slot_idx].set, text)
+        """Hand one worker's slot line to the Tk thread's poller.
+
+        Called from the processor's pool, so it must not touch Tk: the line
+        goes on a queue and ``_poll_slot_updates``, which ``start_processing``
+        starts on the Tk thread, does the widget write (AGENTS.md).
+
+        Args:
+            slot_idx: The worker row the line belongs to.
+            text: The line the worker published.
+        """
+        self._slot_updates.put((slot_idx, text))
+
+    def _poll_slot_updates(self) -> None:
+        """Apply the queued slot lines while the run's thread is alive.
+
+        Runs on the Tk thread and re-schedules itself; the drain after the
+        last tick catches a worker that queued its final line as it finished.
+        """
+        self._drain_slot_updates()
+        worker = self._run_thread
+        if worker is not None and worker.is_alive():
+            self.root.after(_SLOT_POLL_MS, self._poll_slot_updates)
+            return
+        self._drain_slot_updates()
+
+    def _drain_slot_updates(self) -> None:
+        """Write every queued slot line to its worker's row (Tk thread)."""
+        while True:
+            try:
+                slot_idx, text = self._slot_updates.get_nowait()
+            except Empty:
+                return
+            self.slot_vars[slot_idx].set(text)
 
     def _on_progress(
         self,
@@ -601,10 +664,11 @@ class FingerprinterApp(SuiteApp):
         ]
         if counts.get("album_ambiguous"):
             summary.append(f"Album ambiguous: {counts['album_ambiguous']}\n")
-        if isrc_submission:
-            summary.append(f"{isrc_submission_note(isrc_submission)}\n")
-            if isrc_submission.get("reason"):
-                summary.append(f"  {isrc_submission['reason']}\n")
+        isrc_note, isrc_reason = _isrc_outcome_text(isrc_submission)
+        if isrc_note:
+            summary.append(f"{isrc_note}\n")
+            if isrc_reason:
+                summary.append(f"  {isrc_reason}\n")
         summary.extend(
             [
                 f"Errors: {counts['errors']}\n",
@@ -621,29 +685,8 @@ class FingerprinterApp(SuiteApp):
             logger.error("Error: %s", mapped, exc_info=True)
             log_error = user_message_for(mapped)
 
-        self.root.after(
-            0,
-            self._render_complete,
-            total,
-            counts,
-            duration_secs,
-            results,
-            isrc_submission,
-            log_error,
-        )
-
-    def _render_complete(
-        self,
-        total: int,
-        counts: dict[str, int],
-        duration_secs: float,
-        results: list[FingerprintFileResult],
-        isrc_submission: dict[str, Any] | None,
-        log_error: str,
-    ) -> None:
-        """Render the finished run (must run on the main thread)."""
-        if log_error:
-            messagebox.showerror("Error", f"Could not write log file:\n{log_error}")
+        if isrc_note:
+            self._record_isrc_note(isrc_note, isrc_reason)
 
         summary_text = (
             f"Total: {total} files\n"
@@ -654,8 +697,51 @@ class FingerprinterApp(SuiteApp):
         )
         if counts.get("album_ambiguous"):
             summary_text += f"\nAlbum Ambiguous: {counts['album_ambiguous']}"
+
+        isrc_fg = styles.FG_MAIN
+        if isrc_submission:
+            isrc_fg = (
+                styles.COLOR_ERROR
+                if isrc_submission_problem(isrc_submission)
+                else styles.COLOR_SUCCESS
+            )
+
+        self.root.after(
+            0,
+            self._render_complete,
+            summary_text,
+            duration_secs,
+            results,
+            f"{isrc_note}\n{isrc_reason}" if isrc_reason else isrc_note,
+            isrc_fg,
+            log_error,
+        )
+
+    def _render_complete(
+        self,
+        summary_text: str,
+        duration_secs: float,
+        results: list[FingerprintFileResult],
+        isrc_text: str,
+        isrc_fg: str,
+        log_error: str,
+    ) -> None:
+        """Render the finished run (must run on the main thread).
+
+        Args:
+            summary_text: The Results tab's counters block.
+            duration_secs: Wall-clock run time.
+            results: One result per file, for the list below the summary.
+            isrc_text: The submission outcome, or empty when there was none.
+            isrc_fg: Colour for that line: red for a refused submission, green
+                for one that landed, and the normal foreground otherwise.
+            log_error: Why the report could not be written, or empty.
+        """
+        if log_error:
+            messagebox.showerror("Error", f"Could not write log file:\n{log_error}")
+
         self.summary_label.config(text=summary_text)
-        self._surface_isrc_outcome(isrc_submission)
+        self.isrc_label.config(text=isrc_text, fg=isrc_fg)
 
         self.file_listbox.delete(0, tk.END)
         for result in sorted(results, key=lambda r: r.file_path):
@@ -665,39 +751,24 @@ class FingerprinterApp(SuiteApp):
 
         self.render_completion(duration_secs=duration_secs, output_dir=self._out_dir)
 
-    def _surface_isrc_outcome(self, submission: dict[str, Any] | None) -> None:
-        """Show the submission outcome, and record it for the Master Driver.
+    def _record_isrc_note(self, note: str, reason: str) -> None:
+        """Record the submission outcome for the Master Driver (worker thread).
 
         A refused submission still leaves every file untouched and the run
-        successful, so this is not an error dialog: it is a standing line on
-        the Results tab, coloured red when the codes never reached MusicBrainz
-        and green when they did (or there was nothing to send).  The same text
-        is recorded as the run's note so a driver-launched batch reports it on
-        the step line instead of only in ``fingerprint_*_log.txt``.
+        successful, so this is not an error dialog: the outcome is a standing
+        line on the Results tab and the same text is recorded as the run's note,
+        so a driver-launched batch reports it on the step line instead of only
+        in ``fingerprint_*_log.txt``.
 
         Args:
-            submission: The run's ``isrc_submission`` record, or None when the
-                run did not request a submission.
+            note: The outcome line, e.g. ``ISRC submission: rejected (...)``.
+            reason: The submission's reason, or empty.
         """
-        if not submission:
-            self.isrc_label.config(text="", fg=styles.FG_MAIN)
-            return
-
-        note = isrc_submission_note(submission)
-        reason = str(submission.get("reason") or "").strip()
-        text = f"{note}\n{reason}" if reason else note
-        self.isrc_label.config(
-            text=text,
-            fg=styles.COLOR_ERROR
-            if isrc_submission_problem(submission)
-            else styles.COLOR_SUCCESS,
-        )
-
         try:
             record_outcome(
                 DRIVER_TOOL_ID, f"{note} \u2014 {reason}" if reason else note
             )
         except (OSError, ValueError) as exc:
-            # The note only feeds the batch report; the outcome is already on
-            # screen and in the run log, so it must never fail a finished run.
+            # The note only feeds the batch report; the outcome is already in
+            # the run log, so it must never fail a finished run.
             logger.debug("Could not record the ISRC outcome for the driver: %s", exc)

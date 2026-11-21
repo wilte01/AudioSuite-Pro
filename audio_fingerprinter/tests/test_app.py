@@ -3,7 +3,7 @@
 Changed in 1.2.0: covers the MusicBrainz / ISRC toggles reaching
 ``FingerprintParams``.
 Changed in 1.2.0: covers the ISRC submission outcome on the Results tab and
-its record for the Master Driver batch report (``_surface_isrc_outcome``),
+its record for the Master Driver batch report (``_record_isrc_note``),
 including the manifest-id lock the driver's lookup depends on.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_fingerprinting`` into the completion handler (PLAN D117).
@@ -15,19 +15,22 @@ developer's real ``audio_suite_config.json``.
 Changed in 2.9.0: the window composes ``SuiteApp``, so the shells name the
 shell's tab frames and widgets, and the completion is read through the stubbed
 ``root.after`` the shell marshals its widget writes with (C1 stage 2).
+
+Changed in 2.9.0: the slot hand-off is locked - a processor thread queues its
+line instead of calling ``root.after``, and the Tk poller writes it (D22).
 """
 
 import sys
 import tkinter as tk
 from pathlib import Path
-from queue import Queue
+from queue import Queue, SimpleQueue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import audio_fingerprinter.app as fp_mod
-from audio_fingerprinter.app import FingerprinterApp
+from audio_fingerprinter.app import _SLOT_POLL_MS, FingerprinterApp
 from audio_suite_shared import suite_config
 
 
@@ -960,6 +963,49 @@ class TestProgressD3:
             "Processed: 4"
         )
         assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
+
+
+class TestSlotUpdatesHandOff:
+    """A processor thread hands its slot line over; the Tk poller writes it."""
+
+    @staticmethod
+    def _app() -> FingerprinterApp:
+        app = object.__new__(FingerprinterApp)
+        app.root = MagicMock()
+        app._slot_updates = SimpleQueue()
+        app.slot_vars = [MagicMock(), MagicMock()]
+        app._run_thread = None
+        return app
+
+    def test_a_worker_line_is_queued_not_written(self) -> None:
+        """The processor's threads must not call ``root.after`` (AGENTS.md)."""
+        app = self._app()
+
+        app._on_slot_update(1, "Fingerprinting: song.mp3...")
+
+        app.root.after.assert_not_called()
+        assert app._slot_updates.get_nowait() == (1, "Fingerprinting: song.mp3...")
+
+    def test_the_poller_writes_the_queued_lines(self) -> None:
+        app = self._app()
+        app._on_slot_update(1, "Fingerprinting: song.mp3...")
+        app._on_slot_update(1, "IDLE")
+
+        app._poll_slot_updates()
+
+        written = [call.args[0] for call in app.slot_vars[1].set.call_args_list]
+        assert written == ["Fingerprinting: song.mp3...", "IDLE"]
+        # The run's thread is gone, so the poller stops instead of rescheduling.
+        app.root.after.assert_not_called()
+
+    def test_the_poller_keeps_polling_while_the_run_thread_lives(self) -> None:
+        app = self._app()
+        app._run_thread = MagicMock()
+        app._run_thread.is_alive.return_value = True
+
+        app._poll_slot_updates()
+
+        app.root.after.assert_called_once_with(_SLOT_POLL_MS, app._poll_slot_updates)
 
 
 # ---------------------------------------------------------------------------
