@@ -8,6 +8,8 @@ Changed in 2.6.0: the table covers 16 GUI tools; ``CueSheetApp`` joins it with
 the five shared counters (F-E8).
 Changed in 2.6.0: ``ArtworkExtractorApp`` joins it with the same five shared
 counters (F-E10 follow-up).
+Changed in 2.9.0: the table's comment no longer names an inherited handler,
+because Lyrics Manager wires its own (C1 stage 2).
 
 The completion seam deliberately tolerates unknown fields (``**_extra``, see
 ``tests/test_callback_payload_contract.py``), so a processor that renames a
@@ -76,8 +78,7 @@ import pytest
 from tests.test_callback_payload_contract import REPO_ROOT, WIRINGS
 
 #: Fields each tool's completion handler must receive; dropping one raises.
-#: Keyed by the class that wires the callbacks (``LyricsManagerApp`` inherits
-#: its handler from ``AnalysisTagToolApp``).
+#: Keyed by the class that wires the callbacks.
 EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
     "ArtNormalizerApp": frozenset(
         {"total", "processed", "skipped", "errors", "duration_secs", "log_entries"}

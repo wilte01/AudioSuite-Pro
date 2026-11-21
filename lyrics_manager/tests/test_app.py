@@ -10,11 +10,14 @@ Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_fetch`` into the completion handler (PLAN D117).
 
 Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
+
+Changed in 2.9.0: the window composes ``SuiteApp``, so the shell's widget names
+and ``_on_error`` replace the base's, the run mode is the ``_run_mode`` snapshot
+and the presets are the shared ``ui_presets`` store (C1 stage 2).
 """
 
 from __future__ import annotations
 
-import json as _json
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -44,7 +47,7 @@ def _make_shell_app():
     app.clear_logs_var = MagicMock()
     app.parallel_var = MagicMock()
     app.auto_end = False
-    app._log_entries = []
+    app._run_mode = "Dry Run"
     app._dir_path = ""
     app.overall_status = MagicMock()
     app.progress = MagicMock()
@@ -55,8 +58,8 @@ def _make_shell_app():
     app.summary_label = MagicMock()
     app.start_btn = MagicMock()
     app.notebook = MagicMock()
-    app._tab_processing = MagicMock()
-    app._tab_results = MagicMock()
+    app.processing_frame = MagicMock()
+    app.results_frame = MagicMock()
     app._safe_slot_vars = MagicMock()
     app.slot_queue = MagicMock()
     return app
@@ -399,7 +402,7 @@ class TestStartProcessingSuccess:
             stack.enter_context(patch("lyrics_manager.app.threading.Thread"))
             stack.enter_context(patch("lyrics_manager.app.logger"))
             app.start_processing()
-        app.notebook.select.assert_called_once_with(app._tab_processing)
+        app.notebook.select.assert_called_once_with(app.processing_frame)
         app.overall_status.set.assert_called_once_with("Looking up lyrics...")
 
 
@@ -552,22 +555,26 @@ class TestOnComplete:
 class TestUpdateUiOnComplete:
     def test_labels_update_and_tab_switched(self):
         app = _make_shell_app()
-        app.run_mode.get.return_value = "Live Update"
-        app._update_ui_on_complete(5, 4, 0, 1, 1, 30)
+        app._run_mode = "Live Update"
+        app._update_ui_on_complete(5, 4, 0, 1, 30.0)
+        # The shell renders the finished run on the Tk thread; run it now.
+        args = app.root.after.call_args.args
+        args[1](*args[2:])
         app.time_label.config.assert_called_once()
         app.summary_label.config.assert_called_once()
         text = str(app.summary_label.config.call_args)
         assert "Total: 5 files" in text
-        app.completion_label.config.assert_called_once()
-        assert "Lyrics Tagging Complete!" in str(app.completion_label.config.call_args)
-        app.notebook.select.assert_called_once_with(app._tab_results)
+        app.completion_label.config.assert_called_once_with(
+            text="Lyrics Tagging Complete!"
+        )
+        app.notebook.select.assert_called_once_with(app.results_frame)
         app.start_btn.config.assert_called_once_with(state="normal")
 
-    def test_a_tool_with_no_extras_gets_exactly_the_old_summary(self):
-        """The shared hook defaults to nothing, so no row is invented (D109)."""
+    def test_the_summary_has_no_rows_beyond_the_counters(self):
+        """This window adds nothing to the run summary (D109)."""
         app = _make_shell_app()
-        app.run_mode.get.return_value = "Dry Run"
-        app._update_ui_on_complete(5, 4, 0, 1, 1, 30)
+        app._run_mode = "Dry Run"
+        app._update_ui_on_complete(5, 4, 0, 1, 30.0)
 
         text = app.summary_label.config.call_args.kwargs["text"]
         assert text.splitlines() == [
@@ -580,7 +587,7 @@ class TestUpdateUiOnComplete:
     def test_auto_end_destroys_window(self):
         app = _make_shell_app()
         app.auto_end = True
-        app._update_ui_on_complete(1, 1, 0, 0, 0, 0)
+        app._update_ui_on_complete(1, 1, 0, 0, 0.0)
         saved = [c.args for c in app.root.after.call_args_list]
         assert any(args[0] == 2000 and args[1] == app.root.destroy for args in saved)
 
@@ -619,71 +626,49 @@ class TestPresets:
         app.plain_fallback.set.assert_called_once_with(True)
         app.max_workers.set.assert_called_once_with(8)
 
-    def test_preset_selected_loads_config(self):
+    def test_preset_selected_loads_the_stored_settings(self):
         app = _make_shell_app()
         app._apply_preset = MagicMock()
-        payload = _json.dumps({"provider": "lrclib", "max_workers": 4})
+        settings = {"provider": "lrclib", "max_workers": 4}
         with patch(
-            "lyrics_manager.app._suite_config.load_value", return_value=payload
+            "lyrics_manager.app.load_tool_preset", return_value=settings
         ) as load:
             app._on_preset_selected("My Preset")
-        load.assert_called_once_with("lyrics_preset_My Preset", None)
-        app._apply_preset.assert_called_once()
+        load.assert_called_once_with("lyrics", "My Preset")
+        app._apply_preset.assert_called_once_with(settings)
 
-    def test_preset_selected_ignores_garbage(self):
+    def test_preset_selected_ignores_a_missing_preset(self):
         app = _make_shell_app()
-        with patch(
-            "lyrics_manager.app._suite_config.load_value", return_value="not json"
-        ):
+        app._apply_preset = MagicMock()
+        with patch("lyrics_manager.app.load_tool_preset", return_value=None):
             app._on_preset_selected("Broken")  # must not raise
+        app._apply_preset.assert_not_called()
 
-    def test_save_current_as_preset_saves_settings(self):
+    def test_save_current_as_preset_stores_the_settings(self):
         app = _make_shell_app()
-        app._collect_settings = MagicMock(
-            return_value={"provider": "lrclib", "max_workers": 4}
-        )
+        app._collect_settings = MagicMock(return_value={"provider": "lrclib"})
         app._refresh_preset_list = MagicMock()
-        with (
-            patch("lyrics_manager.app._suite_config.save_value") as save,
-            patch("lyrics_manager.app._suite_config.load_value", return_value=None),
-        ):
+        with patch("lyrics_manager.app.save_tool_preset") as save:
             app._save_current_as_preset("Night Mix")
-        save.assert_any_call(
-            "lyrics_preset_Night Mix",
-            _json.dumps({"provider": "lrclib", "max_workers": 4}),
-        )
-        save.assert_any_call("lyrics_presets_list", _json.dumps(["Night Mix"]))
+        save.assert_called_once_with("lyrics", "Night Mix", {"provider": "lrclib"})
         app._refresh_preset_list.assert_called_once()
 
-    def test_delete_preset_removes_from_list(self):
+    def test_delete_preset_unlists_it(self):
         app = _make_shell_app()
         app._refresh_preset_list = MagicMock()
-        with (
-            patch(
-                "lyrics_manager.app._suite_config.load_value",
-                return_value=_json.dumps(["Old", "Keep"]),
-            ),
-            patch("lyrics_manager.app._suite_config.save_value") as save,
-        ):
+        with patch("lyrics_manager.app.delete_tool_preset") as delete:
             app._delete_preset("Old")
-        save.assert_any_call("lyrics_presets_list", _json.dumps(["Keep"]))
+        delete.assert_called_once_with("lyrics", "Old")
         app._refresh_preset_list.assert_called_once()
 
 
 class TestErrorPaths:
-    def test_on_error_schedules_dialog(self):
+    def test_on_error_shows_the_dialog_and_reenables_start(self):
+        """The shell owns this seam: one message, then the button comes back."""
         app = _make_shell_app()
-        app.root.after = MagicMock()
-        with patch("lyrics_manager.app.logger"):
+        with patch("audio_suite_shared.suite_app.messagebox.showerror") as showerror:
             app._on_error("boom")
-        app.root.after.assert_called_once()
-        assert app.root.after.call_args.args[1] == app._show_error_dialog
-
-    def test_show_error_dialog_reenables_start(self):
-        app = _make_shell_app()
-        with patch("lyrics_manager.app.messagebox.showerror") as showerror:
-            app._show_error_dialog("boom")
-        showerror.assert_called_once()
+        showerror.assert_called_once_with("Error", "boom")
         app.start_btn.config.assert_called_once_with(state="normal")
 
 
@@ -703,7 +688,7 @@ class TestConstruction:
         with ExitStack() as stack:
             stack.enter_context(
                 patch(
-                    "lyrics_manager.app.bootstrap_tool_app",
+                    "audio_suite_shared.suite_app.bootstrap_tool_app",
                     return_value=(MagicMock(), None),
                 )
             )
@@ -815,55 +800,6 @@ class TestStartProcessingPermissionAndFallthrough:
         showerror.assert_called_once()
 
 
-class TestPresetEdgeCases:
-    def test_preset_selected_unknown_name_does_nothing(self):
-        app = _make_shell_app()
-        app._apply_preset = MagicMock()
-        with patch(
-            "lyrics_manager.app._suite_config.load_value", return_value=None
-        ) as load:
-            app._on_preset_selected("Unknown")
-        load.assert_called_once_with("lyrics_preset_Unknown", None)
-        app._apply_preset.assert_not_called()
-
-    def test_save_preset_adds_to_names_list(self):
-        app = _make_shell_app()
-        app._collect_settings = MagicMock(return_value={"provider": "lrclib"})
-        app._refresh_preset_list = MagicMock()
-        existing = _json.dumps(["Existing"])
-        with (
-            patch("lyrics_manager.app._suite_config.save_value") as save,
-            patch("lyrics_manager.app._suite_config.load_value", return_value=existing),
-        ):
-            app._save_current_as_preset("New")
-        save.assert_any_call("lyrics_presets_list", _json.dumps(["Existing", "New"]))
-
-    def test_save_preset_does_not_duplicate_name(self):
-        app = _make_shell_app()
-        app._collect_settings = MagicMock(return_value={"provider": "lrclib"})
-        app._refresh_preset_list = MagicMock()
-        existing = _json.dumps(["Existing"])
-        with (
-            patch("lyrics_manager.app._suite_config.save_value") as save,
-            patch("lyrics_manager.app._suite_config.load_value", return_value=existing),
-        ):
-            app._save_current_as_preset("Existing")
-        save.assert_any_call("lyrics_presets_list", _json.dumps(["Existing"]))
-
-    def test_delete_preset_removes_from_names_list(self):
-        app = _make_shell_app()
-        app._refresh_preset_list = MagicMock()
-        with (
-            patch(
-                "lyrics_manager.app._suite_config.load_value",
-                return_value=_json.dumps(["A", "B", "C"]),
-            ),
-            patch("lyrics_manager.app._suite_config.save_value") as save,
-        ):
-            app._delete_preset("B")
-        save.assert_any_call("lyrics_presets_list", _json.dumps(["A", "C"]))
-
-
 # ---------------------------------------------------------------------------
 # Completion seam: the processor payload must reach the handler _run_fetch
 # binds and land in the report the run writes.
@@ -877,14 +813,14 @@ def _completion_shell(tmp_path: Path) -> LyricsManagerApp:
     app = object.__new__(LyricsManagerApp)
     app.root = MagicMock()
     app._log_path = str(tmp_path / "lyrics_dry_run_log.txt")
-    app.run_mode = MagicMock()
-    app.run_mode.get.return_value = "Dry Run"
+    app._dir_path = str(tmp_path)
+    app._run_mode = "Dry Run"
     app.auto_end = False
     app.time_label = MagicMock()
     app.summary_label = MagicMock()
     app.completion_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     return app
 

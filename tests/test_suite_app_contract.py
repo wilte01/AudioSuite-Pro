@@ -56,6 +56,8 @@ Changed in 2.9.0: ReplayGain Analyzer follows it in wave 2, so the table is ten
 and the analyzer gains a run-report drive.
 Changed in 2.9.0: BPM Analyzer follows it in wave 2, so the table is eleven and
 the analyzer gains a run-report drive.
+Changed in 2.9.0: Lyrics Manager follows it in wave 2, so the table is twelve
+and the manager gains a run-report drive.
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ from album_art_normalizer.app import ArtNormalizerApp
 from album_art_sync import app as album_art_sync_app
 from album_art_sync.app import AudioSuiteV6
 from audio_suite_shared import suite_app
+from audio_suite_shared.cli_dataclasses import LyricsArgs
 from bpm_analyzer import app as bpm_analyzer_app
 from bpm_analyzer.app import BPMAnalyzerApp
 from file_reorganizer import app as reorganizer_app
@@ -85,6 +88,8 @@ from genre_sync.app import GenreSetterApp
 from library_stats import app as library_stats_app
 from library_stats.app import LibraryStatsApp
 from library_stats.core.file_processor import StatsReport
+from lyrics_manager import app as lyrics_manager_app
+from lyrics_manager.app import LyricsManagerApp
 from metadata_scrubber import app as metadata_scrubber_app
 from metadata_scrubber.app import MetadataScrubberApp
 from music_format_converter import app as converter_app
@@ -111,6 +116,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     TempoAnalyzerApp,
     ReplayGainAnalyzerApp,
     BPMAnalyzerApp,
+    LyricsManagerApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -299,6 +305,11 @@ def _stub_bpm_analyzer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_lyrics_manager_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the manager's launcher parse (it runs inside the constructor)."""
+    monkeypatch.setattr(lyrics_manager_app.cli_args, "parse", lambda: LyricsArgs())
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -312,6 +323,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     TempoAnalyzerApp: _stub_tempo_analyzer_edges,
     ReplayGainAnalyzerApp: _stub_replaygain_analyzer_edges,
     BPMAnalyzerApp: _stub_bpm_analyzer_edges,
+    LyricsManagerApp: _stub_lyrics_manager_edges,
 }
 
 
@@ -497,6 +509,25 @@ def _complete_bpm_analyzer_run(app: BPMAnalyzerApp, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_lyrics_manager_run(app: LyricsManagerApp, tmp_path: Path) -> None:
+    """Drive the manager's completion: it serialises the report there."""
+    app._run_mode = "Dry Run"
+    app._dir_path = str(tmp_path)
+    app._log_path = str(tmp_path / "lyrics_dry_run_log.txt")
+    app._on_complete(
+        header=["LYRIC LOOKUP REPORT\n"],
+        total=1,
+        processed=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[DRY RUN] a.mp3\n"],
+    )
+    # The render is scheduled onto the Tk thread; run it now so the queued
+    # widget writes land while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -510,6 +541,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     TempoAnalyzerApp: _complete_tempo_analyzer_run,
     ReplayGainAnalyzerApp: _complete_replaygain_analyzer_run,
     BPMAnalyzerApp: _complete_bpm_analyzer_run,
+    LyricsManagerApp: _complete_lyrics_manager_run,
 }
 
 
@@ -729,6 +761,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "TempoAnalyzerApp",
         "ReplayGainAnalyzerApp",
         "BPMAnalyzerApp",
+        "LyricsManagerApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

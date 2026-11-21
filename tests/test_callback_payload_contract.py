@@ -3,6 +3,8 @@
 Changed in 1.4.1: initial version, the cross-tool lock for the completion seam.
 Changed in 1.4.1: extended to the progress and error seams, one rule per seam.
 Changed in 2.0.0: registers ``stem_separator`` (Sprint 6, Item 6.1).
+Changed in 2.9.0: the tool table's comment no longer says a window inherits
+its handlers, because Lyrics Manager wires its own (C1 stage 2).
 
 The processor owns the payloads of the three callbacks it takes, and each GUI
 handler mirrors them by hand, so the two drift independently.  Two shipped
@@ -96,8 +98,8 @@ OPEN_PAYLOAD_SEAMS = frozenset({"complete", "progress"})
 #: Seams every GUI tool wires: a run has progress, one completion, and errors.
 EXPECTED_SEAMS: frozenset[str] = frozenset({"complete", "progress", "error"})
 
-#: (repo-relative wiring module, class that wires the callbacks).  Both shipped
-#: apps live at a package's ``app.py``; ``lyrics_manager`` inherits its handlers.
+#: (repo-relative wiring module, class that wires the callbacks).  A shipped
+#: app's window lives at its package's ``app.py``.
 EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
     {
         ("album_art_normalizer/app.py", "ArtNormalizerApp"),

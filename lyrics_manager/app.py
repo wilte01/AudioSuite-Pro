@@ -8,6 +8,15 @@ resolve through ``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56);
 an over-grid typed count is logged rather than shown when unattended (D70).
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the sixth window of
+D8's wave 2), so the shell owns the Help bar and the Processing and Results
+tabs; this tool keeps its Setup panel, its ``Tagged/Updated`` summary wording
+and its per-mode completion heading. The report and the Results panel are
+written here now that the window no longer inherits ``AnalysisTagToolApp``, and
+the presets keep their existing keys through the shared ``ui_presets`` store.
+The run's mode is snapshotted on the main thread in ``start_processing``, so the
+completion never reads a Tk variable off the Tk thread.
 """
 
 from __future__ import annotations
@@ -20,9 +29,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, cast
 
-from audio_suite_shared import styles
 from audio_suite_shared import suite_config as _suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import is_supported_format
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import (
@@ -39,13 +46,18 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.tool_app_base import AnalysisTagToolApp
 from audio_suite_shared.ui_common import cap_typed_workers
+from audio_suite_shared.ui_presets import (
+    delete_tool_preset,
+    load_tool_preset,
+    save_tool_preset,
+)
 
 from .core import file_processor
 from .core.providers import get_provider
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 
 logger = logging.getLogger(__name__)
@@ -53,27 +65,35 @@ logger = logging.getLogger(__name__)
 TOOL_ID = "lyrics_manager"
 
 
-class LyricsManagerApp(AnalysisTagToolApp):
+class LyricsManagerApp(SuiteApp):
     """Lyrics Manager application GUI."""
 
-    # Name of the user-guide document expected alongside this script.
+    title = "Lyrics Manager"
+    window_key = "lyrics_manager_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE: str = "Lyrics_Manager_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    completion_text: str = "Lyric Lookup Complete!"
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
 
+    #: Word used in the report for the processed-but-neither-skipped-nor-
+    #: erroring files.
     TAGGED_LABEL: str = "Tagged/Updated"
+    #: Results-tab completion captions, by run mode.
     DRY_COMPLETE_LABEL: str = "Lyric Lookup Complete!"
     LIVE_COMPLETE_LABEL: str = "Lyrics Tagging Complete!"
+    #: The preset keys this tool has always written (``lyrics_preset_<name>``).
+    PRESET_KEY_PREFIX: str = "lyrics"
 
-    PRESET_KEY_PREFIX = "lyrics"
+    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
+    #: test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
+    #: Set by ``_run_fetch``; the Results tab's Open Folder target.
+    _dir_path: str = ""
 
     def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Lyrics Manager",
-            "lyrics_manager_window",
-            "lyrics_manager",
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path: tk.StringVar = tk.StringVar()
         self.run_mode: tk.StringVar = tk.StringVar(value="Dry Run")
@@ -112,16 +132,17 @@ class LyricsManagerApp(AnalysisTagToolApp):
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
         # ── Processing state ─────────────────────────────────────────────────
-        self._log_entries: list[str] = []
         self._log_path: str = ""
-        self._dir_path: str = ""
         self.auto_end: bool = False
+        # The run's mode, snapshotted by start_processing on the Tk thread.
+        self._run_mode: str = ""
 
         # ── Worker slot pool ─────────────────────────────────────────────────
+        # Built before super().__init__: the shell renders the grid from it.
         self.slot_vars: list[tk.StringVar] = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
         self.slot_queue: Queue[int] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
@@ -130,12 +151,12 @@ class LyricsManagerApp(AnalysisTagToolApp):
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        super().__init__(root)
+
         if self._refresh_preset_list is None:
             raise AudioConfigurationError(
                 "Lyrics Manager UI initialisation failed: "
-                "_refresh_preset_list was not wired by _build_ui()"
+                "_refresh_preset_list was not wired by _build_setup_tab()"
             )
         self._refresh_preset_list()
 
@@ -151,38 +172,12 @@ class LyricsManagerApp(AnalysisTagToolApp):
             if last:
                 self.folder_path.set(last)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        """Construct the full application UI."""
-        # Help button above the notebook.
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        # Notebook with three tabs.
-        self.notebook: ttk.Notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
-        setup_widgets: dict[str, Any] = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the run controls, the lyric source and the preset row."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             provider=self.provider,
@@ -202,44 +197,40 @@ class LyricsManagerApp(AnalysisTagToolApp):
             on_save_preset=self._save_current_as_preset,
             on_delete_preset=self._delete_preset,
         )
-        self.start_btn = setup_widgets["start_btn"]
-        self._preset_combo = setup_widgets["preset_combo"]
-        self._refresh_preset_list = setup_widgets["refresh_preset_list"]
-
-        proc_widgets: dict[str, Any] = processing_tab.build(
-            tab_processing, self.slot_vars
-        )
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets: dict[str, Any] = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-
-        # Keep tab references for programmatic switching.
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.start_btn = widgets["start_btn"]
+        self._preset_combo = widgets["preset_combo"]
+        self._refresh_preset_list = widgets["refresh_preset_list"]
+        self.controls_panel = widgets["controls_panel"]
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 
     def _apply_cli_args(self) -> None:
         """Parse and apply any command-line arguments supplied by the Master Driver."""
         parsed = cli_args.parse()
-        self._apply_driver_cli_args(parsed)
 
-    def _apply_tool_cli_options(self, parsed: Any) -> None:
-        """Lyrics-specific tool options from the driver handshake."""
+        # Mirror the inherited driver arguments onto the Run Controls panel
+        # before any early return so the display always reflects exactly what
+        # the Master Driver passed, then the tool's own options.
+        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
         self.provider.set(parsed.provider)
         self.request_timeout.set(str(parsed.request_timeout))
         self.skip_existing.set(parsed.skip_existing)
         self.plain_fallback.set(parsed.plain_fallback)
+
+        if not parsed.folder_path:
+            return
+
+        cli_handler = UniversalCLIHandler(self)
+        should_auto_start = cli_handler.apply_cli_args(
+            parsed, folder_var=self.folder_path, auto_start_func=self.start_processing
+        )
+
+        if should_auto_start:
+            self.root.after(1500, self.start_processing)
 
     # ── User actions ──────────────────────────────────────────────────────────
 
@@ -250,14 +241,6 @@ class LyricsManagerApp(AnalysisTagToolApp):
             path_variable=self.folder_path,
             save_last_dir=True,
         )
-
-    def _open_help(self) -> None:
-        """Open the tool user guide."""
-        self._open_help_standard(self.HELP_GUIDE)
-
-    def _open_log(self) -> None:
-        """Open the most recent analysis log file."""
-        self._open_log_standard()
 
     def _open_folder(self) -> None:
         """Open the source folder in the system file manager."""
@@ -371,10 +354,15 @@ class LyricsManagerApp(AnalysisTagToolApp):
 
             # All validations passed — start processing.
             self.start_btn.config(state="disabled")
-            self.notebook.select(self._tab_processing)
+            self.progress["value"] = 0
+            self.stats_label.config(text=self.processing_stats_text)
+            self.notebook.select(self.processing_frame)
             self.overall_status.set("Looking up lyrics...")
             is_dry_run: bool = self.run_mode.get() == "Dry Run"
             parallel: bool = self.parallel_mode.get()
+            # Snapshot the mode on the main thread: the completion renders from
+            # it, and the worker must not call .get() (see _run_fetch).
+            self._run_mode = "Dry Run" if is_dry_run else "Live Update"
             logger.info(
                 "start_processing: folder=%s dry_run=%s provider=%s timeout=%s "
                 "skip_existing=%s plain_fallback=%s parallel=%s workers=%d",
@@ -456,9 +444,7 @@ class LyricsManagerApp(AnalysisTagToolApp):
             "=" * 60 + "\n",
         ]
 
-        self.root.after(0, self._reset_progress_ui)
-
-        with active_batch("lyrics_manager", "tag_edit"):
+        with active_batch(TOOL_ID, "tag_edit"):
             file_processor.run_fetch(
                 dir_path=dir_path,
                 is_dry_run=is_dry_run,
@@ -475,7 +461,161 @@ class LyricsManagerApp(AnalysisTagToolApp):
                 max_workers=effective_workers,
             )
 
+    # ── Callbacks (called from worker threads — all UI via root.after) ────────
+
+    def _on_progress(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
+    ) -> None:
+        """Progress seam: hand the widget writes to the Tk thread."""
+        self.root.after(
+            0, self._update_progress_ui, processed, total, skipped, errors, display_text
+        )
+
+    def _update_progress_ui(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+    ) -> None:
+        """Render one progress tick (must run on the main thread)."""
+        self._render_progress_standard(processed, total, display_text)
+        self.stats_label.config(
+            text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
+        )
+
+    # ── Completion ────────────────────────────────────────────────────────────
+
+    def _on_complete(
+        self,
+        header: list[str],
+        total: int,
+        processed: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        log_entries: list[str],
+        **_extra: Any,
+    ) -> None:
+        """Write the run report, then hand the Results update to the Tk thread.
+
+        Runs on the worker thread before the Results update is scheduled, so
+        neither a damaged Tk nor an unwritable log can suppress the report.
+
+        Args:
+            header: Report header lines for this run.
+            total: Files the run set out to look up.
+            processed: Files it finished attempting.
+            skipped: Files that already had lyrics (or no match to store).
+            errors: Files that could not be looked up or tagged.
+            duration_secs: Wall-clock run time.
+            log_entries: The per-file log lines.
+            **_extra: The other tool-specific completion fields the processor
+                always publishes (``skipped_files``, ``error_files``).  They
+                feed the CLI's ``--json`` output and are ignored here: rejecting
+                one aborted the whole completion, so no report was written and
+                the Results tab never appeared.
+        """
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        tagged = processed - skipped - errors
+
+        summary: list[str] = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {total}\n",
+            f"{self.TAGGED_LABEL}: {tagged}\n",
+            f"Skipped: {skipped}\n",
+            f"Errors: {errors}\n",
+            f"Time: {minutes:02d}:{seconds:02d}\n",
+        ]
+        all_entries: list[str] = header + log_entries + summary
+
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(all_entries)
+            logger.info("Log written to '%s'", self._log_path)
+        except PermissionError as exc:
+            logger.error(
+                "Permission denied writing log '%s': %s",
+                self._log_path,
+                exc,
+                exc_info=True,
+            )
+        except OSError as exc:
+            logger.error(
+                "OSError writing log '%s': %s", self._log_path, exc, exc_info=True
+            )
+        except Exception as exc:
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error(
+                "[%s] Unexpected error writing log: %s",
+                type(mapped).__name__,
+                mapped,
+                exc_info=True,
+            )
+
+        self.root.after(
+            0,
+            self._update_ui_on_complete,
+            total,
+            tagged,
+            skipped,
+            errors,
+            duration_secs,
+        )
+
+    def _update_ui_on_complete(
+        self,
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+    ) -> None:
+        """Render the finished run (must run on the main thread)."""
+        text: str = (
+            f"Total: {total} files\n"
+            f"{self.TAGGED_LABEL}: {tagged}\n"
+            f"Skipped: {skipped}\n"
+            f"Errors: {errors}"
+        )
+        self.summary_label.config(text=text)
+
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        logger.info(
+            "Processing complete - total=%d tagged=%d skipped=%d "
+            "errors=%d time=%02d:%02d",
+            total,
+            tagged,
+            skipped,
+            errors,
+            minutes,
+            seconds,
+        )
+
+        # This window has always labelled a finished run by its mode; the shell
+        # renders ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            self.DRY_COMPLETE_LABEL
+            if self._run_mode == "Dry Run"
+            else self.LIVE_COMPLETE_LABEL
+        )
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
+
+        if self.auto_end:
+            self.root.after(2000, self.root.destroy)
+
     # ── Presets ───────────────────────────────────────────────────────────────
+
     def _collect_settings(self) -> dict[str, int | bool | str]:
         """Collect current UI settings into a dict for preset storage."""
         return {
@@ -497,3 +637,19 @@ class LyricsManagerApp(AnalysisTagToolApp):
         self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
         self.max_workers.set(int(settings.get("max_workers", default_max_workers())))
         self.run_mode.set(str(settings.get("run_mode", "Dry Run")))
+
+    def _on_preset_selected(self, name: str) -> None:
+        """Load a named preset and apply its settings."""
+        settings = load_tool_preset(self.PRESET_KEY_PREFIX, name)
+        if settings is not None:
+            self._apply_preset(cast("dict[str, int | bool | str]", settings))
+
+    def _save_current_as_preset(self, name: str) -> None:
+        """Save the current settings as a named preset."""
+        save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
+        self._refresh_preset_list()
+
+    def _delete_preset(self, name: str) -> None:
+        """Delete a named preset."""
+        delete_tool_preset(self.PRESET_KEY_PREFIX, name)
+        self._refresh_preset_list()

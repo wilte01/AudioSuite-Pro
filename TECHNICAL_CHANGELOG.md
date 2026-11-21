@@ -157,6 +157,18 @@ used once, and every bullet belongs to exactly one of them.
   and writes the same keys, so a preset saved before the migration still loads,
   and the four windows still on the base are unchanged.
 
+- **Lyrics Manager follows it in wave 2 (C1 stage 2).** `LyricsManagerApp`
+  composes `SuiteApp`, so the Help bar and the Processing and Results tabs are
+  the shell's and `ui/processing_tab.py`/`ui/results_tab.py` are deleted. The
+  window keeps its Setup panel, its `Tagged/Updated` summary wording and its
+  per-mode completion heading, which it now writes itself along with its report
+  (`lyrics_dry_run_log.txt`/`lyrics_sync_log.txt`, ending with the `SUMMARY:`
+  block). The run's mode is snapshotted in `start_processing`, which also owns
+  the bar and stats reset the worker used to schedule. `_on_error` and View Log
+  are the shell's, `_open_folder` stays this tool's source-folder override, and
+  the presets keep their keys through `ui_presets`, which now has a lock of its
+  own rather than riding on this window's app tests.
+
 ### Fixed
 
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`
