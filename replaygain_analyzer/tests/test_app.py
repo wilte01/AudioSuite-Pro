@@ -11,6 +11,12 @@ successes, so a mixed batch under-reported (and a lone failure read as -1), and
 the completion counts that used to default are now required payload fields.
 Changed in 2.1.2: the measurement mock returns the third metric (duration),
 which album gain now needs (audit R-01).
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the tests build
+shells with ``object.__new__`` instead of mocking a whole hand-built window, the
+completion renders through the shell's results frame, the error handler is the
+shell's, and the run's inputs are the snapshot ``start_processing`` takes on the
+main thread.
 """
 
 from __future__ import annotations
@@ -21,192 +27,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-def _mock_stringvar(value=None, master=None, name=None):
-    sv = MagicMock()
-    sv.get.return_value = value if value is not None else ""
-
-    def sv_setter(val):
-        sv.get.return_value = val
-
-    sv.set = sv_setter
-    return sv
+from replaygain_analyzer.app import ReplayGainAnalyzerApp
 
 
-@pytest.fixture
-def mock_replaygain_app():
-    """Build a ReplayGainAnalyzerApp with all GUI dependencies mocked."""
-    import audio_suite_shared.ui_common
-    import replaygain_analyzer.app
-    import replaygain_analyzer.ui.processing_tab
-    import replaygain_analyzer.ui.results_tab
-    import replaygain_analyzer.ui.setup_tab
-
-    to_patch = [
-        replaygain_analyzer.app,
-        replaygain_analyzer.ui.setup_tab,
-        replaygain_analyzer.ui.results_tab,
-        replaygain_analyzer.ui.processing_tab,
-        audio_suite_shared.ui_common,
-    ]
-    saved = {}
-    for mod in to_patch:
-        saved[mod] = {
-            "tk": getattr(mod, "tk", None),
-            "ttk": getattr(mod, "ttk", None),
-        }
-
-    mock_tk = MagicMock()
-    mock_tk.StringVar = _mock_stringvar
-    mock_tk.ttk = MagicMock()
-    mock_tk.END = "end"
-    mock_tk.ACTIVE = "active"
-    mock_tk.DISABLED = "disabled"
-    mock_tk.NORMAL = "normal"
-    mock_tk.Frame = MagicMock(return_value=MagicMock())
-    mock_tk.Label = MagicMock(return_value=MagicMock())
-    mock_tk.Button = MagicMock(return_value=MagicMock())
-    mock_tk.Entry = MagicMock(return_value=MagicMock())
-    mock_tk.Listbox = MagicMock(return_value=MagicMock())
-    mock_tk.Text = MagicMock(return_value=MagicMock())
-    mock_tk.Toplevel = MagicMock(return_value=MagicMock())
-    mock_tk.Tk = MagicMock(return_value=MagicMock())
-
-    try:
-        for mod in to_patch:
-            mod.tk = mock_tk
-            if hasattr(mod, "ttk"):
-                mod.ttk = mock_tk.ttk
-
-        with (
-            patch("replaygain_analyzer.app.bootstrap_tool_app") as mock_bootstrap,
-            patch("replaygain_analyzer.app.suite_config") as mock_config,
-            patch("replaygain_analyzer.app.cli_args") as mock_cli,
-            patch("replaygain_analyzer.app.messagebox"),
-            patch("replaygain_analyzer.app.UniversalCLIHandler"),
-            patch("replaygain_analyzer.app.logger"),
-            # DriverControlsPanel builds real tkinter widgets — replace it
-            # while the rest of tkinter is mocked in this fixture.
-            patch("replaygain_analyzer.ui.setup_tab.DriverControlsPanel") as mock_panel,
-        ):
-            mock_bootstrap.return_value = (MagicMock(), MagicMock())
-            mock_config.load_window_geometry.return_value = "800x600"
-            mock_cli.parse.return_value = MagicMock(folder_path=None)
-            mock_cli.was_launched_from_driver.return_value = False
-            mock_panel.return_value = MagicMock()
-
-            from replaygain_analyzer.app import ReplayGainAnalyzerApp
-
-            root = MagicMock()
-            root.withdraw = MagicMock()
-            app = ReplayGainAnalyzerApp(root)
-            # Patch methods inherited from UIHelperMixin
-            app._browse_folder_standard = MagicMock()
-            app._open_help_standard = MagicMock()
-            app._open_log_standard = MagicMock()
-            yield app
-    finally:
-        for mod, attrs in saved.items():
-            for attr, val in attrs.items():
-                setattr(mod, attr, val)
-
-
-class TestCallbackSignatureConsistency:
-    """Verify every callback signature matches between app.py and
-    core/file_processor.py to prevent kwarg mismatch bugs."""
-
-    def test_on_complete_accepts_all_kwargs_from_file_processor(
-        self, mock_replaygain_app, tmp_path
-    ):
-        """_on_complete must accept 'skipped' which run_analysis() passes."""
-        app = mock_replaygain_app
-        app._log_path = str(tmp_path / "rg_log.txt")
-
-        app._on_complete(
-            header=["REPORT\n"],
-            total=10,
-            processed=8,
-            skipped=2,
-            errors=0,
-            duration_secs=12.5,
-            log_entries=["line1\n", "line2\n"],
-        )
-
-    def test_on_complete_with_auto_end_schedules_close(
-        self, mock_replaygain_app, tmp_path
-    ):
-        app = mock_replaygain_app
-        app._log_path = str(tmp_path / "rg_log.txt")
-        app.auto_end = True
-
-        app._on_complete(
-            header=["REPORT\n"],
-            total=10,
-            processed=10,
-            skipped=0,
-            errors=0,
-            duration_secs=5.0,
-            log_entries=["done\n"],
-        )
-        app.root.after.assert_called()
-
-    def test_on_file_progress_matches_parameter_name(self, mock_replaygain_app):
-        """The 'on_progress' parameter in run_analysis() must match
-        the 'on_file_progress' -> 'on_progress' kwarg name in app.py."""
-        app = mock_replaygain_app
-        app.progress = MagicMock()
-        app.stats_label = MagicMock()
-
-        # _on_file_progress schedules UI updates via root.after.
-        # Simulate what root.after does: execute the lambda immediately.
-        def fake_after(ms, fn, *args):
-            fn()
-
-        app.root.after = fake_after
-
-        app._on_file_progress(processed=5, total=10, errors=1)
-        app.progress.configure.assert_called()
-        app.stats_label.config.assert_called()
-
-    def test_run_analysis_lambda_wiring(self, mock_replaygain_app, tmp_path):
-        """The lambda wrapping _on_complete in _run() must pass all
-        kwargs through without dropping any."""
-        app = mock_replaygain_app
-        app._log_path = str(tmp_path / "rg_log.txt")
-
-        # Simulate the lambda from app.py line 300:
-        # on_complete=lambda **kw: self._on_complete(header=header, **kw)
-        header = ["REPORT\n"]
-
-        def lambda_wrapper(**kw):
-            app._on_complete(header=header, **kw)
-
-        lambda_wrapper(
-            total=10,
-            processed=8,
-            skipped=2,
-            errors=0,
-            duration_secs=12.5,
-            log_entries=[],
-        )
-
-
-# ── Completion seam: the processor payload must reach this handler ───────
-
-
-def _completion_shell(log_path: Path):
+def _completion_shell(log_path: Path) -> ReplayGainAnalyzerApp:
     """Build a ReplayGainAnalyzerApp shell carrying only what _on_complete reads."""
-    from replaygain_analyzer.app import ReplayGainAnalyzerApp
-
     app = object.__new__(ReplayGainAnalyzerApp)
     app.root = MagicMock()
-    app.run_mode = MagicMock()
-    app.run_mode.get.return_value = "Dry Run"
+    app._run_mode = "Dry Run"
+    app._dir_path = str(log_path.parent)
     app.time_label = MagicMock()
     app.summary_label = MagicMock()
     app.completion_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     app.auto_end = False
     app._log_path = str(log_path)
@@ -224,7 +58,10 @@ def _flush(root: MagicMock) -> None:
     """Run the widget updates the handler marshalled through ``root.after``."""
     for call in root.after.call_args_list:
         if len(call.args) > 1 and callable(call.args[1]):
-            call.args[1]()
+            call.args[1](*call.args[2:])
+
+
+# ── Completion seam: the processor payload must reach this handler ───────
 
 
 class TestCompletionSeam:
@@ -319,30 +156,195 @@ class TestCompletionSeam:
         assert not (tmp_path / "log.txt").exists()
 
 
-class TestReplaygainAppActions:
-    def test_browse_folder_calls_helper(self, mock_replaygain_app):
-        mock_replaygain_app._browse_folder()
-        mock_replaygain_app._browse_folder_standard.assert_called_once()
+# ── The completion renders through the shell ─────────────────────────────
 
-    def test_open_help_calls_helper(self, mock_replaygain_app):
-        mock_replaygain_app._open_help()
-        mock_replaygain_app._open_help_standard.assert_called_once_with(
+
+class TestCompletionRender:
+    """A finished run points the shell at this run's heading and results."""
+
+    def test_a_dry_run_labels_itself_analysis(self, tmp_path: Path) -> None:
+        app = _completion_shell(tmp_path / "log.txt")
+
+        app._on_complete(
+            header=["REPORT\n"],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+        _flush(app.root)
+
+        app.completion_label.config.assert_called_with(text="Analysis Complete!")
+        app.notebook.select.assert_called_with(app.results_frame)
+        app.start_btn.config.assert_called_with(state="normal")
+
+    def test_a_live_run_labels_itself_tagging(self, tmp_path: Path) -> None:
+        app = _completion_shell(tmp_path / "log.txt")
+        app._run_mode = "Live Update"
+
+        app._on_complete(
+            header=["REPORT\n"],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+        _flush(app.root)
+
+        app.completion_label.config.assert_called_with(
+            text="ReplayGain Tagging Complete!"
+        )
+
+    def test_auto_end_closes_the_window(self, tmp_path: Path) -> None:
+        app = _completion_shell(tmp_path / "log.txt")
+        app.auto_end = True
+
+        app._on_complete(
+            header=["REPORT\n"],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+        _flush(app.root)
+
+        destroy_calls = [
+            call
+            for call in app.root.after.call_args_list
+            if len(call.args) >= 2 and call.args[1] == app.root.destroy
+        ]
+        assert len(destroy_calls) == 1
+
+    def test_a_failed_report_write_is_logged_not_raised(self, tmp_path: Path) -> None:
+        app = _completion_shell(tmp_path / "log.txt")
+
+        with patch("builtins.open", side_effect=OSError(13, "denied")):
+            app._on_complete(
+                header=["REPORT\n"],
+                total=1,
+                processed=1,
+                skipped=0,
+                errors=0,
+                duration_secs=1.0,
+                log_entries=[],
+            )
+
+
+# ── Progress and per-file lines ──────────────────────────────────────────
+
+
+class TestProgressCallbacks:
+    """The progress seam and the per-file lines the run publishes."""
+
+    @staticmethod
+    @pytest.fixture
+    def app() -> ReplayGainAnalyzerApp:
+        root = MagicMock()
+        scheduled: list = []
+        root.after.side_effect = lambda delay, fn, *a, **kw: scheduled.append((fn, a))
+        app = object.__new__(ReplayGainAnalyzerApp)
+        app.root = root
+        app._scheduled = scheduled
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.file_listbox = MagicMock()
+        return app
+
+    def test_on_progress_schedules_the_tick(self, app: ReplayGainAnalyzerApp) -> None:
+        app._on_progress(3, 10, 1)
+        fn, args = app._scheduled[0]
+        assert fn == app._update_progress_ui
+        assert args == (3, 10, 1)
+
+    def test_the_tick_moves_the_bar_and_the_counters(
+        self, app: ReplayGainAnalyzerApp
+    ) -> None:
+        app._update_progress_ui(4, 9, 1)
+        assert app.progress.__setitem__.call_args_list[0] == (("maximum", 9),)
+        assert app.progress.__setitem__.call_args_list[1] == (("value", 4),)
+        app.stats_label.config.assert_called_once_with(text="Processed: 4 | Errors: 1")
+
+    def test_a_tick_publishes_no_per_file_line(
+        self, app: ReplayGainAnalyzerApp
+    ) -> None:
+        """This processor's progress payload has no line, so none is written."""
+        app._update_progress_ui(1, 1, 0)
+        app.file_listbox.insert.assert_not_called()
+
+    def test_a_folder_line_carries_its_measurements(
+        self, app: ReplayGainAnalyzerApp
+    ) -> None:
+        app._on_folder_complete(
+            folder_path="/music",
+            files_data=[],
+            album_gain_str="-1.80 dB",
+            album_peak_str="0.987654",
+            tag_results=[
+                (
+                    {"name": "a.mp3", "lufs": -14.234},
+                    "TAGGED",
+                    "+2.10 dB",
+                    "0.950000",
+                )
+            ],
+            log_header="FOLDER: /music\n",
+        )
+        _flush(app.root)
+
+        app.file_listbox.insert.assert_called_once_with(
+            "end", "a.mp3 | LUFS -14.23 | Track +2.10 dB | Album -1.80 dB | TAGGED"
+        )
+
+
+# ── Shell seams ──────────────────────────────────────────────────────────
+
+
+class TestShellSeams:
+    """Help, View Log and Browse reach the shell's helpers."""
+
+    def test_browse_folder_calls_helper(self) -> None:
+        app = object.__new__(ReplayGainAnalyzerApp)
+        app.folder_path = MagicMock()
+        app._browse_folder_standard = MagicMock()
+        app._browse_folder()
+        app._browse_folder_standard.assert_called_once()
+
+    def test_open_help_opens_the_tools_guide(self) -> None:
+        app = object.__new__(ReplayGainAnalyzerApp)
+        app._open_help_standard = MagicMock()
+        app._open_help()
+        app._open_help_standard.assert_called_once_with(
             "ReplayGain_Analyzer_User_Guide.docx"
         )
 
-    def test_open_log_calls_helper(self, mock_replaygain_app):
-        mock_replaygain_app._open_log()
-        mock_replaygain_app._open_log_standard.assert_called_once()
+    def test_open_log_calls_helper(self) -> None:
+        app = object.__new__(ReplayGainAnalyzerApp)
+        app._open_log_standard = MagicMock()
+        app._open_log()
+        app._open_log_standard.assert_called_once()
+
+    def test_on_error_shows_error_and_reenables_button(self) -> None:
+        """The error seam is the shell's; this window inherits it."""
+        app = object.__new__(ReplayGainAnalyzerApp)
+        app.start_btn = MagicMock()
+        with patch("audio_suite_shared.suite_app.messagebox") as mock_mb:
+            app._on_error("something broke")
+        mock_mb.showerror.assert_called_once_with("Error", "something broke")
+        app.start_btn.config.assert_called_once_with(state="normal")
 
 
 # ── Run Controls panel wiring ────────────────────────────────────────────
 # Shell instances via object.__new__ + MagicMock (AGENTS.md GUI pattern).
 
 
-def _make_shell_app():
+def _make_shell_app() -> ReplayGainAnalyzerApp:
     """Build a ReplayGainAnalyzerApp shell with mock attributes."""
-    from replaygain_analyzer.app import ReplayGainAnalyzerApp
-
     app = object.__new__(ReplayGainAnalyzerApp)
     app.root = MagicMock()
     app.folder_path = MagicMock()
@@ -354,20 +356,17 @@ def _make_shell_app():
     app.clear_logs_var = MagicMock()
     app.parallel_var = MagicMock()
     app.apply_lossless_gain_var = MagicMock()
-
-    handler = MagicMock()
-    handler.apply_cli_args.return_value = False
-    handler_cls = MagicMock(return_value=handler)
-    return app, handler, handler_cls
+    return app
 
 
 class TestApplyCliArgsDriven:
     """A driver launch populates the Run Controls values before applying."""
 
     def _run(self, parsed, driven=True):
-        from replaygain_analyzer.app import UniversalCLIHandler  # noqa: F401
-
-        app, handler, handler_cls = _make_shell_app()
+        app = _make_shell_app()
+        handler = MagicMock()
+        handler.apply_cli_args.return_value = False
+        handler_cls = MagicMock(return_value=handler)
         with (
             patch("replaygain_analyzer.utils.cli_args.parse", return_value=parsed),
             patch(
@@ -417,8 +416,10 @@ class TestApplyCliArgsDriven:
     def test_auto_start_schedules_processing(self):
         from replaygain_analyzer.utils.cli_args import ReplayGainArgs
 
-        app, _, handler_cls = _make_shell_app()
-        handler_cls.return_value.apply_cli_args.return_value = True
+        app = _make_shell_app()
+        handler = MagicMock()
+        handler.apply_cli_args.return_value = True
+        handler_cls = MagicMock(return_value=handler)
         with (
             patch(
                 "replaygain_analyzer.utils.cli_args.parse",
@@ -442,7 +443,8 @@ class TestApplyCliArgsStandalone:
     def test_defaults_applied_to_panel_vars(self):
         from replaygain_analyzer.utils.cli_args import ReplayGainArgs
 
-        app, _, handler_cls = _make_shell_app()
+        app = _make_shell_app()
+        handler_cls = MagicMock()
         with (
             patch(
                 "replaygain_analyzer.utils.cli_args.parse",
@@ -466,7 +468,8 @@ class TestApplyCliArgsStandalone:
     def test_no_handler_or_scheduling_without_folder(self):
         from replaygain_analyzer.utils.cli_args import ReplayGainArgs
 
-        app, _, handler_cls = _make_shell_app()
+        app = _make_shell_app()
+        handler_cls = MagicMock()
         with (
             patch(
                 "replaygain_analyzer.utils.cli_args.parse",
@@ -483,3 +486,131 @@ class TestApplyCliArgsStandalone:
         app.run_mode.set.assert_called_once_with("Dry Run")
         handler_cls.return_value.apply_cli_args.assert_not_called()
         app.root.after.assert_not_called()
+
+
+# ── start_processing validation and the run snapshot ─────────────────────
+
+
+def _make_processing_app() -> ReplayGainAnalyzerApp:
+    """Build a minimal app for start_processing tests."""
+    app = object.__new__(ReplayGainAnalyzerApp)
+    app.root = MagicMock()
+    app.folder_path = MagicMock()
+    app.start_btn = MagicMock()
+    app.file_listbox = MagicMock()
+    app.notebook = MagicMock()
+    app.overall_status = MagicMock()
+    app.progress = MagicMock()
+    app.stats_label = MagicMock()
+    app.processing_frame = MagicMock()
+    app.run_mode = MagicMock()
+    app.run_mode.get.return_value = "Dry Run"
+    app.target_lufs = MagicMock()
+    app.target_lufs.get.return_value = "-16.0"
+    app.apply_lossless_gain_var = MagicMock()
+    app.apply_lossless_gain_var.get.return_value = False
+    return app
+
+
+class TestStartProcessingValidation:
+    """start_processing() validates the folder and the target before a run."""
+
+    def test_empty_folder_shows_error(self) -> None:
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "   "
+        with patch("replaygain_analyzer.app.messagebox") as mock_mb:
+            app.start_processing()
+        mock_mb.showerror.assert_called_once_with(
+            "No Directory Selected",
+            "Please select a music directory containing audio files.",
+        )
+        app.start_btn.config.assert_not_called()
+
+    def test_nonexistent_folder_shows_error(self) -> None:
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/no/such/dir"
+        with (
+            patch("replaygain_analyzer.app.os.path.exists", return_value=False),
+            patch("replaygain_analyzer.app.messagebox") as mock_mb,
+        ):
+            app.start_processing()
+        mock_mb.showerror.assert_called_once()
+        assert "does not exist" in mock_mb.showerror.call_args[0][1]
+
+    def test_not_a_directory_shows_error(self) -> None:
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/some/file.mp3"
+        with (
+            patch("replaygain_analyzer.app.os.path.exists", return_value=True),
+            patch("replaygain_analyzer.app.os.path.isdir", return_value=False),
+            patch("replaygain_analyzer.app.messagebox") as mock_mb,
+        ):
+            app.start_processing()
+        mock_mb.showerror.assert_called_once()
+        assert "not a valid directory" in mock_mb.showerror.call_args[0][1]
+
+    def test_no_audio_files_shows_error(self) -> None:
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/empty/dir"
+        with (
+            patch("replaygain_analyzer.app.os.path.exists", return_value=True),
+            patch("replaygain_analyzer.app.os.path.isdir", return_value=True),
+            patch("replaygain_analyzer.app.os.listdir", return_value=["readme.txt"]),
+            patch("replaygain_analyzer.app.messagebox") as mock_mb,
+        ):
+            app.start_processing()
+        mock_mb.showerror.assert_called_once()
+        assert "No supported audio files" in mock_mb.showerror.call_args[0][1]
+
+    def test_an_out_of_range_target_shows_error(self) -> None:
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/music"
+        app.target_lufs.get.return_value = "-100"
+        with (
+            patch("replaygain_analyzer.app.os.path.exists", return_value=True),
+            patch("replaygain_analyzer.app.os.path.isdir", return_value=True),
+            patch("replaygain_analyzer.app.os.listdir", return_value=["a.mp3"]),
+            patch("replaygain_analyzer.app.messagebox") as mock_mb,
+        ):
+            app.start_processing()
+        mock_mb.showerror.assert_called_once()
+        assert mock_mb.showerror.call_args[0][0] == "Invalid LUFS Target"
+
+    def test_success_snapshots_the_run_inputs(self) -> None:
+        """The worker must never call .get() on a Tk variable."""
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/music"
+        app.run_mode.get.return_value = "Live Update"
+        app.target_lufs.get.return_value = "-14.0"
+        app.apply_lossless_gain_var.get.return_value = True
+        with (
+            patch("replaygain_analyzer.app.os.path.exists", return_value=True),
+            patch("replaygain_analyzer.app.os.path.isdir", return_value=True),
+            patch("replaygain_analyzer.app.os.listdir", return_value=["a.mp3"]),
+            patch("replaygain_analyzer.app.threading.Thread"),
+        ):
+            app.start_processing()
+
+        assert app._run_path == "/music"
+        assert app._run_mode == "Live Update"
+        assert app._run_target_lufs == -14.0
+        assert app._run_apply_lossless_gain is True
+
+    def test_success_resets_the_processing_tab(self) -> None:
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/music"
+        with (
+            patch("replaygain_analyzer.app.os.path.exists", return_value=True),
+            patch("replaygain_analyzer.app.os.path.isdir", return_value=True),
+            patch("replaygain_analyzer.app.os.listdir", return_value=["a.mp3"]),
+            patch("replaygain_analyzer.app.threading.Thread") as mock_thread,
+        ):
+            app.start_processing()
+
+        app.start_btn.config.assert_called_once_with(state="disabled")
+        app.file_listbox.delete.assert_called_once_with(0, "end")
+        app.notebook.select.assert_called_once_with(app.processing_frame)
+        app.overall_status.set.assert_called_once_with("Analyzing ReplayGain values...")
+        mock_thread.assert_called_once()
+        assert mock_thread.call_args[1]["daemon"] is True
+        assert mock_thread.call_args[1]["target"] == app._run

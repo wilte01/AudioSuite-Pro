@@ -118,6 +118,25 @@ used once, and every bullet belongs to exactly one of them.
   `ui/processing_tab.py`/`ui/results_tab.py` are deleted with `tests/test_ui.py`.
   `tests/test_test_file_naming.py` drops that file's allowlist entry (30).
 
+- **ReplayGain Analyzer follows it in wave 2 (C1 stage 2).** `ReplayGainAnalyzerApp`
+  composes `SuiteApp` with its own `Processed / Errors` stats line. Its Setup
+  panel keeps its builder and its five-stop LUFS slider, and the worker pool is
+  built before `super().__init__` so the shell can render the grid. This window
+  was the one wave-2 tool whose Processing tab was not the shared layout: it
+  carried a five-column results table. The shell has one per-file display, so a
+  finished folder now writes the same four values (LUFS, track gain, album gain,
+  status) as one line per file into the shared file list, and a progress tick
+  publishes no line because this processor sends none. The completion keeps its
+  per-mode heading by pointing `completion_text` at "Analysis Complete!" or
+  "ReplayGain Tagging Complete!" before the shell renders. The window snapshots
+  its folder, mode, target LUFS and lossless-gain choice on the Tk thread in
+  `start_processing`, so neither the worker nor the completion reads a Tk
+  variable off-thread; the bar reset moved to the same place. `_on_error`, Help
+  and View Log are the shell's, `_open_folder` stays this tool's source-folder
+  override, and `ui/processing_tab.py`/`ui/results_tab.py` are deleted. The
+  contract table gains the tool and its report drive, and the guide's Processing
+  description now names the shared file list instead of the removed table.
+
 ### Fixed
 
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`

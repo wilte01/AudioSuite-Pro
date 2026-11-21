@@ -78,7 +78,7 @@ The shared tag writer stores REPLAYGAIN_TRACK_GAIN, REPLAYGAIN_ALBUM_GAIN, REPLA
 
 ![The Results tab after a finished run](images/results.png)
 
-Processing shows the overall status line, the progress bar, the **Processed:** and **Errors:** counter, and the **Active Workers** panel with one **W1…Wn** slot per worker (one per logical CPU, at most eight). Each finished folder adds rows to the results tree, whose columns are **File**, **Track LUFS**, **Track Gain**, **Album Gain** and **Status**. Results shows **ReplayGain Analysis Complete!**, the elapsed time, the summary counters, and the **View Log** and **Open Folder** buttons.
+Processing shows the overall status line, the progress bar, the **Processed:** and **Errors:** counter, and the **Active Workers** panel with one **W1…Wn** slot per worker (one per logical CPU, at most eight). Each finished folder adds one line per file to the shared file list, giving the file name, its LUFS, its track gain, the folder's album gain and its status. Results shows **ReplayGain Analysis Complete!**, the elapsed time, the summary counters, and the **View Log** and **Open Folder** buttons.
 
 ## Logs
 

@@ -15,6 +15,14 @@ omits a count raises with its name instead of printing ``Errors: 0`` and
 ``Time: 00:00`` from a run that never reported.
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the fourth window of
+D8's wave 2), so the shell owns the Help bar and the Processing and Results
+tabs; this tool keeps its Setup panel and its per-run completion wording. The
+Processing tab's five-column results table became the shell's shared file list,
+one line per file carrying the same LUFS, track gain, album gain and status.
+The run's folder, mode, target and lossless-gain choice are snapshotted on the
+main thread in ``start_processing``, so the worker and the completion never read
+a Tk variable off the Tk thread.
 """
 
 import argparse
@@ -26,8 +34,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, cast
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+from audio_suite_shared import suite_config
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_dataclasses import validate_target_lufs
@@ -38,31 +45,32 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 
 logger = logging.getLogger(__name__)
 TOOL_ID = "replaygain_analyzer"
 
 
-class ReplayGainAnalyzerApp(UIHelperMixin):
+class ReplayGainAnalyzerApp(SuiteApp):
     """ReplayGain Analyzer application GUI."""
 
+    title = "ReplayGain Analyzer & Tagger"
+    window_key = "replaygain_analyzer_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE = "ReplayGain_Analyzer_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    # The heading the Results tab opens with; a finished run sets its own.
+    completion_text = "ReplayGain Analysis Complete!"
+    # The counters this tool reports; a run overwrites the line from its ticks.
+    processing_stats_text = "Processed: 0 | Errors: 0"
 
     def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "ReplayGain Analyzer & Tagger",
-            "replaygain_analyzer_window",
-            "replaygain_analyzer",
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
         self.target_lufs = tk.StringVar(value="-16.0")
@@ -81,12 +89,18 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
         self._log_path: str = ""
         self._dir_path: str = ""
         self.auto_end: bool = False
+        # The run's inputs, snapshotted by start_processing on the Tk thread.
+        self._run_path: str = ""
+        self._run_mode: str = ""
+        self._run_target_lufs: float = 0.0
+        self._run_apply_lossless_gain: bool = False
 
         # ── Worker slot pool ──────────────────────────────────────────────────
+        # Built before super().__init__: the shell renders the grid from it.
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
@@ -95,8 +109,7 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        super().__init__(root)
 
         # ── Apply CLI arguments ───────────────────────────────────────────────
         self._apply_cli_args()
@@ -107,35 +120,12 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
             if last:
                 self.folder_path.set(last)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
-        setup_widgets = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the run controls, the LUFS target and the presets into *parent*."""
+        widgets = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             target_lufs=self.target_lufs,
             run_mode=self.run_mode,
@@ -152,27 +142,10 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
             on_save_preset=self._save_current_as_preset,
             on_delete_preset=self._delete_preset,
         )
-        self.start_btn = setup_widgets["start_btn"]
-        self._preset_combo = setup_widgets["preset_combo"]
-        self._refresh_preset_list = setup_widgets["refresh_preset_list"]
-
-        proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status = cast(tk.StringVar, proc_widgets["overall_status"])
-        self.progress = cast(ttk.Progressbar, proc_widgets["progress"])
-        self.stats_label = cast(tk.Label, proc_widgets["stats_label"])
-        self.tree = cast(ttk.Treeview, proc_widgets["tree"])
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label = cast(tk.Label, res_widgets["completion_label"])
-        self.time_label = cast(tk.Label, res_widgets["time_label"])
-        self.summary_label = cast(tk.Label, res_widgets["summary_label"])
-
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.start_btn = widgets["start_btn"]
+        self._preset_combo = widgets["preset_combo"]
+        self._refresh_preset_list = widgets["refresh_preset_list"]
+        self.controls_panel = widgets["controls_panel"]
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 
@@ -239,12 +212,6 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
             save_last_dir=True,
         )
 
-    def _open_help(self) -> None:
-        self._open_help_standard(self.HELP_GUIDE)
-
-    def _open_log(self) -> None:
-        self._open_log_standard()
-
     def _open_folder(self) -> None:
         """Open the source folder since ReplayGain Analyzer processes files in-place."""
         self._open_source_folder_standard()
@@ -298,10 +265,18 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
                 return
 
             self.start_btn.config(state="disabled")
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-            self.notebook.select(self._tab_processing)
+            self.file_listbox.delete(0, tk.END)
+            self.progress["value"] = 0
+            self.stats_label.config(text=self.processing_stats_text)
+            self.notebook.select(self.processing_frame)
             self.overall_status.set("Analyzing ReplayGain values...")
+
+            # Snapshot the run's inputs on the main thread: the worker and the
+            # completion must never call .get() off the Tk thread (see _run).
+            self._run_path = folder
+            self._run_mode = self.run_mode.get()
+            self._run_target_lufs = lufs_val
+            self._run_apply_lossless_gain = self.apply_lossless_gain_var.get()
 
             threading.Thread(target=self._run, daemon=True).start()
 
@@ -317,16 +292,22 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
 
     @handle_audio_errors(reraise=False, context="replaygain_app_run")
     def _run(self) -> None:
-        dir_path = self.folder_path.get()
-        is_dry_run = self.run_mode.get() == "Dry Run"
-        target = float(self.target_lufs.get())
+        """Analyse the folder on a worker thread.
+
+        Thread safety: this runs off the Tk main thread, so it must not touch
+        a widget or call ``.get()`` on a Tk variable. The inputs are the
+        snapshot ``start_processing`` took on the main thread, and every UI
+        write goes through ``root.after(0, ...)``.
+        """
+        dir_path = self._run_path
+        is_dry_run = self._run_mode == "Dry Run"
+        target = self._run_target_lufs
 
         self._dir_path = dir_path
         self._log_path = os.path.join(
             dir_path,
             "replaygain_dry_run_log.txt" if is_dry_run else "replaygain_sync_log.txt",
         )
-        self.root.after(0, lambda: setattr(self.progress, "value", 0))
 
         header: list[str] = [
             "REPLAYGAIN ANALYSIS REPORT\n",
@@ -342,27 +323,26 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
                 is_dry_run=is_dry_run,
                 slot_vars=self._safe_slot_vars,
                 slot_queue=self.slot_queue,
-                on_progress=self._on_file_progress,
+                on_progress=self._on_progress,
                 on_folder_complete=self._on_folder_complete,
                 on_complete=lambda **kw: self._on_complete(header=header, **kw),
                 on_error=self._on_error,
-                apply_lossless_gain=(
-                    not is_dry_run and self.apply_lossless_gain_var.get()
-                ),
+                apply_lossless_gain=(not is_dry_run and self._run_apply_lossless_gain),
             )
 
-    # ── Callbacks (called from background thread — all UI via root.after) ─────
+    # ── Callbacks (called from background threads — all UI via root.after) ────
 
-    def _on_file_progress(
+    def _on_progress(
         self, processed: int, total: int, errors: int, **_extra: Any
     ) -> None:
-        def _update_progress(
-            p: int = processed, t: int = total, e: int = errors
-        ) -> None:
-            self.progress.configure(maximum=t, value=p)
-            self.stats_label.config(text=f"Processed: {p} | Errors: {e}")
+        """Progress seam: hand the widget writes to the Tk thread."""
+        self.root.after(0, self._update_progress_ui, processed, total, errors)
 
-        self.root.after(0, _update_progress)
+    def _update_progress_ui(self, processed: int, total: int, errors: int) -> None:
+        """Render one progress tick (must run on the main thread)."""
+        # This processor publishes no per-file line; the bar and counters move.
+        self._render_progress_standard(processed, total, None)
+        self.stats_label.config(text=f"Processed: {processed} | Errors: {errors}")
 
     def _on_folder_complete(
         self,
@@ -373,18 +353,13 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
         tag_results: list[Any],
         log_header: str,
     ) -> None:
+        """Report one folder's per-file measurements (called off the Tk thread)."""
         for file_data, status, tg_str, tp_str in tag_results:
-
-            def _insert_row(
-                n: Any = file_data["name"],
-                lufs: Any = file_data["lufs"],
-                tg: Any = tg_str,
-                ag: str = album_gain_str,
-                s: Any = status,
-            ) -> None:
-                self.tree.insert("", "end", values=(n, f"{lufs:.2f}", tg, ag, s))
-
-            self.root.after(0, _insert_row)
+            line = (
+                f"{file_data['name']} | LUFS {file_data['lufs']:.2f}"
+                f" | Track {tg_str} | Album {album_gain_str} | {status}"
+            )
+            self.root.after(0, self._append_progress_line, line)
 
     def _on_complete(
         self,
@@ -403,7 +378,7 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
         ``run_analysis`` sends it unconditionally: a count the handler would
         accept a stand-in for is a count the summary can print wrong.
         """
-        is_dry_run = self.run_mode.get() == "Dry Run"
+        is_dry_run = self._run_mode == "Dry Run"
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
         # ``processed`` counts successes already; errors are counted apart from it.
@@ -434,28 +409,36 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
 
             self.root.after(0, _show_log_error)
 
-        def _update_ui() -> None:
-            self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
-            self.summary_label.config(
-                text=f"Total: {total} files\n"
-                f"Successfully processed: {succeeded}\n"
-                f"Errors: {errors}"
-            )
-            self.completion_label.config(
-                text="Analysis Complete!"
-                if is_dry_run
-                else "ReplayGain Tagging Complete!"
-            )
-            self.notebook.select(self._tab_results)
-            self.start_btn.config(state="normal")
-            if self.auto_end:
-                self.root.after(2000, self.root.destroy)
+        self.root.after(
+            0,
+            self._update_ui_on_complete,
+            is_dry_run,
+            total,
+            succeeded,
+            errors,
+            duration_secs,
+        )
 
-        self.root.after(0, _update_ui)
+    def _update_ui_on_complete(
+        self,
+        is_dry_run: bool,
+        total: int,
+        succeeded: int,
+        errors: int,
+        duration_secs: float,
+    ) -> None:
+        """Render the finished run (must run on the main thread)."""
+        self.summary_label.config(
+            text=f"Total: {total} files\n"
+            f"Successfully processed: {succeeded}\n"
+            f"Errors: {errors}"
+        )
+        # This window has always labelled a finished run by its mode; the shell
+        # renders ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            "Analysis Complete!" if is_dry_run else "ReplayGain Tagging Complete!"
+        )
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
 
-    def _on_error(self, message: str) -> None:
-        def _show_error(m: str = message) -> None:
-            messagebox.showerror("Error", m)
-            self.start_btn.config(state="normal")
-
-        self.root.after(0, _show_error)
+        if self.auto_end:
+            self.root.after(2000, self.root.destroy)

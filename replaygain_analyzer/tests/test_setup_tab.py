@@ -7,6 +7,10 @@ Validates the Run Controls panel integration:
     while Auto Start stays greyed out (driver-only)
   - driver-launched build locks the whole panel to inherited values
   - legacy folder / mode rows are fully replaced by the shared panel
+
+Changed in 2.9.0: every build lands on its own container, destroyed after the
+test, so a leftover tab cannot leave a second title label on the session root
+for the shell contract to count.
 """
 
 import tkinter as tk
@@ -15,6 +19,26 @@ import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from replaygain_analyzer.ui import setup_tab
+
+#: Containers built by this module, destroyed by the autouse fixture below.
+_containers: list[tk.Frame] = []
+
+
+@pytest.fixture(autouse=True)
+def _destroy_built_tabs():
+    """Leave the session-scoped root as clean as the test found it."""
+    yield
+    while _containers:
+        container = _containers.pop()
+        if container.winfo_exists():
+            container.destroy()
+
+
+def _container(parent: tk.Misc) -> tk.Frame:
+    """A fresh frame to build into, registered for teardown."""
+    frame = tk.Frame(parent)
+    _containers.append(frame)
+    return frame
 
 
 def _make_vars(root):
@@ -39,7 +63,7 @@ def _build(root, **overrides):
         "on_start_calls": [],
     }
     controls = setup_tab.build(
-        root,
+        _container(root),
         folder_path=kwargs["folder_path"],
         target_lufs=kwargs["target_lufs"],
         run_mode=kwargs["run_mode"],
@@ -160,7 +184,7 @@ class TestLegacyRowsRemoved:
     def test_no_duplicate_folder_or_mode_labels(self, root):
         # Build inside a fresh container so the widget walk is not
         # polluted by panels created by earlier tests on the shared root.
-        container = tk.Frame(root)
+        container = _container(root)
         _build(container)
         texts = _descendant_texts(container)
         assert texts.count("Source Music Directory:") == 1
@@ -172,13 +196,13 @@ class TestLosslessGainCheckbox:
     """apply_lossless_gain_var checkbox renders and binds correctly."""
 
     def test_checkbox_present_when_var_provided(self, root):
-        container = tk.Frame(root)
+        container = _container(root)
         _, controls, _ = _build(container)
         texts = _descendant_texts(container)
         assert any("losslessly" in t.lower() for t in texts)
 
     def test_checkbox_not_present_when_var_none(self, root):
-        container = tk.Frame(root)
+        container = _container(root)
         setup_tab.build(
             container,
             folder_path=tk.StringVar(master=root),
