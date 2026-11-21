@@ -62,6 +62,8 @@ Changed in 2.9.0: ASX Playlist Extractor follows it in wave 2, so the table is
 thirteen and the extractor gains a run-report drive.
 Changed in 2.9.0: Mood Analysis Batch Tagger follows it in wave 2, so the table
 is fourteen and the tagger gains a run-report drive through its engine.
+Changed in 2.9.0: Audio Fingerprinter follows it in wave 2, so the table is
+fifteen and the fingerprinter gains a run-report drive through its processor.
 """
 
 from __future__ import annotations
@@ -83,6 +85,15 @@ from album_art_normalizer.app import ArtNormalizerApp
 from album_art_sync import app as album_art_sync_app
 from album_art_sync.app import AudioSuiteV6
 from asx_extractor.app import ASXExtractorTool
+from audio_fingerprinter import app as fingerprinter_app
+from audio_fingerprinter.app import FingerprinterApp
+from audio_fingerprinter.core import file_processor as fingerprint_processor
+from audio_fingerprinter.core.models import (
+    FingerprintFileResult,
+    FingerprintParams,
+    FingerprintStatus,
+)
+from audio_fingerprinter.utils.cli_args import FingerprintArgs
 from audio_suite_shared import suite_app
 from audio_suite_shared.cli_dataclasses import LyricsArgs
 from bpm_analyzer import app as bpm_analyzer_app
@@ -130,6 +141,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     LyricsManagerApp,
     ASXExtractorTool,
     MoodAnalysisBatchTaggerApp,
+    FingerprinterApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -323,6 +335,11 @@ def _stub_lyrics_manager_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lyrics_manager_app.cli_args, "parse", lambda: LyricsArgs())
 
 
+def _stub_fingerprinter_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the fingerprinter's launcher parse (it runs in the constructor)."""
+    monkeypatch.setattr(fingerprinter_app.cli_args, "parse", lambda: FingerprintArgs())
+
+
 def _stub_mood_analysis_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub the tagger's launcher parse (it runs inside the constructor)."""
     monkeypatch.setattr(
@@ -345,6 +362,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     BPMAnalyzerApp: _stub_bpm_analyzer_edges,
     LyricsManagerApp: _stub_lyrics_manager_edges,
     MoodAnalysisBatchTaggerApp: _stub_mood_analysis_edges,
+    FingerprinterApp: _stub_fingerprinter_edges,
 }
 
 
@@ -558,6 +576,39 @@ def _complete_asx_extractor_run(app: ASXExtractorTool, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_fingerprinter_run(app: FingerprinterApp, tmp_path: Path) -> None:
+    """Drive the real processor over one file: the window writes the report.
+
+    The fingerprinter's report is the window's own, but the run reaches it
+    through ``file_processor.run_fingerprinting``; the worker that would call
+    fpcalc and AcoustID is the one seam stubbed, so the app, the processor and
+    the completion seam are all the shipped ones.
+    """
+    (tmp_path / "track.mp3").write_bytes(b"x")
+    app.folder_path.set(str(tmp_path))
+    params = FingerprintParams(lookup_enabled=False, is_dry_run=True)
+
+    def _fake_worker(job: Any) -> None:
+        """Stand in for fpcalc + lookup: one outcome per file."""
+        job.results.append(
+            FingerprintFileResult(
+                file_path=job.filename,
+                filename=job.filename,
+                status=FingerprintStatus.NO_MATCH,
+                message="stubbed",
+            )
+        )
+        job.on_progress(0, "[NO_MATCH]")
+
+    with (
+        patch.object(fingerprint_processor, "resolve_fpcalc", return_value="fpcalc"),
+        patch.object(fingerprint_processor, "_fingerprint_worker", _fake_worker),
+    ):
+        app._run(params)
+    # The completion is scheduled onto the Tk thread; run it now.
+    app.root.update()
+
+
 def _complete_mood_analysis_run(
     app: MoodAnalysisBatchTaggerApp, tmp_path: Path
 ) -> None:
@@ -604,6 +655,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     LyricsManagerApp: _complete_lyrics_manager_run,
     ASXExtractorTool: _complete_asx_extractor_run,
     MoodAnalysisBatchTaggerApp: _complete_mood_analysis_run,
+    FingerprinterApp: _complete_fingerprinter_run,
 }
 
 
@@ -826,6 +878,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "LyricsManagerApp",
         "ASXExtractorTool",
         "MoodAnalysisBatchTaggerApp",
+        "FingerprinterApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

@@ -17,6 +17,15 @@ so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the ninth window of
+D8's wave 2), so the shell owns the Help bar and the Processing and Results
+tabs and this tool keeps its Setup panel.  The ISRC submission line is the
+shell's ``isrc_label`` (``result_extra_labels``), and the completion renders
+through ``render_completion``: the report is written on the worker thread, then
+every widget write — the summary, the ISRC line, the sorted file list and the
+completion — happens on the Tk thread, so a finished run no longer touches Tk
+from the processor's thread.  View Log and Open Folder are the shell's.
 """
 
 from __future__ import annotations
@@ -27,11 +36,10 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from queue import Queue
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 from typing import Any
 
 from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
@@ -41,8 +49,8 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_outcome
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
 from .core.fingerprinter import (
@@ -58,7 +66,7 @@ from .core.models import (
     isrc_submission_problem,
     status_text,
 )
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import api_key as api_key_store
 from .utils import cli_args
 from .utils import musicbrainz_token as mb_token_store
@@ -76,20 +84,34 @@ DRIVER_TOOL_ID = "fingerprinter"
 _DEFAULT_THRESHOLD = "0.5"
 
 
-class FingerprinterApp(UIHelperMixin):
+class FingerprinterApp(SuiteApp):
     """Audio Fingerprinter application GUI."""
 
+    title = "Audio Fingerprinter"
+    window_key = "audio_fingerprinter_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE = "Audio_Fingerprinter_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
+    #: The heading the Results tab shows when a run finishes.
+    completion_text = "Fingerprinting Complete!"
+    #: This window counts processed files, identified matches and errors.
+    processing_stats_text = "Processed: 0 | Identified: 0 | Errors: 0"
+    #: The ISRC submission outcome sits below the Results summary; the shell
+    #: builds it and publishes it on this instance under that name.
+    result_extra_labels = ("isrc_label",)
+
+    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
+    #: test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
+    #: Set by ``_apply_cli_args`` when the launcher passes ``--api-key``.
+    _cli_api_key: str = ""
+    #: Built by the shell from ``result_extra_labels``.
+    isrc_label: tk.Label
 
     def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Audio Fingerprinter",
-            "audio_fingerprinter_window",
-            TOOL_ID,
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
         self.run_mode = tk.StringVar(value="Dry Run")
@@ -119,21 +141,19 @@ class FingerprinterApp(UIHelperMixin):
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
         # ── State ─────────────────────────────────────────────────────────────
-        self._log_path: str = ""
-        self._out_dir: str = ""
-        self._cli_api_key: str = ""
+        self._cli_api_key = ""
 
         # ── Worker slot pool ──────────────────────────────────────────────────
+        # Built before super().__init__: the shell renders the grid from it.
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        super().__init__(root)
 
         # ── Apply CLI arguments ───────────────────────────────────────────────
         self._apply_cli_args()
@@ -148,35 +168,12 @@ class FingerprinterApp(UIHelperMixin):
         self._refresh_mb_token_status()
         self._update_fpcalc_status()
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
-        widgets = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folder, the run settings, the key/token fields and the start."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             auto_start_var=self.auto_start_var,
@@ -209,26 +206,7 @@ class FingerprinterApp(UIHelperMixin):
         )
         self.start_btn = widgets["start_btn"]
         self._update_fpcalc_status_cb = widgets["update_fpcalc_status"]
-
-        proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]  # type: ignore[assignment]
-        self.summary_label: tk.Label = res_widgets["summary_label"]  # type: ignore[assignment]
-        self.time_label: tk.Label = res_widgets["time_label"]  # type: ignore[assignment]
-        self.isrc_label: tk.Label = res_widgets["isrc_label"]  # type: ignore[assignment]
-
-        self._tab_setup = tab_setup
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.controls_panel = widgets["controls_panel"]
 
     # ── API-key state ─────────────────────────────────────────────────────────
 
@@ -396,23 +374,6 @@ class FingerprinterApp(UIHelperMixin):
             save_last_dir=True,
         )
 
-    def _open_help(self) -> None:
-        """Open the help guide for Audio Fingerprinter."""
-        self._open_help_standard(self.HELP_GUIDE)
-
-    def _open_log(self) -> None:
-        self._open_log_standard()
-
-    def _open_folder(self) -> None:
-        self._open_folder_standard()
-
-    def _reset_ui(self) -> None:
-        self.notebook.select(self._tab_setup)
-        self.file_listbox.delete(0, tk.END)
-        self.progress["value"] = 0
-        for var in self.slot_vars:
-            var.set("IDLE")
-
     # ── Processing entry point ────────────────────────────────────────────────
 
     def _parse_threshold(self) -> float:
@@ -496,8 +457,9 @@ class FingerprinterApp(UIHelperMixin):
             self._persist_mbid_region()
 
             self.start_btn.config(state="disabled")
+            self.progress["value"] = 0
             self.file_listbox.delete(0, tk.END)
-            self.notebook.select(self._tab_processing)
+            self.notebook.select(self.processing_frame)
             self.overall_status.set("Fingerprinting...")
 
             params = FingerprintParams(
@@ -524,6 +486,8 @@ class FingerprinterApp(UIHelperMixin):
                 f"Failed to start processing:\n{user_message_for(mapped)}",
             )
 
+    # ── Background thread ─────────────────────────────────────────────────────
+
     @handle_audio_errors(reraise=False, context="fingerprinter_app_run")
     def _run(self, params: FingerprintParams) -> None:
         input_dir = self.folder_path.get()
@@ -534,7 +498,6 @@ class FingerprinterApp(UIHelperMixin):
         log_name = f"fingerprint_{mode}_log.txt"
         self._log_path = os.path.join(input_dir, log_name)
         self._out_dir = input_dir
-        self.progress["value"] = 0
 
         header: list[str] = [
             "AUDIO FINGERPRINTING REPORT\n",
@@ -553,7 +516,7 @@ class FingerprinterApp(UIHelperMixin):
             "=" * 60 + "\n",
         ]
 
-        with active_batch("audio_fingerprinter", "tag_edit"):
+        with active_batch(TOOL_ID, "tag_edit"):
             file_processor.run_fingerprinting(
                 dir_path=input_dir,
                 api_key=api_key,
@@ -566,6 +529,8 @@ class FingerprinterApp(UIHelperMixin):
                 on_slot_update=self._on_slot_update,
                 mb_auth=(mb_token_store.build_auth() if params.submit_isrc else None),
             )
+
+    # ── Callbacks (called from the worker thread — all UI via root.after) ────
 
     def _on_slot_update(self, slot_idx: int, text: str) -> None:
         self.root.after(0, self.slot_vars[slot_idx].set, text)
@@ -586,6 +551,8 @@ class FingerprinterApp(UIHelperMixin):
 
         self.root.after(0, _update)
 
+    # ── Completion ────────────────────────────────────────────────────────────
+
     def _on_complete(
         self,
         header: list[str],
@@ -600,6 +567,26 @@ class FingerprinterApp(UIHelperMixin):
         isrc_submission: dict[str, Any] | None = None,
         **_extra: Any,
     ) -> None:
+        """Write the run report, then hand the Results update to the Tk thread.
+
+        Runs on the worker thread: the report is written here, and every widget
+        write is scheduled onto the Tk thread, so neither a damaged Tk nor an
+        unwritable log can suppress the other.
+
+        Args:
+            header: Report header lines for this run.
+            total: Files the run set out to fingerprint.
+            processed: Files it finished attempting.
+            skipped: Files it skipped.
+            errors: Files that could not be fingerprinted or looked up.
+            duration_secs: Wall-clock run time.
+            log_entries: The per-file log lines.
+            results: One result per file, for the Results tab's list.
+            counts: The run's per-outcome counters.
+            isrc_submission: The run's submission record, or None.
+            **_extra: The other tool-specific completion fields the processor
+                always publishes; they feed the CLI's ``--json`` output.
+        """
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
 
@@ -625,17 +612,39 @@ class FingerprinterApp(UIHelperMixin):
             ]
         )
 
+        log_error = ""
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:
                 f.writelines(header + log_entries + summary)
         except Exception as exc:
             mapped = map_to_audio_error(exc)
             logger.error("Error: %s", mapped, exc_info=True)
-            messagebox.showerror(
-                "Error", f"Could not write log file:\n{user_message_for(mapped)}"
-            )
+            log_error = user_message_for(mapped)
 
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+        self.root.after(
+            0,
+            self._render_complete,
+            total,
+            counts,
+            duration_secs,
+            results,
+            isrc_submission,
+            log_error,
+        )
+
+    def _render_complete(
+        self,
+        total: int,
+        counts: dict[str, int],
+        duration_secs: float,
+        results: list[FingerprintFileResult],
+        isrc_submission: dict[str, Any] | None,
+        log_error: str,
+    ) -> None:
+        """Render the finished run (must run on the main thread)."""
+        if log_error:
+            messagebox.showerror("Error", f"Could not write log file:\n{log_error}")
+
         summary_text = (
             f"Total: {total} files\n"
             f"Identified: {counts['identified']}\n"
@@ -646,7 +655,6 @@ class FingerprinterApp(UIHelperMixin):
         if counts.get("album_ambiguous"):
             summary_text += f"\nAlbum Ambiguous: {counts['album_ambiguous']}"
         self.summary_label.config(text=summary_text)
-        self.completion_label.config(text="Fingerprinting Complete!")
         self._surface_isrc_outcome(isrc_submission)
 
         self.file_listbox.delete(0, tk.END)
@@ -655,8 +663,7 @@ class FingerprinterApp(UIHelperMixin):
                 tk.END, f"[{status_text(result.status)}] {result.filename}"
             )
 
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
+        self.render_completion(duration_secs=duration_secs, output_dir=self._out_dir)
 
     def _surface_isrc_outcome(self, submission: dict[str, Any] | None) -> None:
         """Show the submission outcome, and record it for the Master Driver.
@@ -694,7 +701,3 @@ class FingerprinterApp(UIHelperMixin):
             # The note only feeds the batch report; the outcome is already on
             # screen and in the run log, so it must never fail a finished run.
             logger.debug("Could not record the ISRC outcome for the driver: %s", exc)
-
-    def _on_error(self, message: str) -> None:
-        messagebox.showerror("Error", message)
-        self.start_btn.config(state="normal")

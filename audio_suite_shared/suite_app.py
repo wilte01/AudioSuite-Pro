@@ -51,6 +51,9 @@ Changed in 2.9.0: ``window_size`` and ``apply_ttk_styles`` carry the two
 ``bootstrap_tool_app`` arguments an adopter set for itself (ASX Playlist
 Extractor opens at 700 px and styles its own ttk widgets), so joining the shell
 does not resize or restyle its window (C1 stage 2).
+Changed in 2.9.0: ``result_extra_labels`` lets an adopter keep a label of its
+own on the Results tab (the fingerprinter's ISRC submission line), built by the
+shared builder and published on the instance under its name (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -99,6 +102,9 @@ class SuiteApp(UIHelperMixin):
         start_btn: The tool's start button, once its Setup tab has built it.
         controls_panel: The Setup tab's run-controls strip, when the tool
             embeds one.
+        result_extra_labels: Extra Results-tab labels the tool drives; the
+            shell builds each one and publishes it on the instance under its
+            name.
     """
 
     #: Window title, and the heading the Setup tab shows.  Shown once.
@@ -120,6 +126,8 @@ class SuiteApp(UIHelperMixin):
     #: Whether ``bootstrap_tool_app`` applies the suite's ttk styles.  An
     #: adopter that styles its own ttk widgets sets this ``False``.
     apply_ttk_styles: bool = True
+    #: Extra Results-tab labels this tool drives, below the summary line.
+    result_extra_labels: tuple[str, ...] = ()
 
     def __init__(self, root: tk.Tk) -> None:
         """Bootstrap the window and build the shell's notebook.
@@ -222,10 +230,13 @@ class SuiteApp(UIHelperMixin):
             self.completion_text,
             on_open_log=self._open_log,
             on_open_folder=self._open_folder,
+            extra_labels=list(self.result_extra_labels) or None,
         )
         self.completion_label: tk.Label = widgets["completion_label"]
         self.summary_label: tk.Label = widgets["summary_label"]
         self.time_label: tk.Label = widgets["time_label"]
+        for name in self.result_extra_labels:
+            setattr(self, name, widgets[name])
 
     # ── Shared helpers ────────────────────────────────────────────────────────
 

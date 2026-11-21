@@ -11,6 +11,10 @@ Changed in 2.9.0: an autouse fixture points the shared ``suite_config`` at
 ``tmp_path``.  Starting a run persists the last directory - a
 read-modify-write of the whole document - so the ISRC start case rewrote the
 developer's real ``audio_suite_config.json``.
+
+Changed in 2.9.0: the window composes ``SuiteApp``, so the shells name the
+shell's tab frames and widgets, and the completion is read through the stubbed
+``root.after`` the shell marshals its widget writes with (C1 stage 2).
 """
 
 import sys
@@ -125,7 +129,7 @@ class TestStartGuardsD3:
         app.overall_status = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_processing = MagicMock()
+        app.processing_frame = MagicMock()
         app.file_listbox = MagicMock()
         app.progress = MagicMock()
         app._safe_slot_vars = MagicMock()
@@ -501,9 +505,10 @@ class TestStartProcessingAlbumMode:
         app.fpcalc_path = MagicMock()
         app.fpcalc_path.get.return_value = ""
         app.start_btn = MagicMock()
+        app.progress = MagicMock()
         app.file_listbox = MagicMock()
         app.notebook = MagicMock()
-        app._tab_processing = MagicMock()
+        app.processing_frame = MagicMock()
         app.overall_status = MagicMock()
         return app
 
@@ -543,15 +548,19 @@ class TestOnCompleteSummary:
 
         app = object.__new__(FingerprinterApp)
         app.root = MagicMock()
+        # The shell marshals its widget writes with root.after(0, ...); run
+        # them now so a test reads the rendered completion.
+        app.root.after.side_effect = lambda _ms, fn, *args: fn(*args)
         app.time_label = MagicMock()
         app.summary_label = MagicMock()
         app.completion_label = MagicMock()
         app.isrc_label = MagicMock()
         app.file_listbox = MagicMock()
         app.notebook = MagicMock()
-        app._tab_results = MagicMock()
+        app.results_frame = MagicMock()
         app.start_btn = MagicMock()
         app._log_path = str(tmp_path / "fingerprint_dry_run_log.txt")
+        app._out_dir = str(tmp_path)
         return app
 
     @staticmethod

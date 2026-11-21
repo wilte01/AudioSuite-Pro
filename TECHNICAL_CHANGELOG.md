@@ -196,6 +196,19 @@ used once, and every bullet belongs to exactly one of them.
   now names itself `SUMMARY:`, the marker every other tool's run report carries,
   so the report lock reads this tool's report like the others'.
 
+- **Audio Fingerprinter follows it in wave 2 (C1 stage 2).** `FingerprinterApp`
+  composes `SuiteApp`, and it is the first adopter to keep a label of its own on
+  the shared Results tab: the ISRC submission line is the shell's
+  `result_extra_labels`, built by the shared results builder and published as
+  `isrc_label`. The completion now runs on the Tk thread — the report is written
+  on the worker, then the summary, the ISRC line, the sorted file list and the
+  completion are marshalled with `root.after`, where the old handler wrote them
+  straight from the processor's thread. The progress bar resets when the run
+  starts rather than from the worker. View Log and Open Folder are the shell's.
+  `ui/processing_tab.py`/`ui/results_tab.py` are deleted, along with a
+  `_reset_ui` nothing called; the guide is unchanged because its Setup tab and
+  both shared tabs are.
+
 ### Fixed
 
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`
