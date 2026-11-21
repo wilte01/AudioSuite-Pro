@@ -74,7 +74,6 @@ class LyricsManagerApp(SuiteApp):
     #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE: str = "Lyrics_Manager_User_Guide.docx"
     guide_name = HELP_GUIDE
-    completion_text: str = "Lyric Lookup Complete!"
     # The labels this window has always shown; the shell does not renumber.
     tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
 
@@ -84,6 +83,9 @@ class LyricsManagerApp(SuiteApp):
     #: Results-tab completion captions, by run mode.
     DRY_COMPLETE_LABEL: str = "Lyric Lookup Complete!"
     LIVE_COMPLETE_LABEL: str = "Lyrics Tagging Complete!"
+    #: The heading the tab shows before a run; a finished run replaces it with
+    #: the wording for its mode, which starts here.
+    completion_text: str = DRY_COMPLETE_LABEL
     #: The preset keys this tool has always written (``lyrics_preset_<name>``).
     PRESET_KEY_PREFIX: str = "lyrics"
 
@@ -132,7 +134,6 @@ class LyricsManagerApp(SuiteApp):
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
         # ── Processing state ─────────────────────────────────────────────────
-        self._log_path: str = ""
         self.auto_end: bool = False
         # The run's mode, snapshotted by start_processing on the Tk thread.
         self._run_mode: str = ""

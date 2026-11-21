@@ -87,7 +87,6 @@ class BPMAnalyzerApp(SuiteApp):
     completion_text: str = "BPM Analysis Complete!"
     # The labels this window has always shown; the shell does not renumber.
     tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
-    processing_stats_text: str = "Processed: 0 | Skipped: 0 | Errors: 0"
 
     #: Word used in the report for the processed-but-neither-skipped-nor-
     #: erroring files.
@@ -141,7 +140,6 @@ class BPMAnalyzerApp(SuiteApp):
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
         # ── Processing state ─────────────────────────────────────────────────
-        self._log_path: str = ""
         self.auto_end: bool = False
         # The run's mode, snapshotted by start_processing on the Tk thread.
         self._run_mode: str = ""
