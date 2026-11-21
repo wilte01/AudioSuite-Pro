@@ -48,6 +48,8 @@ Changed in 2.9.0: the Metadata Scrubber closes that wave, so the table is six.
 Changed in 2.9.0: wave 2 opens with the Album Art Sync, so the table is seven.
 Changed in 2.9.0: the shell's ``processing_panel`` handle is locked, and the
 synchroniser's Cancel button is read back as its child (C1 stage 2).
+Changed in 2.9.0: Genre Sync follows in wave 2, so the table is eight and the
+sync gains a run-report drive.
 """
 
 from __future__ import annotations
@@ -70,6 +72,8 @@ from audio_suite_shared import suite_app
 from file_reorganizer import app as reorganizer_app
 from file_reorganizer.app import FileReorganizerApp
 from file_reorganizer.core.engine import ReorganizerStats
+from genre_sync import app as genre_sync_app
+from genre_sync.app import GenreSetterApp
 from library_stats import app as library_stats_app
 from library_stats.app import LibraryStatsApp
 from library_stats.core.file_processor import StatsReport
@@ -91,6 +95,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     ArtNormalizerApp,
     MetadataScrubberApp,
     AudioSuiteV6,
+    GenreSetterApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -204,6 +209,22 @@ def _stub_album_art_sync_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(album_art_sync_app, "load_config", lambda: {})
 
 
+def _stub_genre_sync_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the sync's launcher argv (it parses inside the constructor)."""
+    monkeypatch.setattr(
+        genre_sync_app.cli_args,
+        "parse",
+        lambda: SimpleNamespace(
+            folder_path=None,
+            live_mode=False,
+            auto_start=False,
+            auto_end=False,
+            clear_logs=False,
+            parallel_run=False,
+        ),
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -213,6 +234,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     ArtNormalizerApp: _stub_album_art_normalizer_edges,
     MetadataScrubberApp: _stub_metadata_scrubber_edges,
     AudioSuiteV6: _stub_album_art_sync_edges,
+    GenreSetterApp: _stub_genre_sync_edges,
 }
 
 
@@ -318,6 +340,27 @@ def _complete_album_art_sync_run(app: AudioSuiteV6, tmp_path: Path) -> None:
     )
 
 
+def _complete_genre_sync_run(app: GenreSetterApp, tmp_path: Path) -> None:
+    """Drive the sync's completion: it serialises the report there."""
+    app._dir_path = str(tmp_path)
+    app._log_path = str(tmp_path / "genre_dry_run_log.txt")
+    app._on_complete(
+        total=1,
+        updated=1,
+        skipped=0,
+        no_genre=0,
+        errors=0,
+        duration_secs=1.0,
+        log_updated=["a.mp3 | Would set: Rock (TITLE GENRE)\n"],
+        log_skipped=[],
+        log_no_genre=[],
+        log_errors=[],
+    )
+    # The render is scheduled onto the Tk thread; run it now so the queued
+    # widget writes land while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -327,6 +370,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     ArtNormalizerApp: _complete_album_art_normalizer_run,
     MetadataScrubberApp: _complete_metadata_scrubber_run,
     AudioSuiteV6: _complete_album_art_sync_run,
+    GenreSetterApp: _complete_genre_sync_run,
 }
 
 
@@ -542,6 +586,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "ArtNormalizerApp",
         "MetadataScrubberApp",
         "AudioSuiteV6",
+        "GenreSetterApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

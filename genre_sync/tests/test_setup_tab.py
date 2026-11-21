@@ -3,6 +3,11 @@ Tests for genre_sync.ui.setup_tab — Setup tab construction.
 
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
+
+Changed in 2.9.0: every container a test builds is destroyed afterwards. The
+root is shared for the whole session, so a tab left behind put a second
+"Genre Sync" label on it and the suite-app contract — which counts the title on
+the window it just built — read the leftovers as this window's own.
 """
 
 import tkinter as tk
@@ -26,6 +31,20 @@ def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
     }
 
 
+#: Containers built by ``_build``, destroyed after the test that made them.
+_containers: list[tk.Frame] = []
+
+
+@pytest.fixture(autouse=True)
+def _destroy_built_tabs():
+    """Leave the session-scoped root as clean as the test found it."""
+    yield
+    while _containers:
+        container = _containers.pop()
+        if container.winfo_exists():
+            container.destroy()
+
+
 def _build(root: tk.Tk, **overrides):
     """Build the tab on a fresh container; returns (kwargs, widgets, container)."""
     vars_ = _make_vars(root)
@@ -45,6 +64,7 @@ def _build(root: tk.Tk, **overrides):
     }
     kwargs.update(overrides)
     container = tk.Frame(root)
+    _containers.append(container)
     widgets = setup_tab.build(container, **kwargs)
     return kwargs, widgets, container
 

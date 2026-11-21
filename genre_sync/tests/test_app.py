@@ -8,6 +8,10 @@ Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_processing`` into the completion handler (PLAN D117).
 
 Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the progress and
+completion handlers are asserted through the Tk-thread writes they schedule,
+the error handler is the shell's, and the completion shell carries the shell's
+results frame.
 """
 
 from pathlib import Path
@@ -33,52 +37,10 @@ class TestGenreSetterAppInit:
     def test_constructor_initializes_tk_vars(self, mock_tk_app):
         assert mock_tk_app.run_mode.get() == "Dry Run"
 
-    def test_constructor_loads_last_directory(self):
-        import audio_suite_shared.ui_common
-
-        def mock_stringvar(value=None, master=None, name=None):
-            sv = MagicMock()
-            sv.get.return_value = value if value is not None else ""
-            sv_set = None
-
-            def sv_setter(val):
-                nonlocal sv_set
-                sv_set = val
-                sv.get.return_value = val
-
-            sv.set = sv_setter
-            return sv
-
-        with (
-            patch("genre_sync.app.tk") as mock_tk,
-            patch("genre_sync.app.ttk"),
-            patch("genre_sync.app.bootstrap_tool_app") as mock_bootstrap,
-            patch("genre_sync.app.suite_config") as mock_config,
-            patch("genre_sync.app.cli_args") as mock_cli,
-            patch("genre_sync.app.messagebox"),
-            patch("genre_sync.app.UniversalCLIHandler"),
-            patch("genre_sync.app.logger"),
-            patch.object(audio_suite_shared.ui_common, "tk", mock_tk),
-        ):
-            mock_tk.StringVar = mock_stringvar
-            mock_tk.Tk.return_value = MagicMock()
-            mock_tk.Frame.return_value = MagicMock()
-            mock_tk.Label.return_value = MagicMock()
-            mock_tk.Button.return_value = MagicMock()
-            mock_tk.Entry.return_value = MagicMock()
-            mock_tk.Listbox.return_value = MagicMock()
-            mock_tk.ttk = MagicMock()
-            mock_tk.END = "end"
-
-            mock_bootstrap.return_value = (MagicMock(), MagicMock())
-            mock_config.load_last_directory.return_value = "/previous/dir"
-            mock_cli.parse.return_value = MagicMock(folder_path=None)
-
-            from genre_sync.app import GenreSetterApp
-
-            app = GenreSetterApp(MagicMock())
+    def test_constructor_loads_last_directory(self, make_mocked_app):
+        """A window opened with no folder restores the last one from config."""
+        with make_mocked_app(last_directory="/previous/dir") as app:
             assert app.folder_path.get() == "/previous/dir"
-            mock_config.load_last_directory.assert_called_once()
 
 
 class TestGenreSetterAppStartProcessing:
@@ -199,6 +161,33 @@ class TestGenreSetterAppCallbacks:
         )
         mock_tk_app.stats_label.config.assert_called()
 
+    def test_progress_writes_are_scheduled_on_the_tk_thread(self, mock_tk_app):
+        """The runner calls this handler from its pool, never on the Tk thread."""
+        mock_tk_app.root.after.side_effect = None  # record, do not execute
+        mock_tk_app._on_progress(
+            processed=1,
+            total=4,
+            updated=1,
+            skipped=0,
+            no_genre=0,
+            errors=0,
+            display_text="[DRY_RUN] a.mp3",
+        )
+        assert mock_tk_app.root.after.call_args.args == (
+            0,
+            mock_tk_app._update_progress_ui,
+            1,
+            4,
+            1,
+            0,
+            0,
+            0,
+            "[DRY_RUN] a.mp3",
+        )
+        # Nothing was written straight from the worker thread.
+        mock_tk_app.stats_label.config.assert_not_called()
+        mock_tk_app.file_listbox.insert.assert_not_called()
+
     def test_on_complete_writes_log_and_updates_ui(self, mock_tk_app, tmp_path):
         mock_tk_app._dir_path = str(tmp_path)
         mock_tk_app._log_path = str(tmp_path / "genre_sync_log.txt")
@@ -248,6 +237,33 @@ class TestGenreSetterAppCallbacks:
             assert "Auto End" in log_content
             mock_tk_app.root.after.assert_called()
 
+    def test_completion_writes_the_report_then_schedules_the_render(self, tmp_path):
+        """The report is written on the worker; the widgets are Tk-thread writes."""
+        app = _completion_shell(tmp_path)
+        app.root.after.side_effect = None  # record, do not execute
+
+        app._on_complete(
+            total=2,
+            updated=1,
+            skipped=1,
+            no_genre=0,
+            errors=0,
+            duration_secs=1.0,
+            log_updated=["a.mp3 | Would set: Rock\n"],
+            log_skipped=["b.mp3 | Already set: Rock\n"],
+            log_no_genre=[],
+            log_errors=[],
+        )
+
+        report = (tmp_path / "genre_dry_run_log.txt").read_text(encoding="utf-8")
+        assert "SUMMARY:" in report
+        assert "Would update: 1" in report
+        callbacks = [call_.args[1] for call_ in app.root.after.call_args_list]
+        assert app._render_completion_ui in callbacks
+        app.summary_label.config.assert_not_called()
+        app.completion_label.config.assert_not_called()
+        app.notebook.select.assert_not_called()
+
     def test_on_complete_handles_log_write_error(self, mock_tk_app):
         mock_tk_app._log_path = "/nonexistent/folder/log.txt"
         mock_tk_app.run_mode.set("Dry Run")
@@ -270,10 +286,28 @@ class TestGenreSetterAppCallbacks:
                 mock_msg.showerror.assert_called_once()
 
     def test_on_error_shows_error_and_reenables_button(self, mock_tk_app):
-        with patch("genre_sync.app.messagebox") as mock_msg:
+        """The shell's error handler is the one this window inherits."""
+        with patch("audio_suite_shared.suite_app.messagebox") as mock_msg:
             mock_tk_app._on_error("Something went wrong")
             mock_msg.showerror.assert_called_once()
             mock_tk_app.start_btn.config.assert_called()
+
+
+class TestShellIdentity:
+    """What this window tells the shared shell about itself."""
+
+    def test_the_stats_line_keeps_this_tools_counters(self):
+        from genre_sync.app import GenreSetterApp
+
+        assert (
+            GenreSetterApp.processing_stats_text
+            == "Processed: 0 | Updated: 0 | Skipped: 0 | Errors: 0"
+        )
+
+    def test_the_completion_heading_is_the_one_the_tab_opened_with(self):
+        from genre_sync.app import GenreSetterApp
+
+        assert GenreSetterApp.completion_text == "Processing Complete!"
 
 
 class TestGenreSetterAppApplyCliArgs:
@@ -495,7 +529,11 @@ def _completion_shell(tmp_path: Path) -> Any:
 
     app = object.__new__(GenreSetterApp)
     app.root = MagicMock()
+    # The completion schedules its widget writes onto the Tk thread; run them
+    # inline so the assertions below read the render the user would see.
+    app.root.after.side_effect = lambda delay, func, *args: func(*args)
     app._log_path = str(tmp_path / "genre_dry_run_log.txt")
+    app._dir_path = str(tmp_path)
     app.run_mode = MagicMock()
     app.run_mode.get.return_value = "Dry Run"
     app.auto_end = False
@@ -503,7 +541,7 @@ def _completion_shell(tmp_path: Path) -> Any:
     app.summary_label = MagicMock()
     app.completion_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     return app
 

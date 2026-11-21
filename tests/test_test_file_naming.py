@@ -37,6 +37,10 @@ Changed in 2.6.0: ``audio_refinery/test_peak_normalise`` is the 32nd entry, the
 peak-target contract lock the feature wave names (F-E2).  It mirrors no source
 module because the stage lives in ``core/pipeline.py``, whose own suite is
 already the composite ``test_pipeline_stages``.
+
+Changed in 2.9.0: ``genre_sync/test_ui`` leaves the allowlist with the two
+delegate tab modules it covered (C1 stage 2), so the frozen length is 31 — the
+setup builder it also covered keeps its own ``test_setup_tab.py``.
 """
 
 from __future__ import annotations
@@ -91,7 +95,6 @@ ALLOWLIST: dict[str, str] = {
     "cd_ripper/test_ripper_platform_fail_fast": "platform scenario suite",
     "file_reorganizer/test_reorganizer": "engine composite",
     "genre_sync/test_genre_core": "core composite",
-    "genre_sync/test_ui": "ui composite",
     "lyrics_manager/test_providers": "provider-chain composite",
     "lyrics_manager/test_sidecar_provider": "provider contract incl. registry",
     "master_driver/test_runner": "cross-cutting driver suite",
@@ -242,7 +245,7 @@ class TestMatcher:
 
 class TestAllowlistFrozen:
     def test_allowlist_is_frozen_at_thirty_entries(self) -> None:
-        assert len(ALLOWLIST) == 32, (
+        assert len(ALLOWLIST) == 31, (
             "ALLOWLIST must stay at exactly 32 entries — add new violations "
             "by fixing the test file's name, not by growing the allowlist"
         )

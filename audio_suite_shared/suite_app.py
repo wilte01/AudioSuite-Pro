@@ -44,6 +44,9 @@ Changed in 2.9.0: the shell publishes the Processing tab's panel as
 ``processing_panel``, so a tool that adds a control of its own beside the
 shared ones names that parent instead of reaching through ``progress.master``
 (C1 stage 2).
+Changed in 2.9.0: ``processing_stats_text`` lets an adopter keep its own stats
+wording (Genre Sync counts updated/skipped/errors) instead of the shell's
+starting line (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -86,6 +89,8 @@ class SuiteApp(UIHelperMixin):
         processing_panel: The frame those Processing-tab widgets are packed
             into; a tool that adds a control of its own beside them (Album Art
             Sync's Cancel button) packs it here.
+        processing_stats_text: The stats line's starting text; a tool whose
+            counters differ from the default names its own.
         completion_label, summary_label, time_label: Results-tab widgets.
         start_btn: The tool's start button, once its Setup tab has built it.
         controls_panel: The Setup tab's run-controls strip, when the tool
@@ -104,6 +109,8 @@ class SuiteApp(UIHelperMixin):
     completion_text: str = "Complete!"
     #: Notebook labels, in order.  ``_tab_specs`` supplies one builder each.
     tab_labels: tuple[str, ...] = (" 1. Setup ", " 2. Processing ", " 3. Results ")
+    #: The Processing tab's starting stats line, until the run reports its own.
+    processing_stats_text: str = "Processed: 0 | Skipped: 0 | Errors: 0"
 
     def __init__(self, root: tk.Tk) -> None:
         """Bootstrap the window and build the shell's notebook.
@@ -183,7 +190,9 @@ class SuiteApp(UIHelperMixin):
     def _build_processing_tab(self, parent: tk.Frame) -> None:
         """Build the shared Processing tab, including the worker grid."""
         slot_vars: list[tk.StringVar] | None = getattr(self, "slot_vars", None)
-        widgets = build_processing_tab(parent, slot_vars)
+        widgets = build_processing_tab(
+            parent, slot_vars, stats_text=self.processing_stats_text
+        )
         self.processing_panel: tk.Frame = widgets["panel"]
         self.overall_status: tk.StringVar = widgets["overall_status"]
         self.progress: ttk.Progressbar = widgets["progress"]

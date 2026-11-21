@@ -1,4 +1,8 @@
-"""setup_tab.py — Setup tab for Genre Sync."""
+"""setup_tab.py — Setup tab for Genre Sync.
+
+Changed in 2.9.0: ``build`` takes the window's title, so the shell and the
+Setup heading cannot drift apart (C1 stage 2).
+"""
 
 import tkinter as tk
 from typing import Any, Callable
@@ -25,6 +29,7 @@ def build(
     on_save_preset: Callable[[str], None] | None = None,
     on_delete_preset: Callable[[str], None] | None = None,
     on_preset_selected: Callable[[str], None] | None = None,
+    title: str = "Genre Sync",
 ) -> dict[str, Any]:
     """
     Populate the Setup tab widgets.
@@ -47,6 +52,7 @@ def build(
         on_save_preset:    Callback to save the current settings as a named preset.
         on_delete_preset:  Callback to delete a named preset.
         on_preset_selected: Callback when a preset is chosen from the combo.
+        title:             Heading the panel shows; the shell's window title.
 
     Returns:
         Dict with keys "start_btn", "preset_combo", "refresh_preset_list",
@@ -54,7 +60,7 @@ def build(
     """
     frame = _SetupFrame(
         parent,
-        title="Genre Sync",
+        title=title,
         start_text="BEGIN GENRE UPDATE",
         on_start=on_start,
         folder_path=folder_path,

@@ -115,6 +115,18 @@ used once, and every bullet belongs to exactly one of them.
   through `progress.master`, which was an accident of the shared builder's
   layout.
 
+- **Genre Sync follows the Album Art Sync onto the shell (C1 stage 2).**
+  `GenreSetterApp` composes `SuiteApp` with its own tab labels and its
+  `Processed / Updated / Skipped / Errors` stats line, which the shell now
+  takes as `processing_stats_text`. The Setup panel keeps its builder and takes
+  the window title from the shell, so the heading and the window title cannot
+  drift apart. The runner publishes progress and completion from its worker
+  pool, so both handlers now do their file I/O there and hand the widget writes
+  to the Tk thread — the old code wrote the labels from the pool. The error
+  handler and the Help and View Log buttons are the shell's; `ui/processing_tab.py`
+  and `ui/results_tab.py` were one-line delegates and are deleted with the test
+  file that covered them.
+
 - **A dry run's stats line says what it examined.** The same line ended a dry
   run at `Processed: 2 / 2` while nothing had been written, which claims a
   write the run deliberately did not make. A dry run now reads
