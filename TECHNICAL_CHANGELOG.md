@@ -93,6 +93,16 @@ used once, and every bullet belongs to exactly one of them.
   writes to the Tk thread; the report keeps its `SUMMARY:` block and a dry run
   keeps its own "Analysis Complete!" heading.
 
+- **Album Art Sync opens wave 2 (C1 stage 2).** `AudioSuiteV6` composes
+  `SuiteApp` too. Its Setup panel keeps its own builder, which now shows the
+  tool's title; the Processing tab is the shell's, with the tool's Cancel
+  button added to the panel the shared builder packs, and its log lines fill
+  the shared file list; the Results tab is the shell's, showing this run's
+  outcome, file count, source and time. View Log is the shell's report opener,
+  so the run names `_log_path` at completion and the report ends with the
+  `SUMMARY:` block the contract reads. `ui/main_tabs.py` loses the two tab
+  builders the shell replaced.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

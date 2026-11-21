@@ -47,6 +47,9 @@ migrated without touching the originals, and no caller may pass an argument to
 ``PLAN_audit_2026-10-24_remediation.md`` B1).
 
 Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the bare-app
+stubs carry the shell's frames and result widgets, and View Log is the shell's
+report opener.
 """
 
 from __future__ import annotations
@@ -2723,15 +2726,17 @@ class TestAppRunLogic:
         app._cancel_requested = False
         app.auto_end = False
         app._app_config = {"fanart": {}}
-        app.status_txt = Mock()
+        app.overall_status = Mock()
         app.progress = Mock()
-        app.log_list = Mock()
-        app.res_msg = Mock()
+        app.file_listbox = Mock()
+        app.completion_label = Mock()
+        app.summary_label = Mock()
+        app.time_label = Mock()
         app.notebook = Mock()
         app.start_btn = Mock()
         app.cancel_btn = Mock()
-        app._tab_processing = Mock()
-        app._tab_results = Mock()
+        app.processing_frame = Mock()
+        app.results_frame = Mock()
         # start_thread snapshots every Tk var on the main thread before the
         # worker starts (see _run_logic's thread-safety note); mirror that so
         # _run_logic can be driven directly.
@@ -2899,7 +2904,7 @@ class TestAppRunLogic:
         ):
             app._run_logic()
         mock_apply.assert_not_called()
-        app.res_msg.config.assert_any_call(text="Operation Cancelled")
+        app.completion_label.config.assert_any_call(text="Operation Cancelled")
 
     # ---- mode -> applier_mode translation (the fragile string mapping) -----
 
@@ -2949,7 +2954,7 @@ class TestAppRunLogic:
         ):
             app._run_logic()
         mock_apply.assert_not_called()
-        app.res_msg.config.assert_any_call(text="No Artwork Found")
+        app.completion_label.config.assert_any_call(text="No Artwork Found")
 
     def test_successful_apply_sets_success_message(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
@@ -2965,7 +2970,7 @@ class TestAppRunLogic:
             patch("album_art_sync.app.apply_artwork", return_value=True),
         ):
             app._run_logic()
-        app.res_msg.config.assert_any_call(text="Sync Complete via Fanart.tv")
+        app.completion_label.config.assert_any_call(text="Sync Complete via Fanart.tv")
 
     def test_artwork_apply_wrapped_in_active_undo_batch(self, tmp_path: Path) -> None:
         """Phase 2: _run_logic must wrap apply_artwork in an active
@@ -3002,7 +3007,7 @@ class TestAppRunLogic:
             patch("album_art_sync.app.apply_artwork", return_value=False),
         ):
             app._run_logic()
-        app.res_msg.config.assert_any_call(text="Partial Success - Check Log")
+        app.completion_label.config.assert_any_call(text="Partial Success - Check Log")
 
     def test_unhandled_exception_sets_error_message(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
@@ -3017,7 +3022,7 @@ class TestAppRunLogic:
             ),
         ):
             app._run_logic()
-        app.res_msg.config.assert_any_call(text="Error - See Log")
+        app.completion_label.config.assert_any_call(text="Error - See Log")
         assert "CRITICAL ERROR" in "".join(app._log_entries)
 
     # ---- log file + auto-end side effects ----------------------------------
@@ -3083,7 +3088,7 @@ class TestAppRunLogic:
         app.folder_path.get = Mock(return_value="")
         app.start_thread()
         app.folder_path.get.assert_called_once_with()
-        app.log_list.delete.assert_not_called()
+        app.file_listbox.delete.assert_not_called()
         app.cancel_btn.config.assert_not_called()
         app.notebook.select.assert_not_called()
 
@@ -3136,9 +3141,9 @@ class TestAppRunLogic:
             for entry in zero_delay
         )
         # No widget was written directly from the worker thread.
-        app.status_txt.set.assert_not_called()
-        app.res_msg.config.assert_not_called()
-        app.log_list.insert.assert_not_called()
+        app.overall_status.set.assert_not_called()
+        app.completion_label.config.assert_not_called()
+        app.file_listbox.insert.assert_not_called()
         app.start_btn.config.assert_not_called()
         app.notebook.select.assert_not_called()
         app.progress.config.assert_not_called()
@@ -3179,7 +3184,7 @@ class TestAppRunLogic:
 
         app._append_log_line("straight from the main thread")
 
-        app.log_list.insert.assert_called_once_with(
+        app.file_listbox.insert.assert_called_once_with(
             "end", "straight from the main thread"
         )
         app.root.update_idletasks.assert_called_once()
@@ -3202,13 +3207,13 @@ class TestRealWidgetMarshalling:
         try:
             app = object.__new__(AudioSuiteV6)
             app.root = top
-            app.log_list = tk.Listbox(top)
+            app.file_listbox = tk.Listbox(top)
             app._log_entries = []
 
             app._add_log("scheduled from a worker")
-            assert app.log_list.size() == 0  # nothing yet: the bridge is deferred
+            assert app.file_listbox.size() == 0  # nothing yet: the bridge is deferred
             top.update()
-            assert app.log_list.get(0, tk.END) == ("scheduled from a worker",)
+            assert app.file_listbox.get(0, tk.END) == ("scheduled from a worker",)
             assert app._log_entries == ["scheduled from a worker\n"]
         finally:
             top.destroy()
@@ -3276,15 +3281,17 @@ class TestAppGuiMethods:
         app._cancel_requested = False
         app.auto_end = False
         app._app_config = {"fanart": {}}
-        app.status_txt = Mock()
+        app.overall_status = Mock()
         app.progress = Mock()
-        app.log_list = Mock()
-        app.res_msg = Mock()
+        app.file_listbox = Mock()
+        app.completion_label = Mock()
+        app.summary_label = Mock()
+        app.time_label = Mock()
         app.notebook = Mock()
         app.start_btn = Mock()
         app.cancel_btn = Mock()
-        app._tab_processing = Mock()
-        app._tab_results = Mock()
+        app.processing_frame = Mock()
+        app.results_frame = Mock()
         app._preset_combo = Mock()
         app._refresh_preset_list = Mock()
         app._pre_parsed_cli = None
@@ -3662,7 +3669,7 @@ class TestAppGuiMethods:
         with patch.object(app, "_open_help_standard") as mock_help:
             app._open_help()
 
-        mock_help.assert_called_once_with(AudioSuiteV6.HELP_GUIDE)
+        mock_help.assert_called_once_with(AudioSuiteV6.guide_name)
 
     # ---- _open_folder -------------------------------------------------------
 
@@ -3700,16 +3707,16 @@ class TestAppGuiMethods:
 
     # ---- _open_log ----------------------------------------------------------
 
-    def test_open_log_opens_log_file(self, tmp_path: Path) -> None:
+    def test_open_log_opens_the_run_report(self, tmp_path: Path) -> None:
+        """View Log opens the report the run named, through the shared opener."""
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.folder_path.get.return_value = str(tmp_path)
+        app._log_path = str(tmp_path / "art_sync_log.txt")
 
-        with patch("album_art_sync.app.platform_utils.open_path") as mock_open:
+        with patch("audio_suite_shared.ui_helpers.open_log_file") as mock_open:
             app._open_log()
 
-        expected = str(tmp_path / "art_sync_log.txt")
-        mock_open.assert_called_once_with(expected)
+        mock_open.assert_called_once_with(app._log_path)
 
     # ---- _maybe_auto_end ----------------------------------------------------
 

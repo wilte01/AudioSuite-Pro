@@ -1,6 +1,11 @@
 """
-main_tabs.py — Builds all three tabs for Album Art Sync in one place
-(they are brief enough not to warrant individual files).
+main_tabs.py — Builds the Album Art Sync Setup tab.
+
+The Processing and Results tabs come from the shared ``SuiteApp`` shell, so
+this module owns only the tool's own settings panel.
+
+Changed in 2.9.0: the Processing and Results builders moved to the shell (C1
+stage 2), and the Setup panel now shows the tool's title.
 """
 
 import tkinter as tk
@@ -28,6 +33,7 @@ def build_setup_tab(
     on_save_preset: Optional[Callable[[], None]] = None,
     on_delete_preset: Optional[Callable[[], None]] = None,
     on_preset_selected: Optional[Callable[[str], None]] = None,
+    title: str = "",
 ) -> dict[str, Any]:
     """
     Returns:
@@ -40,6 +46,15 @@ def build_setup_tab(
     """
     setup_frame = tk.Frame(parent, padx=30, pady=30, bg=styles.BG_WHITE)
     setup_frame.pack(expand=True, fill="both")
+
+    if title:
+        tk.Label(
+            setup_frame,
+            text=title,
+            font=styles.FONT_TITLE,
+            fg=styles.FG_MAIN,
+            bg=styles.BG_WHITE,
+        ).pack(pady=(0, 15))
 
     # ── Run Controls panel (mirrors the Master Driver control strip) ─────────
     controls_panel = DriverControlsPanel(
@@ -178,108 +193,3 @@ def build_setup_tab(
         "preset_combo": preset_combo,
         "controls_panel": controls_panel,
     }
-
-
-def build_processing_tab(
-    parent: tk.Frame, on_cancel: Callable[[], None]
-) -> dict[str, Any]:
-    """
-    Returns:
-        {
-            'status_txt':  tk.StringVar,
-            'progress':    ttk.Progressbar,
-            'log_list':    tk.Listbox,
-            'cancel_btn':  tk.Button,
-        }
-    """
-    processing_frame = tk.Frame(parent, padx=15, pady=15, bg=styles.BG_WHITE)
-    processing_frame.pack(expand=True, fill="both")
-
-    status_txt = tk.StringVar(value="Ready")
-    tk.Label(
-        processing_frame,
-        textvariable=status_txt,
-        font=styles.FONT_LABEL_B,
-        fg=styles.FG_MAIN,
-        bg=styles.BG_WHITE,
-    ).pack(anchor="w")
-
-    progress = ttk.Progressbar(
-        processing_frame,
-        orient="horizontal",
-        mode="determinate",
-        style="Suite.Horizontal.TProgressbar",
-    )
-    progress.pack(fill="x", pady=20)
-
-    log_list = tk.Listbox(
-        processing_frame,
-        height=18,
-        font=styles.FONT_MONO,
-        bg=styles.BG_WHITE,
-        fg=styles.FG_MAIN,
-        highlightthickness=0,
-        borderwidth=1,
-        relief=tk.SOLID,
-    )
-    log_list.pack(fill="both", expand=True)
-
-    cancel_btn = tk.Button(
-        processing_frame,
-        text="Cancel",
-        bg="#999",
-        fg="white",
-        font=styles.FONT_BUTTON,
-        command=on_cancel,
-        state=tk.DISABLED,
-    )
-    cancel_btn.pack(fill="x", pady=5)
-
-    return {
-        "status_txt": status_txt,
-        "progress": progress,
-        "log_list": log_list,
-        "cancel_btn": cancel_btn,
-    }
-
-
-def build_results_tab(
-    parent: tk.Frame,
-    on_open_log: Callable[[], None],
-    on_open_folder: Callable[[], None],
-) -> tk.Label:
-    """Returns the result message label."""
-    results_frame = tk.Frame(parent, padx=40, pady=40, bg=styles.BG_WHITE)
-    results_frame.pack(expand=True, fill="both")
-
-    res_msg = tk.Label(
-        results_frame,
-        text="Album Art Sync Complete!",
-        bg=styles.BG_WHITE,
-        font=styles.FONT_HEADER,
-        fg=styles.get_main(),
-    )
-    res_msg.pack()
-
-    tk.Button(
-        results_frame,
-        text="View Log",
-        width=30,
-        bg=styles.get_main(),
-        fg="white",
-        font=styles.FONT_BUTTON,
-        pady=10,
-        command=on_open_log,
-    ).pack(pady=10)
-    tk.Button(
-        results_frame,
-        text="Open Folder",
-        width=30,
-        bg=styles.get_main(),
-        fg="white",
-        font=styles.FONT_BUTTON,
-        pady=10,
-        command=on_open_folder,
-    ).pack(pady=10)
-
-    return res_msg

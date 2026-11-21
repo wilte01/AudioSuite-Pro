@@ -42,6 +42,7 @@ is four tools and the separator gains a run-report drive.
 Changed in 2.9.0: the Album Art Normalizer follows it in D8's wave 1, so the
 table is five tools.
 Changed in 2.9.0: the Metadata Scrubber closes that wave, so the table is six.
+Changed in 2.9.0: wave 2 opens with the Album Art Sync, so the table is seven.
 """
 
 from __future__ import annotations
@@ -58,6 +59,8 @@ import pytest
 
 from album_art_normalizer import app as art_normalizer_app
 from album_art_normalizer.app import ArtNormalizerApp
+from album_art_sync import app as album_art_sync_app
+from album_art_sync.app import AudioSuiteV6
 from audio_suite_shared import suite_app
 from file_reorganizer import app as reorganizer_app
 from file_reorganizer.app import FileReorganizerApp
@@ -82,6 +85,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     StemSeparatorApp,
     ArtNormalizerApp,
     MetadataScrubberApp,
+    AudioSuiteV6,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -178,6 +182,23 @@ def _stub_metadata_scrubber_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_album_art_sync_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the synchroniser's launcher argv and its saved album-art config."""
+    monkeypatch.setattr(
+        album_art_sync_app.cli_args,
+        "parse",
+        lambda: SimpleNamespace(
+            folder_path=None,
+            live_mode=False,
+            auto_start=False,
+            auto_end=False,
+            clear_logs=False,
+            parallel_run=False,
+        ),
+    )
+    monkeypatch.setattr(album_art_sync_app, "load_config", lambda: {})
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -186,6 +207,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     StemSeparatorApp: _stub_stem_separator_edges,
     ArtNormalizerApp: _stub_album_art_normalizer_edges,
     MetadataScrubberApp: _stub_metadata_scrubber_edges,
+    AudioSuiteV6: _stub_album_art_sync_edges,
 }
 
 
@@ -279,6 +301,18 @@ def _complete_metadata_scrubber_run(app: MetadataScrubberApp, tmp_path: Path) ->
     app.root.update()
 
 
+def _complete_album_art_sync_run(app: AudioSuiteV6, tmp_path: Path) -> None:
+    """Drive the synchroniser's completion: it serialises the report there."""
+    app._log_entries = ["--- SESSION START: DRY RUN ---\n", "Files: 1 audio file(s)\n"]
+    app._write_run_report(
+        folder=str(tmp_path),
+        files=1,
+        source="Fanart.tv",
+        outcome="Sync Complete via Fanart.tv",
+        duration_secs=1.0,
+    )
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -287,6 +321,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     StemSeparatorApp: _complete_stem_separator_run,
     ArtNormalizerApp: _complete_album_art_normalizer_run,
     MetadataScrubberApp: _complete_metadata_scrubber_run,
+    AudioSuiteV6: _complete_album_art_sync_run,
 }
 
 
@@ -460,6 +495,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "StemSeparatorApp",
         "ArtNormalizerApp",
         "MetadataScrubberApp",
+        "AudioSuiteV6",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)
