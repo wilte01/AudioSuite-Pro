@@ -18,6 +18,10 @@ shell's tab frames and widgets, and the completion is read through the stubbed
 
 Changed in 2.9.0: the slot hand-off is locked - a processor thread queues its
 line instead of calling ``root.after``, and the Tk poller writes it (D22).
+
+Changed in 2.9.0: the same lock covers the progress tick, the completion and a
+run error: each is queued by the run's thread and rendered by the Tk poller
+(D23).
 """
 
 import sys
@@ -30,8 +34,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import audio_fingerprinter.app as fp_mod
-from audio_fingerprinter.app import _SLOT_POLL_MS, FingerprinterApp
-from audio_suite_shared import suite_config
+from audio_fingerprinter.app import _UI_POLL_MS, FingerprinterApp
+from audio_suite_shared import suite_app, suite_config
 
 
 @pytest.fixture(autouse=True)
@@ -440,22 +444,24 @@ class TestAppClassDefinition:
 
 
 class TestOnProgress:
-    """The Processing-tab log list is populated live via root.after()."""
+    """The Processing-tab log list is populated live by the Tk poller."""
 
     def _make_app(self) -> MagicMock:
         from audio_fingerprinter.app import FingerprinterApp
 
         app = object.__new__(FingerprinterApp)
         app.root = MagicMock()
+        app._ui_updates = SimpleQueue()
+        app._run_thread = None
         app.progress = MagicMock()
         app.stats_label = MagicMock()
         app.file_listbox = MagicMock()
-        app.root.after.side_effect = lambda _ms, fn, *_a: fn()
         return app
 
     def test_streams_display_text_into_listbox(self):
         app = self._make_app()
         app._on_progress(2, 5, 1, display_text="[MATCHED] track.mp3")
+        app._poll_ui_updates()
         app.progress.__setitem__.assert_any_call("value", 2)
         app.progress.__setitem__.assert_any_call("maximum", 5)
         app.stats_label.config.assert_called_once()
@@ -465,6 +471,7 @@ class TestOnProgress:
     def test_no_display_text_skips_listbox(self):
         app = self._make_app()
         app._on_progress(2, 5, 0)
+        app._poll_ui_updates()
         app.progress.__setitem__.assert_any_call("value", 2)
         app.stats_label.config.assert_called_once()
         app.file_listbox.insert.assert_not_called()
@@ -554,6 +561,8 @@ class TestOnCompleteSummary:
         # The shell marshals its widget writes with root.after(0, ...); run
         # them now so a test reads the rendered completion.
         app.root.after.side_effect = lambda _ms, fn, *args: fn(*args)
+        app._ui_updates = SimpleQueue()
+        app._run_thread = None
         app.time_label = MagicMock()
         app.summary_label = MagicMock()
         app.completion_label = MagicMock()
@@ -590,7 +599,34 @@ class TestOnCompleteSummary:
             results=[],
             counts=counts,
         )
+        # The completion is a queue message now; render it the way the poller
+        # would, so a test reads the widgets the run produced.
+        app._poll_ui_updates()
         return app
+
+    def test_the_completion_is_queued_until_the_poller_renders_it(self, tmp_path):
+        """The run's thread writes the report and touches no widget."""
+        app = self._make_app(tmp_path)
+
+        app._on_complete(
+            header=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            results=[],
+            counts=self._counts(),
+        )
+
+        assert (tmp_path / "fingerprint_dry_run_log.txt").is_file()
+        app.root.after.assert_not_called()
+        app.summary_label.config.assert_not_called()
+
+        app._poll_ui_updates()
+
+        assert "Total: 1 files" in app.summary_label.config.call_args.kwargs["text"]
 
     def test_album_ambiguous_surfaced_in_summary_and_log(self, tmp_path):
         app = self._complete(tmp_path, self._counts(album_ambiguous=2))
@@ -659,6 +695,7 @@ class TestIsrcOutcomeOnTheResultsTab:
             counts=TestOnCompleteSummary._counts(),
             isrc_submission=submission,
         )
+        app._poll_ui_updates()
         return app
 
     def test_rejected_submission_is_shown_with_its_reason(self, tmp_path: Path):
@@ -947,65 +984,119 @@ class TestMusicBrainzTokenActions:
 
 
 class TestProgressD3:
-    def test_on_progress_updates_widgets(self) -> None:
+    def test_on_progress_queues_the_tick_for_the_poller(self) -> None:
         app = object.__new__(FingerprinterApp)
         app.root = MagicMock()
+        app._ui_updates = SimpleQueue()
+        app._run_thread = None
         app.progress = MagicMock()
         app.stats_label = MagicMock()
         app.file_listbox = MagicMock()
 
         app._on_progress(4, 10, 1, "song.mp3")
-        assert app.root.after.call_args.args[0] == 0
-        # Execute the scheduled main-thread update against widget stubs.
-        update_fn = app.root.after.call_args.args[1]
-        update_fn()
+
+        # The run's thread schedules nothing itself (AGENTS.md).
+        app.root.after.assert_not_called()
+        app._poll_ui_updates()
         assert app.stats_label.config.call_args.kwargs["text"].startswith(
             "Processed: 4"
         )
         assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
 
 
-class TestSlotUpdatesHandOff:
-    """A processor thread hands its slot line over; the Tk poller writes it."""
+class TestQueuedUiUpdates:
+    """The run's threads queue their widget writes; the Tk poller applies them.
+
+    A raw ``threading.Thread`` worker must not call ``root.after`` or a widget
+    (AGENTS.md), so every callback the run publishes is a queue message.
+    """
 
     @staticmethod
     def _app() -> FingerprinterApp:
         app = object.__new__(FingerprinterApp)
         app.root = MagicMock()
-        app._slot_updates = SimpleQueue()
+        app._ui_updates = SimpleQueue()
         app.slot_vars = [MagicMock(), MagicMock()]
+        app.stats_label = MagicMock()
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
+        app.start_btn = MagicMock()
         app._run_thread = None
         return app
 
-    def test_a_worker_line_is_queued_not_written(self) -> None:
-        """The processor's threads must not call ``root.after`` (AGENTS.md)."""
+    def test_a_slot_line_is_queued_not_written(self) -> None:
         app = self._app()
 
         app._on_slot_update(1, "Fingerprinting: song.mp3...")
 
         app.root.after.assert_not_called()
-        assert app._slot_updates.get_nowait() == (1, "Fingerprinting: song.mp3...")
+        app.slot_vars[1].set.assert_not_called()
+        assert app._ui_updates.get_nowait() == (
+            "slot",
+            1,
+            "Fingerprinting: song.mp3...",
+        )
 
-    def test_the_poller_writes_the_queued_lines(self) -> None:
+    def test_a_progress_tick_is_queued_not_written(self) -> None:
+        app = self._app()
+
+        app._on_progress(4, 10, 1, "song.mp3")
+
+        app.root.after.assert_not_called()
+        app.stats_label.config.assert_not_called()
+        assert app._ui_updates.get_nowait() == ("progress", 4, 10, 1, "song.mp3")
+
+    def test_a_run_error_is_queued_not_raised(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dialogs = MagicMock()
+        monkeypatch.setattr(suite_app, "messagebox", dialogs)
+        app = self._app()
+
+        app._on_error("fpcalc is not available.")
+
+        app.root.after.assert_not_called()
+        dialogs.showerror.assert_not_called()
+        assert app._ui_updates.get_nowait() == ("error", "fpcalc is not available.")
+
+    def test_the_poller_writes_the_queued_messages(self) -> None:
         app = self._app()
         app._on_slot_update(1, "Fingerprinting: song.mp3...")
         app._on_slot_update(1, "IDLE")
+        app._on_progress(4, 10, 1, "song.mp3")
 
-        app._poll_slot_updates()
+        app._poll_ui_updates()
 
         written = [call.args[0] for call in app.slot_vars[1].set.call_args_list]
         assert written == ["Fingerprinting: song.mp3...", "IDLE"]
+        assert app.stats_label.config.call_args.kwargs["text"].startswith(
+            "Processed: 4"
+        )
+        assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
         # The run's thread is gone, so the poller stops instead of rescheduling.
         app.root.after.assert_not_called()
+
+    def test_the_poller_raises_a_queued_error_on_the_tk_thread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dialogs = MagicMock()
+        monkeypatch.setattr(suite_app, "messagebox", dialogs)
+        app = self._app()
+        app._on_error("fpcalc is not available.")
+
+        app._poll_ui_updates()
+
+        dialogs.showerror.assert_called_once_with("Error", "fpcalc is not available.")
+        app.start_btn.config.assert_called_once_with(state="normal")
 
     def test_the_poller_keeps_polling_while_the_run_thread_lives(self) -> None:
         app = self._app()
         app._run_thread = MagicMock()
         app._run_thread.is_alive.return_value = True
 
-        app._poll_slot_updates()
+        app._poll_ui_updates()
 
-        app.root.after.assert_called_once_with(_SLOT_POLL_MS, app._poll_slot_updates)
+        app.root.after.assert_called_once_with(_UI_POLL_MS, app._poll_ui_updates)
 
 
 # ---------------------------------------------------------------------------

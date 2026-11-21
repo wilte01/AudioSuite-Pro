@@ -256,6 +256,15 @@ used once, and every bullet belongs to exactly one of them.
   worker again, and the Results summary text is built there too, so the Tk
   thread only writes widgets.
 
+- **The Fingerprinter's progress, completion and error callbacks ride that same
+  queue.** `_on_progress` and `_on_complete` were still marshalling with
+  `root.after` from the run's own `threading.Thread`, and `_on_error` raised its
+  dialog from it — the same defect class as the slot lines. The poller now
+  carries four message kinds (slot line, progress tick, run error, completion)
+  and the run's threads only ever queue; the completion's report write and the
+  driver note stay on the worker, and the error dialog is raised by the shell's
+  handler on the Tk thread.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

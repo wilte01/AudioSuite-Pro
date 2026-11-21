@@ -28,9 +28,13 @@ completion — happens on the Tk thread, so a finished run no longer touches Tk
 from the processor's thread.  View Log and Open Folder are the shell's.
 
 Changed in 2.9.0: the worker slot lines are queued by the processor's threads
-and written by a poller the Tk thread starts, so no worker calls ``root.after``
-at all, and the completion builds its summary text and records the ISRC note on
-the worker, leaving the Tk thread only widget writes (D22).
+and written by a poller the Tk thread starts, so the pool never calls
+``root.after``, and the completion builds its summary text and records the
+ISRC note on the worker, leaving the Tk thread only widget writes (D22).
+
+Changed in 2.9.0: the progress ticks, the completion and a run error ride that
+same queue, so nothing the run's own thread publishes calls ``root.after`` or
+touches a widget either (D23).
 """
 
 from __future__ import annotations
@@ -88,8 +92,8 @@ TOOL_ID = "audio_fingerprinter"
 DRIVER_TOOL_ID = "fingerprinter"
 _DEFAULT_THRESHOLD = "0.5"
 
-#: How often the Tk thread drains the slot lines the workers queue.
-_SLOT_POLL_MS = 100
+#: How often the Tk thread drains the messages the run's threads queue.
+_UI_POLL_MS = 100
 
 
 def _isrc_outcome_text(submission: dict[str, Any] | None) -> tuple[str, str]:
@@ -133,8 +137,8 @@ class FingerprinterApp(SuiteApp):
     _cli_api_key: str = ""
     #: Built by the shell from ``result_extra_labels``.
     isrc_label: tk.Label
-    #: Slot lines the processor's threads queue for the Tk poller; built per run.
-    _slot_updates: SimpleQueue[tuple[int, str]]
+    #: Messages the run's threads queue for the Tk poller; built per run.
+    _ui_updates: SimpleQueue[tuple[Any, ...]]
     #: The run's thread; the slot poller stops when it ends.
     _run_thread: threading.Thread | None = None
 
@@ -501,13 +505,13 @@ class FingerprinterApp(SuiteApp):
                 submit_isrc=self.submit_isrc.get(),
             )
             # A fresh queue per run: the poller drains it and stops with the
-            # run's thread, so no line from an earlier run can reach a row.
-            self._slot_updates = SimpleQueue()
+            # run's thread, so no message from an earlier run can reach a row.
+            self._ui_updates = SimpleQueue()
             self._run_thread = threading.Thread(
                 target=self._run, args=(params,), daemon=True
             )
             self._run_thread.start()
-            self._poll_slot_updates()
+            self._poll_ui_updates()
 
         except Exception as exc:
             mapped = map_to_audio_error(exc)
@@ -561,42 +565,19 @@ class FingerprinterApp(SuiteApp):
                 mb_auth=(mb_token_store.build_auth() if params.submit_isrc else None),
             )
 
-    # ── Callbacks (called from the processor's threads — no widget writes) ───
+    # ── Callbacks (queued from the run's threads — no widget writes) ─────────
 
     def _on_slot_update(self, slot_idx: int, text: str) -> None:
         """Hand one worker's slot line to the Tk thread's poller.
 
         Called from the processor's pool, so it must not touch Tk: the line
-        goes on a queue and ``_poll_slot_updates``, which ``start_processing``
-        starts on the Tk thread, does the widget write (AGENTS.md).
+        goes on the queue ``_poll_ui_updates`` drains (AGENTS.md).
 
         Args:
             slot_idx: The worker row the line belongs to.
             text: The line the worker published.
         """
-        self._slot_updates.put((slot_idx, text))
-
-    def _poll_slot_updates(self) -> None:
-        """Apply the queued slot lines while the run's thread is alive.
-
-        Runs on the Tk thread and re-schedules itself; the drain after the
-        last tick catches a worker that queued its final line as it finished.
-        """
-        self._drain_slot_updates()
-        worker = self._run_thread
-        if worker is not None and worker.is_alive():
-            self.root.after(_SLOT_POLL_MS, self._poll_slot_updates)
-            return
-        self._drain_slot_updates()
-
-    def _drain_slot_updates(self) -> None:
-        """Write every queued slot line to its worker's row (Tk thread)."""
-        while True:
-            try:
-                slot_idx, text = self._slot_updates.get_nowait()
-            except Empty:
-                return
-            self.slot_vars[slot_idx].set(text)
+        self._ui_updates.put(("slot", slot_idx, text))
 
     def _on_progress(
         self,
@@ -606,13 +587,78 @@ class FingerprinterApp(SuiteApp):
         display_text: str = "",
         **_extra: Any,
     ) -> None:
-        def _update() -> None:
-            self._render_progress_standard(processed, total, display_text or None)
-            self.stats_label.config(
-                text=f"Processed: {processed} | Total: {total} | Errors: {errors}"
-            )
+        """Queue one progress tick for the Tk thread's poller.
 
-        self.root.after(0, _update)
+        Called from the run's threads, so it only queues; the tick is written
+        by ``_drain_ui_updates``.
+
+        Args:
+            processed: Files finished so far.
+            total: Files the run will attempt.
+            errors: Files that failed so far.
+            display_text: The per-file line the processor published.
+            **_extra: The other progress fields the processor publishes.
+        """
+        self._ui_updates.put(("progress", processed, total, errors, display_text))
+
+    def _on_error(self, message: str) -> None:
+        """Queue a fatal run error for the Tk thread's poller.
+
+        The processor publishes this from the run's thread, and the shell's
+        handler raises a dialog, so it must be called from the Tk thread only.
+
+        Args:
+            message: The user-facing message the processor published.
+        """
+        self._ui_updates.put(("error", message))
+
+    def _poll_ui_updates(self) -> None:
+        """Apply the run's queued messages while its thread is alive.
+
+        Runs on the Tk thread and re-schedules itself; the drain after the last
+        tick delivers whatever was queued as the run finished — its completion,
+        or the error that ended it.
+        """
+        self._drain_ui_updates()
+        worker = self._run_thread
+        if worker is not None and worker.is_alive():
+            self.root.after(_UI_POLL_MS, self._poll_ui_updates)
+            return
+        self._drain_ui_updates()
+
+    def _drain_ui_updates(self) -> None:
+        """Write every queued message to its widget (Tk thread)."""
+        while True:
+            try:
+                message = self._ui_updates.get_nowait()
+            except Empty:
+                return
+            kind = message[0]
+            if kind == "slot":
+                _, slot_idx, text = message
+                self.slot_vars[slot_idx].set(text)
+            elif kind == "progress":
+                _, processed, total, errors, display_text = message
+                self._render_progress_standard(processed, total, display_text or None)
+                self.stats_label.config(
+                    text=f"Processed: {processed} | Total: {total} | Errors: {errors}"
+                )
+            elif kind == "error":
+                _, text = message
+                super()._on_error(text)
+            elif kind == "complete":
+                (
+                    _,
+                    summary_text,
+                    duration_secs,
+                    results,
+                    isrc_text,
+                    isrc_fg,
+                    log_error,
+                ) = message
+                self._render_complete(
+                    summary_text, duration_secs, results, isrc_text, isrc_fg, log_error
+                )
 
     # ── Completion ────────────────────────────────────────────────────────────
 
@@ -630,11 +676,11 @@ class FingerprinterApp(SuiteApp):
         isrc_submission: dict[str, Any] | None = None,
         **_extra: Any,
     ) -> None:
-        """Write the run report, then hand the Results update to the Tk thread.
+        """Write the run report, then queue the Results update.
 
-        Runs on the worker thread: the report is written here, and every widget
-        write is scheduled onto the Tk thread, so neither a damaged Tk nor an
-        unwritable log can suppress the other.
+        Runs on the run's own thread: the report is written here, and every
+        widget write is queued for the Tk poller, so neither a damaged Tk nor
+        an unwritable log can suppress the other.
 
         Args:
             header: Report header lines for this run.
@@ -706,15 +752,16 @@ class FingerprinterApp(SuiteApp):
                 else styles.COLOR_SUCCESS
             )
 
-        self.root.after(
-            0,
-            self._render_complete,
-            summary_text,
-            duration_secs,
-            results,
-            f"{isrc_note}\n{isrc_reason}" if isrc_reason else isrc_note,
-            isrc_fg,
-            log_error,
+        self._ui_updates.put(
+            (
+                "complete",
+                summary_text,
+                duration_secs,
+                results,
+                f"{isrc_note}\n{isrc_reason}" if isrc_reason else isrc_note,
+                isrc_fg,
+                log_error,
+            )
         )
 
     def _render_complete(
