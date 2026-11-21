@@ -227,6 +227,29 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **The Duplicate Finder's scan thread no longer touches Tk.** `_run_scan` is
+  a raw `threading.Thread`, so its `root.after` calls were exactly the shape
+  AGENTS.md forbids: on 3.14 a widget call from that thread raises
+  `RuntimeError: main thread is not in main loop`, the thread dies, and the
+  window waits for a completion that never comes. The progress tick, the run
+  error and the completion now ride one `SimpleQueue` the Tk thread drains
+  (`("progress", …)`, `("error", message)`, `("complete", …)`):
+  `_drain_ui_updates` writes them, `_poll_ui_updates` re-schedules while the
+  run's thread is alive and drains once more after it ends, so the completion
+  — or the error that ended the run — is never left in the queue, and
+  `_on_error` is a two-line override that queues because the shell's handler
+  raises a dialog. The review of `72eece6` also cut what the migration left
+  behind: an unused `RUN_MODES`, an unused `_preset_combo`, and
+  `_summary_rows`/`_summary_extras` — a hook nothing called once the window
+  wrote its own rows — with the rows now travelling in the completion
+  message; the three near-identical report-write `except` branches became one
+  that logs the mapped error; and `_apply_tool_cli_options` reads the
+  dataclass's fields directly instead of `getattr` defaults it can never
+  need. The contract's fingerprinter drive now builds the queue and drains
+  the poller the way `start_processing` does, so its completion is rendered
+  and asserted instead of being swallowed by `handle_audio_errors` after the
+  report had already been written.
+
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`
   snapshots the folder and the run mode on the Tk thread, and both the worker
   and the completion read that snapshot; the completion's log builder was still

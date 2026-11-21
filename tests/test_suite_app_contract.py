@@ -74,7 +74,7 @@ import threading
 import tkinter as tk
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from queue import Queue
+from queue import Queue, SimpleQueue
 from tkinter import ttk
 from types import SimpleNamespace
 from typing import Any
@@ -615,13 +615,16 @@ def _complete_fingerprinter_run(app: FingerprinterApp, tmp_path: Path) -> None:
         )
         job.on_progress(0, "[NO_MATCH]")
 
+    # The run queues its widget writes for the poller ``start_processing``
+    # starts; this drive enters at ``_run``, so it builds the queue itself.
+    app._ui_updates = SimpleQueue()
     with (
         patch.object(fingerprint_processor, "resolve_fpcalc", return_value="fpcalc"),
         patch.object(fingerprint_processor, "_fingerprint_worker", _fake_worker),
     ):
         app._run(params)
-    # The completion is scheduled onto the Tk thread; run it now.
-    app.root.update()
+    # The completion is queued for the Tk poller; drain it now.
+    app._poll_ui_updates()
 
 
 def _complete_duplicate_finder_run(app: DuplicateFinderApp, tmp_path: Path) -> None:
@@ -636,6 +639,7 @@ def _complete_duplicate_finder_run(app: DuplicateFinderApp, tmp_path: Path) -> N
     app._run_disposition = DEFAULT_DISPOSITION
     app._run_folder = str(tmp_path)
     app._log_path = str(tmp_path / duplicate_finder_app.RUN_REPORT_DRY_RUN)
+    app._ui_updates = SimpleQueue()
     app._finish_run(
         header=["DUPLICATE REPORT\n"],
         total=1,
@@ -651,8 +655,8 @@ def _complete_duplicate_finder_run(app: DuplicateFinderApp, tmp_path: Path) -> N
         deleted=0,
         stubbed=0,
     )
-    # The completion is scheduled onto the Tk thread; run it now.
-    app.root.update()
+    # The completion is queued for the Tk poller; drain it now.
+    app._poll_ui_updates()
 
 
 def _complete_mood_analysis_run(

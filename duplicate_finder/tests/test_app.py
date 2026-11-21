@@ -4,9 +4,10 @@
 
 The window is a ``SuiteApp`` on the shared three tabs, so what is checked here
 is the part that is this tool's own: the completion handler's row set and the
-report it writes, the validation a run must pass before it starts, the driver's
-pre-fill routes, and -- ``TestCompletionSeam`` -- the real scan driven into the
-handler it binds, asserting the report the run writes.
+report it writes, the callbacks the scan's thread queues, the validation a run
+must pass before it starts, the driver's pre-fill routes, and --
+``TestCompletionSeam`` -- the real scan driven into the handler it binds,
+asserting the report the run writes.
 
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
@@ -14,16 +15,22 @@ clustering, cache and quarantine.
 Changed in 2.9.0: the window composes ``SuiteApp``, so the shells name the
 shell's tab frames and the completion is read from the report it writes (C1
 stage 2).
+
+Changed in 2.9.0: ``TestQueuedUiUpdates`` locks the queue poller the scan's
+thread publishes into (no ``root.after`` and no widget write off the Tk
+thread).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from queue import SimpleQueue
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from audio_suite_shared import suite_app
 from duplicate_finder.core.disposition import DEFAULT_DISPOSITION
 from duplicate_finder.core.models import DEFAULT_THRESHOLD
 from duplicate_finder.ui import app as app_module
@@ -34,6 +41,7 @@ from duplicate_finder.ui.app import (
     RUN_REPORT_LIVE,
     DuplicateFinderApp,
 )
+from duplicate_finder.utils.cli_args import DuplicateFinderArgs
 
 
 def shell(
@@ -75,7 +83,8 @@ def shell(
     app._launched_from_driver = False
     app._setup_frame = MagicMock()
     app.auto_end = False
-    app._summary_rows = ()
+    app._ui_updates = SimpleQueue()
+    app._run_thread = None
     app._log_path = str(tmp_path / "report.txt") if tmp_path is not None else ""
     app._run_mode = mode
     app._run_disposition = disposition
@@ -113,13 +122,12 @@ class TestCompletionRows:
             stubbed=0,
         )
 
-        assert app._summary_extras() == [
-            ("Duplicate groups", "1"),
-            ("Exact groups", "0"),
-            ("Duplicate files", "3"),
-            ("Files would quarantine", "0"),
-            ("Without a fingerprint", "0"),
-        ]
+        written = (tmp_path / "report.txt").read_text(encoding="utf-8")
+        assert "Duplicate groups: 1" in written
+        assert "Exact groups: 0" in written
+        assert "Duplicate files: 3" in written
+        assert "Files would quarantine: 0" in written
+        assert "Without a fingerprint: 0" in written
 
     def test_a_live_run_reports_what_it_moved(self, tmp_path: Path) -> None:
         app = shell(mode=LIVE_UPDATE, tmp_path=tmp_path)
@@ -140,9 +148,9 @@ class TestCompletionRows:
             stubbed=0,
         )
 
-        rows = dict(app._summary_extras())
-        assert rows["Files quarantined"] == "3"
-        assert rows["Without a fingerprint"] == "1"
+        written = (tmp_path / "report.txt").read_text(encoding="utf-8")
+        assert "Files quarantined: 3" in written
+        assert "Without a fingerprint: 1" in written
 
     def test_the_shared_fields_reach_the_report(self, tmp_path: Path) -> None:
         app = shell(tmp_path=tmp_path)
@@ -173,7 +181,7 @@ class TestCompletionRows:
         assert "Errors: 1" in written
         assert "Time: 00:02" in written
 
-    def test_one_run_s_rows_do_not_survive_into_the_next(self, tmp_path: Path) -> None:
+    def test_each_completion_carries_its_own_rows(self, tmp_path: Path) -> None:
         app = shell(tmp_path=tmp_path)
 
         app._finish_run(
@@ -207,7 +215,130 @@ class TestCompletionRows:
             stubbed=0,
         )
 
-        assert dict(app._summary_extras())["Duplicate groups"] == "0"
+        first = app._ui_updates.get_nowait()
+        second = app._ui_updates.get_nowait()
+        assert first[0] == second[0] == "complete"
+        assert dict(first[-1])["Duplicate groups"] == "2"
+        assert dict(second[-1])["Duplicate groups"] == "0"
+
+
+class TestQueuedUiUpdates:
+    """The scan's thread queues its widget writes; the Tk poller applies them.
+
+    ``_run_scan`` is a raw ``threading.Thread``, so it must not call
+    ``root.after`` or a widget at all (AGENTS.md): every callback the processor
+    publishes is a queue message.
+    """
+
+    @staticmethod
+    def _app() -> DuplicateFinderApp:
+        app = object.__new__(DuplicateFinderApp)
+        app.root = MagicMock()
+        app._ui_updates = SimpleQueue()
+        app._run_thread = None
+        app.stats_label = MagicMock()
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
+        app.start_btn = MagicMock()
+        app.summary_label = MagicMock()
+        app._run_mode = DRY_RUN
+        app._run_folder = "D:/music"
+        app.auto_end = False
+        return app
+
+    def test_a_progress_tick_is_queued_not_written(self) -> None:
+        app = self._app()
+
+        app._on_progress(4, 10, 2, 1, "song.flac")
+
+        app.root.after.assert_not_called()
+        app.stats_label.config.assert_not_called()
+        assert app._ui_updates.get_nowait() == ("progress", 4, 10, 2, 1, "song.flac")
+
+    def test_a_run_error_is_queued_not_raised(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dialogs = MagicMock()
+        monkeypatch.setattr(suite_app, "messagebox", dialogs)
+        app = self._app()
+
+        app._on_error("No supported audio files found.")
+
+        app.root.after.assert_not_called()
+        dialogs.showerror.assert_not_called()
+        assert app._ui_updates.get_nowait() == (
+            "error",
+            "No supported audio files found.",
+        )
+
+    def test_the_poller_writes_the_queued_tick(self) -> None:
+        app = self._app()
+        app._on_progress(4, 10, 2, 1, "song.flac")
+
+        app._poll_ui_updates()
+
+        assert app.stats_label.config.call_args.kwargs["text"] == (
+            "Processed: 4 | Skipped: 2 | Errors: 1"
+        )
+        assert app.file_listbox.insert.call_args.args[1] == "song.flac"
+        # The run's thread is gone, so the poller stops instead of rescheduling.
+        app.root.after.assert_not_called()
+
+    def test_the_poller_writes_the_queued_completion(self) -> None:
+        app = self._app()
+        app._ui_updates.put(
+            ("complete", 7, 7, 0, 0, 65.0, (("Duplicate groups", "1"),))
+        )
+
+        app._poll_ui_updates()
+
+        text = app.summary_label.config.call_args.kwargs["text"]
+        assert text.startswith("Total: 7 files")
+        assert "Duplicate groups: 1" in text
+        assert app.completion_text == DuplicateFinderApp.DRY_COMPLETE_LABEL
+        # ``render_completion`` records the run's folder for Open Folder.
+        assert app._out_dir == "D:/music"
+
+    def test_the_poller_raises_a_queued_error_on_the_tk_thread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dialogs = MagicMock()
+        monkeypatch.setattr(suite_app, "messagebox", dialogs)
+        app = self._app()
+        app._on_error("No supported audio files found.")
+
+        app._poll_ui_updates()
+
+        dialogs.showerror.assert_called_once_with(
+            "Error", "No supported audio files found."
+        )
+        app.start_btn.config.assert_called_once_with(state="normal")
+
+    def test_the_poller_keeps_polling_while_the_run_thread_lives(self) -> None:
+        app = self._app()
+        app._run_thread = MagicMock()
+        app._run_thread.is_alive.return_value = True
+
+        app._poll_ui_updates()
+
+        app.root.after.assert_called_once_with(
+            app_module._UI_POLL_MS, app._poll_ui_updates
+        )
+
+    def test_a_run_builds_its_queue_and_starts_the_poller(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = shell(folder=str(tmp_path))
+        thread = MagicMock()
+        monkeypatch.setattr(app_module, "threading", MagicMock(Thread=thread))
+
+        DuplicateFinderApp.start_processing(app)
+
+        assert isinstance(app._ui_updates, SimpleQueue)
+        assert app._run_thread is thread.return_value
+        app.root.after.assert_called_once_with(
+            app_module._UI_POLL_MS, app._poll_ui_updates
+        )
 
 
 class TestRunNote:
@@ -334,32 +465,28 @@ class TestDriverOptions:
         app = shell()
 
         app._apply_tool_cli_options(
-            MagicMock(
+            DuplicateFinderArgs(
                 threshold=0.05,
                 quarantine_dir="D:/q",
                 disposition="delete",
+                exact_mode="only",
                 auto_end=True,
             )
         )
 
         app.threshold.set.assert_called_once_with(0.05)
         app.quarantine_dir.set.assert_called_once_with("D:/q")
+        app.exact_mode.set.assert_called_once_with("only")
         assert app.auto_end is True
 
     def test_an_absent_option_leaves_the_control_alone(self) -> None:
         app = shell()
 
-        app._apply_tool_cli_options(
-            MagicMock(
-                threshold=0.0,
-                quarantine_dir="",
-                disposition=DEFAULT_DISPOSITION,
-                auto_end=False,
-            )
-        )
+        app._apply_tool_cli_options(DuplicateFinderArgs(threshold=0.0, exact_mode=""))
 
         app.threshold.set.assert_not_called()
         app.quarantine_dir.set.assert_not_called()
+        app.exact_mode.set.assert_not_called()
         assert app.auto_end is False
 
 
@@ -380,9 +507,7 @@ class TestDispositionPrefill:
         app = shell()
 
         app._apply_tool_cli_options(
-            MagicMock(
-                threshold=0.0, quarantine_dir="", disposition="delete", auto_end=False
-            )
+            DuplicateFinderArgs(threshold=0.0, disposition="delete")
         )
 
         app.disposition.set.assert_called_once_with("delete")

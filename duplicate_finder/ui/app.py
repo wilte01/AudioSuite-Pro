@@ -22,9 +22,12 @@ and this tool keeps its Setup panel.  The scan report and the Results panel are
 written here now that the window no longer inherits ``AnalysisTagToolApp``: the
 report is serialised on the run's thread and the widget writes are marshalled,
 and the run's mode, disposition and folder are snapshotted on the Tk thread in
-``start_processing`` so the completion never reads a Tk variable off it.  The
-presets keep their existing keys through the shared ``ui_presets`` store, and
-View Log / Open Folder are the shell's.
+``start_processing`` so the completion never reads a Tk variable off it.  Every
+callback the scan publishes — progress, the run error and the completion — is a
+message on a ``SimpleQueue`` that a poller the Tk thread starts drains, because
+``_run_scan`` is a raw ``threading.Thread`` and may not call ``root.after`` or a
+widget at all.  The presets keep their existing keys through the shared
+``ui_presets`` store, and View Log / Open Folder are the shell's.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import logging
 import os
 import threading
 import tkinter as tk
+from queue import Empty, SimpleQueue
 from tkinter import messagebox
 from typing import Any, ClassVar
 
@@ -79,7 +83,9 @@ RUN_REPORT_LIVE = "duplicate_finder_sync_log.txt"
 
 DRY_RUN = "Dry Run"
 LIVE_UPDATE = "Live Update"
-RUN_MODES = (DRY_RUN, LIVE_UPDATE)
+
+#: How often the Tk thread drains the messages the scan's thread queues.
+_UI_POLL_MS = 100
 
 
 class DuplicateFinderApp(SuiteApp):
@@ -112,9 +118,10 @@ class DuplicateFinderApp(SuiteApp):
     #: read it); ``program_name`` above is the shell's copy of the same value.
     TOOL_ID: str = DRIVER_TOOL_ID
 
-    #: Rows the finished run adds to the summary, replaced per completion so one
-    #: run's rows cannot survive into the next.
-    _summary_rows: tuple[tuple[str, str], ...] = ()
+    #: Messages the scan's thread queues for the Tk poller; built per run.
+    _ui_updates: SimpleQueue[tuple[Any, ...]]
+    #: The scan's thread; the poller stops when it ends.
+    _run_thread: threading.Thread | None = None
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -153,8 +160,7 @@ class DuplicateFinderApp(SuiteApp):
         #: View Log say so instead of opening the suite log.
         self._log_path: str = ""
 
-        self._preset_combo: Any = None
-        self._refresh_preset_list: Any = None
+        self._preset_refresh: Any = None
 
         self._launched_from_driver = apply_argv and cli_args.looks_like_driver_argv()
 
@@ -196,8 +202,7 @@ class DuplicateFinderApp(SuiteApp):
             driver_locked=self._launched_from_driver,
         )
         self.start_btn = widgets["start_btn"]
-        self._preset_combo = widgets.get("preset_combo")
-        self._refresh_preset_list = widgets.get("refresh_preset_list")
+        self._preset_refresh = widgets.get("refresh_preset_list")
         self._setup_frame = widgets.get("setup_frame")
         self.controls_panel = widgets["controls_panel"]
         self._set_disposition(DEFAULT_DISPOSITION)
@@ -245,10 +250,9 @@ class DuplicateFinderApp(SuiteApp):
             self.threshold.set(float(parsed.threshold))
         if parsed.quarantine_dir:
             self.quarantine_dir.set(parsed.quarantine_dir)
-        exact_mode = str(getattr(parsed, "exact_mode", "") or "")
-        if exact_mode:
-            self.exact_mode.set(exact_mode)
-        self._set_disposition(str(getattr(parsed, "disposition", DEFAULT_DISPOSITION)))
+        if parsed.exact_mode:
+            self.exact_mode.set(parsed.exact_mode)
+        self._set_disposition(parsed.disposition)
         self.auto_end = bool(parsed.auto_end)
 
     # ── User actions ──────────────────────────────────────────────────
@@ -360,7 +364,10 @@ class DuplicateFinderApp(SuiteApp):
             threshold,
         )
 
-        threading.Thread(
+        # A fresh queue per run: the poller drains it and stops with the run's
+        # thread, so no message from an earlier run can reach a row.
+        self._ui_updates = SimpleQueue()
+        self._run_thread = threading.Thread(
             target=self._run_scan,
             args=(
                 folder,
@@ -371,7 +378,9 @@ class DuplicateFinderApp(SuiteApp):
                 str(self.exact_mode.get()),
             ),
             daemon=True,
-        ).start()
+        )
+        self._run_thread.start()
+        self._poll_ui_updates()
 
     @handle_audio_errors(reraise=False, context="duplicate_finder_app_run")
     def _run_scan(
@@ -414,7 +423,7 @@ class DuplicateFinderApp(SuiteApp):
                 on_error=self._on_error,
             )
 
-    # ── Progress ──────────────────────────────────────────────────────
+    # ── Callbacks (queued from the scan's thread — no widget writes) ──
 
     def _on_progress(
         self,
@@ -425,24 +434,71 @@ class DuplicateFinderApp(SuiteApp):
         display_text: str,
         **_extra: Any,
     ) -> None:
-        """Progress seam: hand the widget writes to the Tk thread."""
-        self.root.after(
-            0, self._update_progress_ui, processed, total, skipped, errors, display_text
+        """Queue one progress tick for the Tk thread's poller.
+
+        Called from the scan's own thread, so it only queues; the tick is
+        written by ``_drain_ui_updates`` (AGENTS.md).
+
+        Args:
+            processed: Files finished so far.
+            total: Files the run will attempt.
+            skipped: Files without a fingerprint so far.
+            errors: Files that could not be moved so far.
+            display_text: The per-file line the processor published.
+            **_extra: The other progress fields the processor publishes.
+        """
+        self._ui_updates.put(
+            ("progress", processed, total, skipped, errors, display_text)
         )
 
-    def _update_progress_ui(
-        self,
-        processed: int,
-        total: int,
-        skipped: int,
-        errors: int,
-        display_text: str,
-    ) -> None:
-        """Render one progress tick (must run on the main thread)."""
-        self._render_progress_standard(processed, total, display_text)
-        self.stats_label.config(
-            text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
-        )
+    def _on_error(self, message: str) -> None:
+        """Queue a fatal run error for the Tk thread's poller.
+
+        The processor publishes this from the scan's thread and the shell's
+        handler raises a dialog, so it must be called from the Tk thread only.
+
+        Args:
+            message: The user-facing message the processor published.
+        """
+        self._ui_updates.put(("error", message))
+
+    def _poll_ui_updates(self) -> None:
+        """Apply the run's queued messages while its thread is alive.
+
+        Runs on the Tk thread and re-schedules itself; the drain after the last
+        tick delivers whatever was queued as the run finished — its completion,
+        or the error that ended it.
+        """
+        self._drain_ui_updates()
+        worker = self._run_thread
+        if worker is not None and worker.is_alive():
+            self.root.after(_UI_POLL_MS, self._poll_ui_updates)
+            return
+        self._drain_ui_updates()
+
+    def _drain_ui_updates(self) -> None:
+        """Write every queued message to its widget (Tk thread)."""
+        while True:
+            try:
+                message = self._ui_updates.get_nowait()
+            except Empty:
+                return
+            kind = message[0]
+            if kind == "progress":
+                _, processed, total, skipped, errors, display_text = message
+                self._render_progress_standard(processed, total, display_text or None)
+                self.stats_label.config(
+                    text=(
+                        f"Processed: {processed} | Skipped: {skipped} "
+                        f"| Errors: {errors}"
+                    )
+                )
+            elif kind == "error":
+                _, text = message
+                super()._on_error(text)
+            elif kind == "complete":
+                _, total, tagged, skipped, errors, duration_secs, rows = message
+                self._render_finish(total, tagged, skipped, errors, duration_secs, rows)
 
     # ── Completion ────────────────────────────────────────────────────
 
@@ -463,14 +519,17 @@ class DuplicateFinderApp(SuiteApp):
         stubbed: int,
         **_extra: Any,
     ) -> None:
-        """Write this run's report, then hand the Results update to the Tk thread.
+        """Write this run's report, then queue the Results update.
 
         Wired as the ``on_complete`` handler itself rather than overriding the
-        shell's: this tool's payload carries three counts the shell never learns
+        shell's: this tool's payload carries counts the shell never learns
         (``groups``, ``duplicates``, ``quarantined``), and a required field an
         override adds to a supertype's signature is a type error.  Declaring
         them required is the point — a default is how a dropped field becomes a
         plausible zero in the summary.
+
+        Runs on the scan's own thread: the report is written here, and every
+        widget write is queued for the Tk poller.
 
         Args:
             header: Report header lines for this run.
@@ -489,7 +548,7 @@ class DuplicateFinderApp(SuiteApp):
             **_extra: Other completion fields; ignored here rather than
                 rejected, so a payload that grows cannot abort a finished run.
         """
-        disposition = normalize(self._run_disposition or DEFAULT_DISPOSITION)
+        disposition = normalize(self._run_disposition)
         dry_run = self._run_mode == DRY_RUN
         if disposition == DEFAULT_DISPOSITION:
             verb = "would quarantine" if dry_run else "quarantined"
@@ -507,7 +566,6 @@ class DuplicateFinderApp(SuiteApp):
             (f"Files {verb}", str(handled)),
             ("Without a fingerprint", str(skipped)),
         )
-        self._summary_rows = rows
         self._record_run_note(
             total=total, skipped=skipped, errors=errors, disposition=disposition
         )
@@ -530,35 +588,20 @@ class DuplicateFinderApp(SuiteApp):
             with open(self._log_path, "w", encoding="utf-8") as f:
                 f.writelines(header + log_entries + summary)
             logger.info("Log written to '%s'", self._log_path)
-        except PermissionError as exc:
-            logger.error(
-                "Permission denied writing log '%s': %s",
-                self._log_path,
-                exc,
-                exc_info=True,
-            )
-        except OSError as exc:
-            logger.error(
-                "OSError writing log '%s': %s", self._log_path, exc, exc_info=True
-            )
         except Exception as exc:
+            # The audio work is already done by the time the report is
+            # serialised, so a failed write is logged, never raised (AGENTS.md).
             mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
             logger.error(
-                "[%s] Unexpected error writing log: %s",
+                "[%s] Could not write log '%s': %s",
                 type(mapped).__name__,
+                self._log_path,
                 mapped,
                 exc_info=True,
             )
 
-        self.root.after(
-            0,
-            self._render_finish,
-            total,
-            tagged,
-            skipped,
-            errors,
-            duration_secs,
-            rows,
+        self._ui_updates.put(
+            ("complete", total, tagged, skipped, errors, duration_secs, rows)
         )
 
     def _render_finish(
@@ -578,7 +621,8 @@ class DuplicateFinderApp(SuiteApp):
             skipped: Files without a fingerprint.
             errors: Files that could not be moved.
             duration_secs: Wall-clock run time.
-            rows: This run's extra summary rows, already replaced on ``self``.
+            rows: This run's extra summary rows, as the completion message
+                carries them.
         """
         text: str = (
             f"Total: {total} files\n"
@@ -599,10 +643,6 @@ class DuplicateFinderApp(SuiteApp):
         self.render_completion(duration_secs=duration_secs, output_dir=self._run_folder)
         if self.auto_end:
             self.root.after(2000, self.root.destroy)
-
-    def _summary_extras(self) -> list[tuple[str, str]]:
-        """Return this run's rows for the report and the Results panel."""
-        return list(self._summary_rows)
 
     def _record_run_note(
         self, *, total: int, skipped: int, errors: int, disposition: str = ""
@@ -663,14 +703,14 @@ class DuplicateFinderApp(SuiteApp):
     def _save_current_as_preset(self, name: str) -> None:
         """Save the current settings as a named preset."""
         save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
-        if self._refresh_preset_list is not None:
-            self._refresh_preset_list()
+        if self._preset_refresh is not None:
+            self._preset_refresh()
 
     def _delete_preset(self, name: str) -> None:
         """Delete a named preset."""
         delete_tool_preset(self.PRESET_KEY_PREFIX, name)
-        if self._refresh_preset_list is not None:
-            self._refresh_preset_list()
+        if self._preset_refresh is not None:
+            self._preset_refresh()
 
 
 def main() -> None:
