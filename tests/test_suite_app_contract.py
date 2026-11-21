@@ -58,6 +58,8 @@ Changed in 2.9.0: BPM Analyzer follows it in wave 2, so the table is eleven and
 the analyzer gains a run-report drive.
 Changed in 2.9.0: Lyrics Manager follows it in wave 2, so the table is twelve
 and the manager gains a run-report drive.
+Changed in 2.9.0: ASX Playlist Extractor follows it in wave 2, so the table is
+thirteen and the extractor gains a run-report drive.
 """
 
 from __future__ import annotations
@@ -76,6 +78,7 @@ from album_art_normalizer import app as art_normalizer_app
 from album_art_normalizer.app import ArtNormalizerApp
 from album_art_sync import app as album_art_sync_app
 from album_art_sync.app import AudioSuiteV6
+from asx_extractor.app import ASXExtractorTool
 from audio_suite_shared import suite_app
 from audio_suite_shared.cli_dataclasses import LyricsArgs
 from bpm_analyzer import app as bpm_analyzer_app
@@ -117,6 +120,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     ReplayGainAnalyzerApp,
     BPMAnalyzerApp,
     LyricsManagerApp,
+    ASXExtractorTool,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -528,6 +532,15 @@ def _complete_lyrics_manager_run(app: LyricsManagerApp, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_asx_extractor_run(app: ASXExtractorTool, tmp_path: Path) -> None:
+    """Drive the extractor's run: it writes ``Extraction_Log.txt`` there."""
+    app._run_mode = "Dry Run"
+    app._run(tmp_path, "Dry Run (Simulated)", False)
+    # The ticks and the completion are scheduled onto the Tk thread; run them
+    # now so the queued widget writes land while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -542,6 +555,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     ReplayGainAnalyzerApp: _complete_replaygain_analyzer_run,
     BPMAnalyzerApp: _complete_bpm_analyzer_run,
     LyricsManagerApp: _complete_lyrics_manager_run,
+    ASXExtractorTool: _complete_asx_extractor_run,
 }
 
 
@@ -762,6 +776,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "ReplayGainAnalyzerApp",
         "BPMAnalyzerApp",
         "LyricsManagerApp",
+        "ASXExtractorTool",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

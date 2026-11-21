@@ -169,6 +169,21 @@ used once, and every bullet belongs to exactly one of them.
   the presets keep their keys through `ui_presets`, which now has a lock of its
   own rather than riding on this window's app tests.
 
+- **ASX Playlist Extractor follows it in wave 2 (C1 stage 2).** `ASXExtractorTool`
+  composes `SuiteApp`. Its Processing tab was a six-stage checklist of its own,
+  so the shared progress bar, counters and per-file list replace it: the run
+  publishes one line per playlist (`[OK] …` / `[FAILED] …`) and a counters line
+  reading `Extracted: n | Failed: n`. `Extraction_Log.txt` is named as
+  `_log_path` when the run starts, so View Log is the shell's report opener
+  instead of a button this window enabled by hand, and Open Folder rides the
+  completion's output target. The run's folder, mode and subfolder choice reach
+  the worker as arguments, so it no longer reads a Tk variable off the Tk
+  thread, and the checklist's fixed sleeps are gone. `SuiteApp` gained
+  `window_size` and `apply_ttk_styles`, so this window keeps its 700 px height
+  and its own ttk styling. `ui/processing_tab.py`/`ui/results_tab.py` are
+  deleted, and the guide's Processing and Results sections describe the shared
+  tabs.
+
 ### Fixed
 
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`

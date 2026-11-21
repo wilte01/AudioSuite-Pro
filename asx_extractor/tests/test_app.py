@@ -9,6 +9,11 @@ branch inside _run(), and the full _run() orchestration
 ASXExtractorTool requires a live tk.Tk() + bootstrap_tool_app() to
 construct normally.  We bypass __init__ via __new__ and stub only
 the attributes each method under test reads.
+
+Changed in 2.9.0: the window composes ``SuiteApp``, so the shell's widget
+names and its completion replace the six-stage checklist and the hand-enabled
+log button, and ``_run`` takes the folder, mode and subfolder choice as
+arguments (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -21,6 +26,11 @@ from asx_extractor.app import TOOL_ID, ASXExtractorTool
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _run(tool: ASXExtractorTool) -> None:
+    """Drive the worker with the folder and mode the tool was built with."""
+    tool._run(tool._test_folder, tool._test_mode, tool._test_recursive)
 
 
 def _make_tool(
@@ -38,24 +48,43 @@ def _make_tool(
     tool.asx_action_mode = MagicMock()
     tool.asx_action_mode.get.return_value = mode
 
+    # root.after must run its callback synchronously, forwarding the arguments
+    # the window passed, so no real Tk event loop is needed.
     tool.root = MagicMock()
-    tool.root.after.side_effect = lambda _delay, callback=None: (
-        callback() if callable(callback) else None
+    tool.root.after.side_effect = lambda _delay, callback=None, *args: (
+        callback(*args) if callable(callback) else None
     )
 
-    tool._update_step = MagicMock()
+    # The shell's Processing and Results widgets.
+    tool.processing_frame = MagicMock()
+    tool.results_frame = MagicMock()
+    tool.progress = MagicMock()
+    tool.stats_label = MagicMock()
+    tool.file_listbox = MagicMock()
+    tool.overall_status = MagicMock()
+    tool.summary_label = MagicMock()
+    tool.completion_label = MagicMock()
+    tool.time_label = MagicMock()
+    tool.start_btn = MagicMock()
     tool.notebook = MagicMock()
-    tool._tab_extractor = MagicMock()
-    tool._tab_review = MagicMock()
-    tool._btn_log = MagicMock()
 
     tool.auto_end = auto_end
     tool.auto_end_var = MagicMock()
     tool.auto_end_var.get.return_value = auto_end
+    tool.recursive_var = MagicMock()
+    tool.recursive_var.get.return_value = False
 
+    tool._run_mode = "Dry Run"
+    tool._dir_path = ""
+    tool._log_path = ""
     tool._refresh_preset_list = MagicMock()
     tool._preset_combo = MagicMock()
     tool._out_dir = ""
+
+    # What ``_run(tool)`` hands the worker.
+    tool._test_folder = Path(folder)
+    tool._test_mode = mode
+    tool._test_recursive = False
 
     return tool
 
@@ -183,70 +212,9 @@ class TestDeletePreset:
 # ---------------------------------------------------------------------------
 
 
-class TestOpenLog:
-    @patch("asx_extractor.app.platform_utils")
-    @patch("asx_extractor.app.messagebox")
-    def test_opens_log_when_file_exists(
-        self,
-        mock_mb: MagicMock,
-        mock_pu: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        log = tmp_path / "Extraction_Log.txt"
-        log.write_text("log content", encoding="utf-8")
-
-        tool = _make_tool(folder=str(tmp_path))
-        tool._open_log()
-
-        mock_pu.open_path.assert_called_once_with(str(log))
-        mock_mb.showwarning.assert_not_called()
-
-    @patch("asx_extractor.app.platform_utils")
-    @patch("asx_extractor.app.messagebox")
-    def test_shows_warning_when_log_missing(
-        self,
-        mock_mb: MagicMock,
-        mock_pu: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        tool = _make_tool(folder=str(tmp_path))
-        tool._open_log()
-
-        mock_mb.showwarning.assert_called_once_with(
-            "Log Not Found", "Extraction log file does not exist."
-        )
-        mock_pu.open_path.assert_not_called()
-
-
-class TestOpenFolder:
-    @patch("asx_extractor.app.platform_utils")
-    def test_sets_out_dir_and_opens_when_folder_present(
-        self, mock_pu: MagicMock, tmp_path: Path
-    ) -> None:
-        tool = _make_tool(folder=str(tmp_path))
-        tool._open_folder_standard = MagicMock()
-
-        tool._open_folder()
-
-        assert tool._out_dir == str(tmp_path)
-        tool._open_folder_standard.assert_called_once()
-
-    @patch("asx_extractor.app.messagebox")
-    def test_shows_warning_when_folder_empty(self, mock_mb: MagicMock) -> None:
-        tool = _make_tool(folder="")
-        tool._open_folder_standard = MagicMock()
-
-        tool._open_folder()
-
-        mock_mb.showwarning.assert_called_once_with(
-            "No Folder", "Output folder not available."
-        )
-        tool._open_folder_standard.assert_not_called()
-
-
 class TestStartExtraction:
     @patch("asx_extractor.app.threading.Thread")
-    def test_resets_steps_selects_tab_starts_thread(
+    def test_resets_progress_selects_tab_starts_thread(
         self, mock_thread_cls: MagicMock
     ) -> None:
         mock_thread = MagicMock()
@@ -255,9 +223,14 @@ class TestStartExtraction:
         tool = _make_tool(folder="/some/folder")
         tool.start_extraction()
 
-        tool._update_step.reset.assert_called_once()
-        tool.notebook.select.assert_called_once_with(tool._tab_extractor)
-        mock_thread_cls.assert_called_once_with(target=tool._run, daemon=True)
+        tool.start_btn.config.assert_called_once_with(state="disabled")
+        tool.file_listbox.delete.assert_called_once_with(0, "end")
+        tool.notebook.select.assert_called_once_with(tool.processing_frame)
+        mock_thread_cls.assert_called_once_with(
+            target=tool._run,
+            args=(Path("/some/folder"), "Dry Run (Simulated)", False),
+            daemon=True,
+        )
         mock_thread.start.assert_called_once()
 
     @patch("asx_extractor.app.threading.Thread")
@@ -274,24 +247,24 @@ class TestStartExtraction:
             "No Directory", "Please select a target directory first."
         )
         mock_thread_cls.assert_not_called()
-        tool._update_step.reset.assert_not_called()
         tool.notebook.select.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
-# Auto-end in _run (lines 334-335)
+# Auto-end in _run
 # ---------------------------------------------------------------------------
 
 
 class TestRunAutoEnd:
-    """When auto_end_var.get() is truthy, _run() schedules root.destroy()
-    after 2000 ms so the Master Driver handshake closes the window."""
+    """When auto_end_var.get() is truthy, the completion schedules
+    root.destroy() after 2000 ms so the Master Driver handshake closes the
+    window."""
 
     def test_auto_end_schedules_destroy(self, tmp_path: Path) -> None:
         tool = _make_tool(folder=str(tmp_path), auto_end=True)
 
         with patch("asx_extractor.app.active_batch", MagicMock()):
-            tool._run()
+            _run(tool)
 
         # root.after must have been called with (2000, root.destroy)
         destroy_calls = [c for c in tool.root.after.call_args_list if c.args[0] == 2000]
@@ -302,7 +275,7 @@ class TestRunAutoEnd:
         tool = _make_tool(folder=str(tmp_path), auto_end=False)
 
         with patch("asx_extractor.app.active_batch", MagicMock()):
-            tool._run()
+            _run(tool)
 
         destroy_calls = [c for c in tool.root.after.call_args_list if c.args[0] == 2000]
         assert len(destroy_calls) == 0
@@ -328,7 +301,7 @@ class TestRunLogWriteFailure:
             ),
             patch("asx_extractor.app.messagebox") as mock_mb,
         ):
-            tool._run()
+            _run(tool)
 
         # The error is scheduled via root.after(0, lambda: messagebox.showerror(...))
         # Because root.after is synchronous in our stub, the call already fired.
@@ -348,7 +321,7 @@ class TestRunLogWriteFailure:
             ) as mock_log,
             patch("asx_extractor.app.messagebox") as mock_mb,
         ):
-            tool._run()
+            _run(tool)
 
         mock_log.assert_called_once()
         mock_mb.showerror.assert_not_called()
@@ -376,16 +349,14 @@ class TestRunLogWriteFailureEndToEnd:
             ),
             patch("asx_extractor.app.messagebox") as mock_mb,
         ):
-            tool._run()
+            _run(tool)
 
         mock_mb.showerror.assert_called_once_with(
             "Log Error", "Could not write the extraction log."
         )
-        # btn_log is still enabled and tab switches to review
-        tool._btn_log.config.assert_called_once_with(state="normal")
-        # The 1000ms tab-switch to review was scheduled.
-        delays = [c.args[0] for c in tool.root.after.call_args_list]
-        assert 1000 in delays
+        # The run still finishes: the button comes back and Results is shown.
+        tool.start_btn.config.assert_called_once_with(state="normal")
+        tool.notebook.select.assert_called_once_with(tool.results_frame)
 
 
 # ---------------------------------------------------------------------------
@@ -432,32 +403,8 @@ class TestOpenHelp:
 
 
 def _make_stub_tool(folder: Path, mode: str) -> ASXExtractorTool:
-    """Build an ASXExtractorTool instance with only the attributes
-    _run() depends on, bypassing the real (Tk-dependent) __init__."""
-    tool = ASXExtractorTool.__new__(ASXExtractorTool)
-
-    tool.current_folder = MagicMock()
-    tool.current_folder.get.return_value = str(folder)
-
-    tool.asx_action_mode = MagicMock()
-    tool.asx_action_mode.get.return_value = mode
-
-    # self.root.after(delay, callback) must actually invoke callback
-    # synchronously so the test doesn't need a real Tk event loop.
-    tool.root = MagicMock()
-    tool.root.after.side_effect = lambda _delay, callback=None: (
-        callback() if callable(callback) else None
-    )
-
-    tool._update_step = MagicMock()
-    tool._btn_log = MagicMock()
-    tool.notebook = MagicMock()
-    tool._tab_review = MagicMock()
-    tool.auto_end = False
-    tool.auto_end_var = MagicMock()
-    tool.auto_end_var.get.return_value = False
-
-    return tool
+    """Build the shell ``_run`` needs, for the folder and mode under test."""
+    return _make_tool(folder=str(folder), mode=mode)
 
 
 def _write_asx(path: Path, href: str) -> Path:
@@ -488,7 +435,7 @@ class TestRunCopyFailureHandling:
             patch("asx_extractor.core.file_ops.SEND2TRASH_AVAILABLE", False),
             patch("asx_extractor.app.active_batch", MagicMock()),
         ):
-            tool._run()
+            _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
         assert "SUCCESSFUL EXTRACTIONS (1)" in log_text
@@ -519,7 +466,7 @@ class TestRunCopyFailureHandling:
             patch("asx_extractor.core.file_ops.SEND2TRASH_AVAILABLE", False),
             patch("asx_extractor.app.active_batch", MagicMock()),
         ):
-            tool._run()
+            _run(tool)
 
         log_text = (tmp_path / "Extraction_Log.txt").read_text()
         assert "FAILURES (1)" in log_text
@@ -548,7 +495,7 @@ class TestRunCopyFailureHandling:
             patch("asx_extractor.app.file_ops.remove_asx_file") as mock_remove,
             patch("asx_extractor.app.active_batch", MagicMock()),
         ):
-            tool._run()
+            _run(tool)
             mock_remove.assert_not_called()
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
@@ -577,7 +524,7 @@ class TestRunCopyFailureHandling:
             patch("asx_extractor.app.file_ops.remove_asx_file", return_value=False),
             patch("asx_extractor.app.active_batch", MagicMock()),
         ):
-            tool._run()
+            _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
         assert "SUCCESSFUL EXTRACTIONS (0)" in log_text
@@ -603,7 +550,7 @@ class TestRunDirectoryScan:
         _write_asx(source_dir / "TRACK.ASX", str(audio.resolve()))
 
         tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
-        tool._run()
+        _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
         assert "SUCCESSFUL EXTRACTIONS (1)" in log_text
@@ -615,7 +562,7 @@ class TestRunDirectoryScan:
         (source_dir / "cover.jpg").write_bytes(b"\xff\xd8")
 
         tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
-        tool._run()
+        _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
         assert "SUCCESSFUL EXTRACTIONS (0)" in log_text
@@ -626,7 +573,7 @@ class TestRunDirectoryScan:
         source_dir.mkdir()
 
         tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
-        tool._run()
+        _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
         assert "SUCCESSFUL EXTRACTIONS (0)" in log_text
@@ -649,7 +596,7 @@ class TestRunDirectoryScan:
         _write_asx(source_dir / "c.asx", str(missing.resolve()))
 
         tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
-        tool._run()
+        _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
         assert "SUCCESSFUL EXTRACTIONS (2)" in log_text
@@ -673,7 +620,7 @@ class TestRunDirectoryScan:
             patch("asx_extractor.app.file_ops.copy_audio_file") as mock_copy,
             patch("asx_extractor.app.file_ops.remove_asx_file") as mock_remove,
         ):
-            tool._run()
+            _run(tool)
             mock_copy.assert_not_called()
             mock_remove.assert_not_called()
 

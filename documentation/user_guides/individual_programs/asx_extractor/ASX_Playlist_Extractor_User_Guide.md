@@ -24,7 +24,7 @@ It also restores a file that Duplicate Finder replaced with a suite stub: the ke
 1. On Setup, select the directory containing the ASX playlists. Tick **Include subfolders** if the playlists are in album folders.
 1. Choose Dry Run (Simulated) first to inspect playlist parsing and targets.
 1. Click START EXTRACTION.
-1. Review the Processing steps and then open the extraction log from Results.
+1. Watch the Processing tab list each playlist as it is checked, then open the extraction log from Results.
 1. Use Execute Extraction (Permanent) only after confirming the dry-run results.
 
 ## GUI Tabs
@@ -47,15 +47,13 @@ Setup contains the target directory, action mode, shared run controls, presets, 
 
 ![The Processing tab part-way through a run](images/processing.png)
 
-The Processing tab is headed **Process Status** and lists six stages: scanning for ASX files, parsing ASX contents, verifying source audio and paths, copying audio, removing or trashing original ASX files, and finalizing the priority error log. The stage being worked on shows an arrow and the stages already finished show a check.
-
-Each playlist is classified as a success or failure during parsing and verification. Permanent extraction may reclassify a parsed success as a failure if copying or ASX removal fails.
+The Processing tab is the suite's shared run display: a progress bar over the playlists in the selected folder, a counters line (**Extracted** and **Failed**), and one line per playlist as it is parsed and verified. Each playlist is classified as a success or failure during parsing and verification. Permanent extraction may reclassify a parsed success as a failure if copying or ASX removal fails.
 
 ### Results
 
 ![The Results tab after a finished run](images/results.png)
 
-Results provides View Log and Open Folder. View Log becomes available after Extraction_Log.txt is written. Open Folder opens the selected source/output directory because extracted audio is copied there.
+Results shows the completion heading, the run's total, extracted and failed counts, and how long it took, with View Log and Open Folder. View Log opens Extraction_Log.txt, the report the run wrote in the selected directory. Open Folder opens that directory, because extracted audio is copied there.
 
 ## ASX Parsing Rules
 

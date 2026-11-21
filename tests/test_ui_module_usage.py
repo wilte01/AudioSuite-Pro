@@ -19,6 +19,8 @@ template out of those files, so deleting or renaming the loader fails here
 instead of silently widening the exemption.
 
 Changed in 2.4.1: new lock for orphan ui modules (plan WP-3, C-M9).
+Changed in 2.9.0: the discovery floor is 90 rather than 100, because the C1
+stage-2 migrations keep deleting one-line ``ui`` tab delegates (C1).
 """
 
 from __future__ import annotations
@@ -150,7 +152,11 @@ IMPORTERS = _importers()
 
 class TestTheScanIsReal:
     def test_the_ui_tree_is_discovered(self) -> None:
-        assert len(UI_MODULES) >= 100, sorted(UI_MODULES)[:5]
+        # A non-vacuity floor, not the tree's size: each migration off the old
+        # windows deletes a pair of one-line tab delegates, so this only has to
+        # catch a scan that found nothing (or a handful).  The per-module
+        # reachability test below is the real lock.
+        assert len(UI_MODULES) >= 90, sorted(UI_MODULES)[:5]
         assert {
             "bpm_analyzer.ui.setup_tab",
             "master_driver.ui.cards.bpm_card",

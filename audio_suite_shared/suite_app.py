@@ -47,6 +47,10 @@ shared ones names that parent instead of reaching through ``progress.master``
 Changed in 2.9.0: ``processing_stats_text`` lets an adopter keep its own stats
 wording (Genre Sync counts updated/skipped/errors) instead of the shell's
 starting line (C1 stage 2).
+Changed in 2.9.0: ``window_size`` and ``apply_ttk_styles`` carry the two
+``bootstrap_tool_app`` arguments an adopter set for itself (ASX Playlist
+Extractor opens at 700 px and styles its own ttk widgets), so joining the shell
+does not resize or restyle its window (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -111,6 +115,11 @@ class SuiteApp(UIHelperMixin):
     tab_labels: tuple[str, ...] = (" 1. Setup ", " 2. Processing ", " 3. Results ")
     #: The Processing tab's starting stats line, until the run reports its own.
     processing_stats_text: str = "Processed: 0 | Skipped: 0 | Errors: 0"
+    #: Default window size, until a saved geometry from ``window_key`` wins.
+    window_size: tuple[int, int] = (850, 950)
+    #: Whether ``bootstrap_tool_app`` applies the suite's ttk styles.  An
+    #: adopter that styles its own ttk widgets sets this ``False``.
+    apply_ttk_styles: bool = True
 
     def __init__(self, root: tk.Tk) -> None:
         """Bootstrap the window and build the shell's notebook.
@@ -119,8 +128,15 @@ class SuiteApp(UIHelperMixin):
             root: The Tk root the launcher created.
         """
         self.root = root
+        width, height = self.window_size
         self.error_logger, _style = bootstrap_tool_app(
-            root, self.title, self.window_key, self.program_name
+            root,
+            self.title,
+            self.window_key,
+            self.program_name,
+            width=width,
+            height=height,
+            apply_ttk_styles=self.apply_ttk_styles,
         )
         self._log_path: str = ""
         self._out_dir: str = ""
