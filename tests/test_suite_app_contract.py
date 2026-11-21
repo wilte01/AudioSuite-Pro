@@ -41,6 +41,7 @@ Changed in 2.9.0: the Stem Separator adopts the shell (C1 stage 2), so the table
 is four tools and the separator gains a run-report drive.
 Changed in 2.9.0: the Album Art Normalizer follows it in D8's wave 1, so the
 table is five tools.
+Changed in 2.9.0: the Metadata Scrubber closes that wave, so the table is six.
 """
 
 from __future__ import annotations
@@ -64,6 +65,8 @@ from file_reorganizer.core.engine import ReorganizerStats
 from library_stats import app as library_stats_app
 from library_stats.app import LibraryStatsApp
 from library_stats.core.file_processor import StatsReport
+from metadata_scrubber import app as metadata_scrubber_app
+from metadata_scrubber.app import MetadataScrubberApp
 from music_format_converter import app as converter_app
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
@@ -78,6 +81,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     LibraryStatsApp,
     StemSeparatorApp,
     ArtNormalizerApp,
+    MetadataScrubberApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -155,6 +159,25 @@ def _stub_album_art_normalizer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_metadata_scrubber_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the scrubber's launcher argv (it parses inside the constructor)."""
+    monkeypatch.setattr(
+        metadata_scrubber_app.cli_args,
+        "parse",
+        lambda: SimpleNamespace(
+            folder_path=None,
+            live_mode=False,
+            auto_start=False,
+            auto_end=False,
+            preserve_lyrics=True,
+            preserve_album_artist=True,
+            preserve_embedded_art=True,
+            clear_logs=False,
+            parallel_run=False,
+        ),
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -162,6 +185,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     LibraryStatsApp: _stub_library_stats_edges,
     StemSeparatorApp: _stub_stem_separator_edges,
     ArtNormalizerApp: _stub_album_art_normalizer_edges,
+    MetadataScrubberApp: _stub_metadata_scrubber_edges,
 }
 
 
@@ -235,6 +259,26 @@ def _complete_album_art_normalizer_run(app: ArtNormalizerApp, tmp_path: Path) ->
     app.root.update()
 
 
+def _complete_metadata_scrubber_run(app: MetadataScrubberApp, tmp_path: Path) -> None:
+    """Drive the scrubber's completion: it serialises the report there."""
+    app._dir_path = str(tmp_path)
+    app._log_path = str(tmp_path / "metadata_dry_run_log.txt")
+    app._on_complete(
+        header=["METADATA SCRUBBING REPORT\n"],
+        is_live=False,
+        preserve_list=[],
+        total=1,
+        processed=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["a.mp3: scrubbed\n"],
+    )
+    # The report is written before the render is scheduled; run it now so the
+    # queued widget update lands while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -242,6 +286,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     LibraryStatsApp: _complete_library_stats_run,
     StemSeparatorApp: _complete_stem_separator_run,
     ArtNormalizerApp: _complete_album_art_normalizer_run,
+    MetadataScrubberApp: _complete_metadata_scrubber_run,
 }
 
 
@@ -414,6 +459,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "LibraryStatsApp",
         "StemSeparatorApp",
         "ArtNormalizerApp",
+        "MetadataScrubberApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

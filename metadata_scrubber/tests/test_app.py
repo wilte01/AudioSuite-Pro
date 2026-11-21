@@ -8,6 +8,9 @@ Changed in 1.2.0: covers the run note a finished scrub leaves for the Master
 Driver batch report (the files it could not scrub, and any it skipped).
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_scrubbing`` into the completion handler (PLAN D117).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the stubs carry
+the shell's ``processing_frame``/``results_frame`` and a real app drains the
+queued render with ``root.update()`` before the widgets are read back.
 """
 
 import sys
@@ -248,8 +251,8 @@ class TestStartProcessingD3:
         app.overall_status = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_processing = MagicMock()
-        app._tab_results = MagicMock()
+        app.processing_frame = MagicMock()
+        app.results_frame = MagicMock()
         app._setup_tab = MagicMock()
         app._safe_slot_vars = MagicMock()
         app.slot_queue = MagicMock()
@@ -327,13 +330,13 @@ class TestStartProcessingD3:
 
 
 class TestProgressAndCompleteD3:
-    def test_on_progress_updates_widgets(self) -> None:
+    def test_update_progress_ui_updates_widgets(self) -> None:
         app = object.__new__(MetadataScrubberApp)
         app.progress = MagicMock()
         app.stats_label = MagicMock()
         app.file_listbox = MagicMock()
 
-        app._on_progress(3, 10, 1, 1, "song.mp3: scrubbed")
+        app._update_progress_ui(3, 10, 1, 1, "song.mp3: scrubbed")
 
         assert app.stats_label.config.call_args.kwargs["text"].startswith(
             "Processed: 3"
@@ -362,6 +365,8 @@ class TestProgressAndCompleteD3:
             duration_secs=65.4,
             log_entries=["entry\n"],
         )
+        # The render is queued on the Tk thread; drain it before reading back.
+        app.root.update()
 
         log_text = Path(app._log_path).read_text(encoding="utf-8")
         # The mode string lives in the header the worker passes in.
@@ -401,6 +406,7 @@ class TestProgressAndCompleteD3:
             log_entries=["entry\n"],
         )
 
+        app.root.update()
         save_kept.assert_called_once_with(["BPM"])
         assert str(app.completion_label.cget("text")) == "Metadata Scrubbing Complete!"
         log_text = Path(app._log_path).read_text(encoding="utf-8")
@@ -429,6 +435,7 @@ class TestProgressAndCompleteD3:
             log_entries=[],
         )
 
+        app.root.update()
         save_kept.assert_not_called()  # dry runs never update the rolling prefs
 
 
@@ -462,6 +469,7 @@ class TestRunNote:
             duration_secs=1.0,
             log_entries=[],
         )
+        app.root.update()
         return app
 
     def test_unscrubbed_and_skipped_files_are_reported(
@@ -661,12 +669,13 @@ class TestOnCompleteLogWrite:
 
     def _shell(self) -> Any:
         app = object.__new__(MetadataScrubberApp)
+        app.root = MagicMock()
         app.time_label = MagicMock()
         app.summary_label = MagicMock()
         app.completion_label = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_results = MagicMock()
+        app.results_frame = MagicMock()
         return app
 
     def test_log_write_failure_shows_error(
@@ -729,7 +738,7 @@ class TestOnCompleteLogWrite:
         text = Path(app._log_path).read_text(encoding="utf-8")
         assert "[Auto End enabled - closing in 2 seconds...]" in text
         app.root.update_idletasks.assert_called_once()
-        app.root.after.assert_called_once_with(2000, app.root.destroy)
+        app.root.after.assert_any_call(2000, app.root.destroy)
 
     def test_auto_end_rewrite_failure_warns(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -765,7 +774,7 @@ class TestOnCompleteLogWrite:
         )
 
         logger.warning.assert_called_once()
-        app.root.after.assert_called_once_with(2000, app.root.destroy)
+        app.root.after.assert_any_call(2000, app.root.destroy)
 
 
 # ---------------------------------------------------------------------------
@@ -786,7 +795,7 @@ def _completion_shell(tmp_path: Path) -> MetadataScrubberApp:
     app.summary_label = MagicMock()
     app.completion_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     return app
 

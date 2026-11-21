@@ -80,6 +80,19 @@ used once, and every bullet belongs to exactly one of them.
   block the contract reads — `_on_complete` now writes
   `art_normalize_log.txt` on the worker thread instead of from the render.
 
+- **The Metadata Scrubber closes wave 1 (C1 stage 2).** `MetadataScrubberApp`
+  composes `SuiteApp` too: the class carries the tool's identity and its own
+  tab labels, `_build_setup_tab` supplies the preset row, the preserve toggles
+  and the discovered-tag canvas, and the shell builds the Help bar and the
+  Processing and Results tabs. Its two one-line tab delegates are deleted.
+  Because this window owns a worker grid, its pool is built before
+  `super().__init__` — the shell renders the grid from it — and the slot-grid
+  lock then required a named processor, so `scrubber.run_scrubbing` builds
+  `MetadataScrubberProcessor` instead of the base inline. The progress tick and
+  the completion now do their file I/O in the handler and hand the widget
+  writes to the Tk thread; the report keeps its `SUMMARY:` block and a dry run
+  keeps its own "Analysis Complete!" heading.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

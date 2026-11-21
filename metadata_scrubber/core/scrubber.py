@@ -22,6 +22,10 @@ locked by ``metadata_scrubber/tests/test_scrubber.py::TestRawFrameException``
 Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
+Changed in 2.9.0: the worker pool is the named ``MetadataScrubberProcessor``
+(C1 stage 2), so the slot-grid lock can compare the window's grid with it
+instead of finding no processor to check.
+
 """
 
 import logging
@@ -538,6 +542,18 @@ def process_single_file(
         slot_queue.put(slot_idx)
 
 
+class MetadataScrubberProcessor(BaseFileProcessor):
+    """The scrubber's worker pool: the shared base, pinned to this tool's count.
+
+    The slot-grid lock compares a tool-owned grid against every
+    ``BaseFileProcessor`` subclass in the package, so the pool is a named class
+    instead of the base built inline.
+    """
+
+    def __init__(self, max_workers: int = DEFAULT_MAX_WORKERS) -> None:
+        super().__init__(max_workers=max_workers, operation_type="metadata_scrubber")
+
+
 @handle_audio_errors(reraise=False, context="metadata_scrubber_run_scrubbing")
 def run_scrubbing(
     dir_path: str,
@@ -605,9 +621,7 @@ def run_scrubbing(
         with use_batch(undo_batch):
             process_single_file(*args, **kwargs)
 
-    processor = BaseFileProcessor(
-        max_workers=DEFAULT_MAX_WORKERS, operation_type="metadata_scrubber"
-    )
+    processor = MetadataScrubberProcessor()
 
     def _worker(name: str) -> None:
         _scrub_worker(

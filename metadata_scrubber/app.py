@@ -20,28 +20,35 @@ so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell owns
+the Help bar and the Processing and Results tabs; the worker pool is built
+before the shell renders its grid, and the finished run renders through the
+shell after ``_on_complete`` has written the report on the worker thread.
 """
 
 import logging
 import os
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from queue import Queue
+from tkinter import messagebox
 from typing import Any
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import BaseSuiteApp
+from audio_suite_shared import suite_config
 from audio_suite_shared.batch_undo import active_batch
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
 from .core import scrubber, tag_scanner
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args, tag_prefs
 
 logger = logging.getLogger(__name__)
@@ -54,21 +61,18 @@ TOOL_ID = "metadata_scrubber"
 DRIVER_TOOL_ID = "scrubber"
 
 
-class MetadataScrubberApp(BaseSuiteApp):
+class MetadataScrubberApp(SuiteApp):
     """Metadata Scrubber application GUI."""
 
-    HELP_GUIDE = "Metadata_Scrubber_User_Guide.docx"
+    title = "Metadata Scrubber & Tagger"
+    window_key = "metadata_scrubber_window"
+    program_name = TOOL_ID
+    guide_name = "Metadata_Scrubber_User_Guide.docx"
+    completion_text = "Metadata Scrubbing Complete!"
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
 
     def __init__(self, root: tk.Tk) -> None:
-        super().__init__(
-            root,
-            "Metadata Scrubber & Tagger",
-            "metadata_scrubber_window",
-            "metadata_scrubber",
-            help_guide=self.HELP_GUIDE,
-        )
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
-
         # Tk variables
         self.folder_path = tk.StringVar()
         self.run_mode = tk.StringVar(value="Dry Run")
@@ -84,10 +88,29 @@ class MetadataScrubberApp(BaseSuiteApp):
         # in which case the Run Controls panel is locked to inherited values.
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
+        # The handshake state the CLI handler writes and _do_scan/_on_complete
+        # read; the shell base no longer supplies these.
+        self.auto_start = False
+        self.auto_end = False
 
-        self._build_ui()
+        # The shell renders the worker grid from these before the tabs exist,
+        # so the pool has to be ready before ``SuiteApp.__init__`` runs.
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
+        self.slot_queue: Queue[int] = Queue()
+        for index in range(DEFAULT_MAX_WORKERS):
+            self.slot_queue.put(index)
+
+        # The Setup tab's run controls call the handler while the shell builds
+        # the window, so it has to exist before the shell runs.
+        self.cli_handler = UniversalCLIHandler(self)
+
+        self._refresh_preset_list: Any = None
+        self._dir_path = ""
+
+        super().__init__(root)
+        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
         self._apply_cli_args()
 
         if not self.folder_path.get():
@@ -96,33 +119,12 @@ class MetadataScrubberApp(BaseSuiteApp):
                 self.folder_path.set(last)
                 self.root.after(500, self._do_scan)
 
-    def _build_ui(self) -> None:
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
+    # ── Setup tab ─────────────────────────────────────────────────────────
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup_frame = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing_frame = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results_frame = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup_frame, text=" 1. Setup ")
-        self.notebook.add(tab_processing_frame, text=" 2. Processing ")
-        self.notebook.add(tab_results_frame, text=" 3. Results ")
-
-        self._setup_tab = setup_tab.SetupTab(
-            tab_setup_frame,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the run controls, presets and tag list into *parent*."""
+        self._setup_tab: setup_tab.SetupTab = setup_tab.SetupTab(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             auto_start_var=self.auto_start_var,
@@ -141,25 +143,8 @@ class MetadataScrubberApp(BaseSuiteApp):
             on_preset_selected=self._on_preset_selected,
         )
         self.start_btn = self._setup_tab.start_btn
+        self.controls_panel = self._setup_tab.controls_panel
         self._refresh_preset_list = self._setup_tab.refresh_preset_list
-
-        proc_widgets = processing_tab.build(tab_processing_frame, self.slot_vars)
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets = results_tab.build(
-            tab_results_frame,
-            on_open_log=self._open_log_standard,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-
-        self._tab_processing = tab_processing_frame
-        self._tab_results = tab_results_frame
 
     # ── Presets ───────────────────────────────────────────────────────────────
 
@@ -260,7 +245,7 @@ class MetadataScrubberApp(BaseSuiteApp):
             return
 
         self.start_btn.config(state="disabled")
-        self.notebook.select(self._tab_processing)
+        self.notebook.select(self.processing_frame)
         self.overall_status.set("Scrubbing metadata...")
 
         preserve_list = self._setup_tab.get_preserve_list()
@@ -338,6 +323,19 @@ class MetadataScrubberApp(BaseSuiteApp):
         display_text: str,
         **_extra: Any,
     ) -> None:
+        """Thread-safe progress handler: touch the widgets on the Tk thread."""
+        self.root.after(
+            0, self._update_progress_ui, processed, total, skipped, errors, display_text
+        )
+
+    def _update_progress_ui(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+    ) -> None:
         self._render_progress_standard(processed, total, display_text)
         self.stats_label.config(
             text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
@@ -356,6 +354,49 @@ class MetadataScrubberApp(BaseSuiteApp):
         log_entries: list[Any],
         **_extra: Any,
     ) -> None:
+        """Completion seam: write the report here, render it on the Tk thread."""
+        self._write_run_report(
+            header=header,
+            total=total,
+            processed=processed,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            log_entries=log_entries,
+        )
+
+        if is_live:
+            tag_prefs.save_kept_tags(preserve_list)
+
+        self._record_run_note(total=total, skipped=skipped, errors=errors)
+        self.root.after(
+            0,
+            self._update_ui_on_complete,
+            is_live,
+            total,
+            processed,
+            skipped,
+            errors,
+            duration_secs,
+        )
+
+        if self.auto_end:
+            self._append_auto_end_note()
+            self.root.update_idletasks()
+            self.root.after(2000, self.root.destroy)
+
+    def _write_run_report(
+        self,
+        *,
+        header: list[Any],
+        total: int,
+        processed: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        log_entries: list[Any],
+    ) -> None:
+        """Serialise the run report View Log opens; a failed write is shown."""
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
         succeeded = processed - skipped - errors
@@ -369,11 +410,11 @@ class MetadataScrubberApp(BaseSuiteApp):
             f"Errors: {errors}\n",
             f"Time: {minutes:02d}:{seconds:02d}\n",
         ]
-        all_entries = header + log_entries + summary
+        self._log_entries = [*header, *log_entries, *summary]
 
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:
-                f.writelines(all_entries)
+                f.writelines(self._log_entries)
         except OSError as exc:
             mapped = map_to_audio_error(exc)
             logger.error("Log write failed: %s", mapped, exc_info=True)
@@ -382,35 +423,38 @@ class MetadataScrubberApp(BaseSuiteApp):
                 f"Could not write log file:\n{user_message_for(mapped)}",
             )
 
-        if is_live:
-            tag_prefs.save_kept_tags(preserve_list)
+    def _append_auto_end_note(self) -> None:
+        """Append the auto-end line to the report; a failed rewrite only warns."""
+        self._log_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(self._log_entries)
+        except OSError as exc:
+            logger.warning("Could not rewrite log for auto-end: %s", exc, exc_info=True)
 
-        is_dry_run = not is_live
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+    def _update_ui_on_complete(
+        self,
+        is_live: bool,
+        total: int,
+        processed: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+    ) -> None:
+        """Render the finished run (must run on the main thread)."""
+        succeeded = processed - skipped - errors
         self.summary_label.config(
             text=f"Total: {total} files\n"
             f"Successfully processed: {succeeded}\n"
             f"Skipped: {skipped}\n"
             f"Errors: {errors}"
         )
-        self.completion_label.config(
-            text="Analysis Complete!" if is_dry_run else "Metadata Scrubbing Complete!"
+        # A dry run has always shown its own heading; the shell renders
+        # ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            "Metadata Scrubbing Complete!" if is_live else "Analysis Complete!"
         )
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
-        self._record_run_note(total=total, skipped=skipped, errors=errors)
-
-        if self.auto_end:
-            all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
-            try:
-                with open(self._log_path, "w", encoding="utf-8") as f:
-                    f.writelines(all_entries)
-            except OSError as exc:
-                logger.warning(
-                    "Could not rewrite log for auto-end: %s", exc, exc_info=True
-                )
-            self.root.update_idletasks()
-            self.root.after(2000, self.root.destroy)
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
 
     def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
         """Record the files this run did not manage to scrub.
