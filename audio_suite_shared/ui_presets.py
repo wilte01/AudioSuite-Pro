@@ -5,12 +5,17 @@ re-exports each name, so existing importers are unchanged.
 
 Changed in 2.4.3: split out of ``audio_suite_shared.ui_common``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+Changed in 2.9.0: the older per-tool preset store (``<prefix>_preset_<name>``
+plus the JSON name list at ``<prefix>_presets_list``) moves here from
+``tool_app_base``, so a window that leaves that base keeps reading the presets
+the user already saved (C1 stage 2).
 """
 
 import json
 import tkinter as tk
+from collections.abc import Mapping
 from tkinter import ttk
-from typing import Callable
+from typing import Any, Callable
 
 from . import styles
 
@@ -93,3 +98,64 @@ def delete_preset_action(
         if on_delete is not None:
             on_delete(name)
         combo.set("")
+
+
+# ── The per-tool preset store ────────────────────────────────────────────────
+# ``{prefix}_preset_{name}`` holds the settings as JSON and
+# ``{prefix}_presets_list`` holds the saved names, also JSON.  The keys are the
+# ones the analyse-and-tag windows have always written, so moving a window onto
+# a new base must keep them: a renamed key would orphan every saved preset.
+
+
+def load_tool_preset(prefix: str, name: str) -> dict[str, Any] | None:
+    """Return a tool's stored preset settings, or None when it has none.
+
+    Args:
+        prefix: The tool's preset key prefix (``"bpm"``).
+        name: The preset's name as the user saved it.
+
+    Returns:
+        The stored settings, or None when the preset is absent or unreadable.
+    """
+    from audio_suite_shared import suite_config
+
+    raw = suite_config.load_value(f"{prefix}_preset_{name}", None)
+    if not isinstance(raw, str):
+        return None
+    try:
+        settings = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return settings if isinstance(settings, dict) else None
+
+
+def save_tool_preset(prefix: str, name: str, settings: Mapping[str, Any]) -> None:
+    """Store *settings* under *name* and add the name to the tool's list.
+
+    Args:
+        prefix: The tool's preset key prefix.
+        name: The preset's name.
+        settings: The values to store; must be JSON-serialisable.
+    """
+    from audio_suite_shared import suite_config
+
+    suite_config.save_value(f"{prefix}_preset_{name}", json.dumps(dict(settings)))
+    names = load_preset_names(f"{prefix}_presets_list")
+    if name not in names:
+        names.append(name)
+    suite_config.save_value(f"{prefix}_presets_list", json.dumps(names))
+
+
+def delete_tool_preset(prefix: str, name: str) -> None:
+    """Drop *name* from the tool's preset list, leaving its stored values.
+
+    Args:
+        prefix: The tool's preset key prefix.
+        name: The preset's name.
+    """
+    from audio_suite_shared import suite_config
+
+    names = load_preset_names(f"{prefix}_presets_list")
+    if name in names:
+        names.remove(name)
+    suite_config.save_value(f"{prefix}_presets_list", json.dumps(names))

@@ -13,6 +13,10 @@ Changed in 1.4.1: covers the out-of-band tempo count on all three surfaces -
 the log's SUMMARY block, the Results panel and the driver's run note (D109).
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_analysis`` into the completion handler (PLAN D117).
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the completion
+renders through the shell's results frame, the error handler is the shell's, and
+the run's mode is the snapshot ``start_processing`` takes on the main thread.
 """
 
 from __future__ import annotations
@@ -208,7 +212,6 @@ class TestRealAppConstructionD3:
         )
         monkeypatch.setattr(sys, "argv", ["bpm_analyzer"])
         app = BPMAnalyzerApp(app_root)
-        app = BPMAnalyzerApp(app_root)
         app._apply_preset(
             {
                 "bpm_min": 60,
@@ -245,7 +248,10 @@ class TestStartProcessingD3:
         app.overall_status = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_processing = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.processing_frame = MagicMock()
         app._safe_slot_vars = MagicMock()
         app.slot_queue = MagicMock()
         return app
@@ -654,8 +660,8 @@ class TestRunNote:
         app.completion_label = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app.run_mode = MagicMock(**{"get.return_value": "Dry Run"})
-        app._tab_results = MagicMock()
+        app._run_mode = "Dry Run"
+        app.results_frame = MagicMock()
         app.auto_end = False
 
         _complete(app, total=12, outside=_OUTSIDE)
@@ -697,10 +703,9 @@ class TestSummarySource:
         app.completion_label = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app.run_mode = MagicMock(**{"get.return_value": "Dry Run"})
-        app._tab_results = MagicMock()
+        app._run_mode = "Dry Run"
+        app.results_frame = MagicMock()
         app.auto_end = False
-        app.auto_end_var = MagicMock(**{"get.return_value": False})
         return app
 
     @staticmethod
@@ -714,7 +719,7 @@ class TestSummarySource:
         app = self._panel_app(tmp_path / "bpm_log.txt")
 
         _complete(app, total=12, outside=_OUTSIDE)
-        app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
+        app._update_ui_on_complete(12, 12, 0, 0, 1.0)
 
         assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in self._shown(app)
 
@@ -723,7 +728,7 @@ class TestSummarySource:
         app = self._panel_app(tmp_path / "bpm_log.txt")
 
         _complete(app, total=12)
-        app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
+        app._update_ui_on_complete(12, 12, 0, 0, 1.0)
 
         assert "Outside BPM range" not in self._shown(app)
 
@@ -734,7 +739,7 @@ class TestSummarySource:
 
         _complete(app, total=12, outside=_OUTSIDE)
         _complete(app, total=12)
-        app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
+        app._update_ui_on_complete(12, 12, 0, 0, 1.0)
 
         assert "Outside BPM range" not in self._shown(app)
 
@@ -760,15 +765,15 @@ class TestCompletionPayloadContract:
         app._safe_slot_vars = [MagicMock(), MagicMock()]
         app.slot_queue = MagicMock()
         app._log_path = str(tmp_path / "bpm_dry_run_log.txt")
+        app._dir_path = str(tmp_path)
         app.auto_end = False
-        app.auto_end_var = MagicMock(**{"get.return_value": False})
-        app.run_mode = MagicMock(**{"get.return_value": "Dry Run"})
+        app._run_mode = "Dry Run"
         app.summary_label = MagicMock()
         app.time_label = MagicMock()
         app.completion_label = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_results = MagicMock()
+        app.results_frame = MagicMock()
         return app
 
     def test_the_worker_payload_completes_the_gui_run(self, tmp_path, monkeypatch):

@@ -14,6 +14,15 @@ Changed in 2.6.0: the analysis duration starts at the shared
 ``DEFAULT_BPM_ANALYSIS_SECONDS`` and a preset with no duration falls back to
 it, so the GUI, the Master Driver and the CLI hand the detector one window
 (D139).
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the fifth window of
+D8's wave 2), so the shell owns the Help bar and the Processing and Results
+tabs; this tool keeps its Setup panel, its ``Tagged/Analyzed`` summary wording
+and its out-of-band row. The report and the Results panel are written here now
+that the window no longer inherits ``AnalysisTagToolApp``, and the presets keep
+their existing keys through the shared ``ui_presets`` store. The run's mode is
+snapshotted on the main thread in ``start_processing``, so the completion never
+reads a Tk variable off the Tk thread.
 """
 
 from __future__ import annotations
@@ -26,9 +35,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, cast
 
-from audio_suite_shared import styles
 from audio_suite_shared import suite_config as _suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import is_supported_format
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import (
@@ -46,12 +53,17 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.tool_app_base import AnalysisTagToolApp
 from audio_suite_shared.ui_common import cap_typed_workers
+from audio_suite_shared.ui_presets import (
+    delete_tool_preset,
+    load_tool_preset,
+    save_tool_preset,
+)
 
 from .core import file_processor
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 
 logger = logging.getLogger(__name__)
@@ -63,32 +75,41 @@ TOOL_ID = "bpm_analyzer"
 DRIVER_TOOL_ID = "bpm"
 
 
-class BPMAnalyzerApp(AnalysisTagToolApp):
+class BPMAnalyzerApp(SuiteApp):
     """BPM Analyzer application GUI."""
 
-    # Name of the user-guide document expected alongside this script.
+    title = "BPM Analyzer & Tagger"
+    window_key = "bpm_analyzer_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE: str = "BPM_Analyzer_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    completion_text: str = "BPM Analysis Complete!"
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
+    processing_stats_text: str = "Processed: 0 | Skipped: 0 | Errors: 0"
 
+    #: Word used in the report for the processed-but-neither-skipped-nor-
+    #: erroring files.
     TAGGED_LABEL: str = "Tagged/Analyzed"
+    #: Results-tab completion captions, by run mode.
+    DRY_COMPLETE_LABEL: str = "Analysis Complete!"
+    LIVE_COMPLETE_LABEL: str = "BPM Tagging Complete!"
+    #: The preset keys this tool has always written (``bpm_preset_<name>``).
+    PRESET_KEY_PREFIX: str = "bpm"
 
     #: Rows added to the run summary for the run in progress (D109).  A tuple
     #: replaced at the start of every completion, never mutated in place, so a
     #: finished run's row cannot survive into the next one.
     _summary_rows: tuple[tuple[str, str], ...] = ()
-    DRY_COMPLETE_LABEL: str = "Analysis Complete!"
-    LIVE_COMPLETE_LABEL: str = "BPM Tagging Complete!"
 
-    PRESET_KEY_PREFIX = "bpm"
+    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
+    #: test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
+    #: Set by ``_run_analysis``; the Results tab's Open Folder target.
+    _dir_path: str = ""
 
     def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "BPM Analyzer & Tagger",
-            "bpm_analyzer_window",
-            "bpm_analyzer",
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path: tk.StringVar = tk.StringVar()
         self.run_mode: tk.StringVar = tk.StringVar(value="Dry Run")
@@ -125,16 +146,18 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
         # ── Processing state ─────────────────────────────────────────────────
-        self._log_entries: list[str] = []
         self._log_path: str = ""
         self._dir_path: str = ""
         self.auto_end: bool = False
+        # The run's mode, snapshotted by start_processing on the Tk thread.
+        self._run_mode: str = ""
 
         # ── Worker slot pool ─────────────────────────────────────────────────
+        # Built before super().__init__: the shell renders the grid from it.
         self.slot_vars: list[tk.StringVar] = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
         self.slot_queue: Queue[int] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
@@ -143,8 +166,8 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        super().__init__(root)
+
         assert self._refresh_preset_list is not None
         self._refresh_preset_list()
 
@@ -160,38 +183,12 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             if last:
                 self.folder_path.set(last)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        """Construct the full application UI."""
-        # Help button above the notebook.
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        # Notebook with three tabs.
-        self.notebook: ttk.Notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
-        setup_widgets: dict[str, Any] = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the run controls, the BPM band, the duration and the presets."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             bpm_range_min=self.bpm_range_min,
@@ -210,39 +207,50 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             on_save_preset=self._save_current_as_preset,
             on_delete_preset=self._delete_preset,
         )
-        self.start_btn = setup_widgets["start_btn"]
-        self._preset_combo = setup_widgets["preset_combo"]
-        self._refresh_preset_list = setup_widgets["refresh_preset_list"]
-
-        proc_widgets: dict[str, Any] = processing_tab.build(
-            tab_processing, self.slot_vars
-        )
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets: dict[str, Any] = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-
-        # Keep tab references for programmatic switching.
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.start_btn = widgets["start_btn"]
+        self._preset_combo = widgets["preset_combo"]
+        self._refresh_preset_list = widgets["refresh_preset_list"]
+        self.controls_panel = widgets["controls_panel"]
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 
     def _apply_cli_args(self) -> None:
         """Parse and apply any command-line arguments supplied by the Master Driver."""
         parsed = cli_args.parse()
-        self._apply_driver_cli_args(parsed)
 
-    # ── Options (per-tool extras omitted) ─────────────────────────────────────
+        # Mirror the inherited driver arguments onto the Run Controls
+        # panel before any early return so the display always reflects
+        # exactly what the Master Driver passed.
+        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
+
+        if not parsed.folder_path:
+            return
+
+        # The band, the duration and the worker count reach the widgets by
+        # name: the handler matches its parsed fields against this window.
+        cli_handler = UniversalCLIHandler(self)
+        should_auto_start = cli_handler.apply_cli_args(
+            parsed, folder_var=self.folder_path, auto_start_func=self.start_processing
+        )
+
+        if should_auto_start:
+            self.root.after(1500, self.start_processing)
+
+    def _browse_folder(self) -> None:
+        """Browse for a music directory with standard error handling."""
+        self._browse_folder_standard(
+            title="Select Music Directory",
+            path_variable=self.folder_path,
+            save_last_dir=True,
+        )
+
+    def _open_folder(self) -> None:
+        """Open the source folder since BPM Analyzer tags files in place."""
+        self._open_source_folder_standard()
 
     def start_processing(self) -> None:
         """Validate inputs then launch the background analysis thread."""
@@ -345,10 +353,16 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
 
             # All validations passed — start processing.
             self.start_btn.config(state="disabled")
-            self.notebook.select(self._tab_processing)
+            self.file_listbox.delete(0, tk.END)
+            self.progress["value"] = 0
+            self.stats_label.config(text=self.processing_stats_text)
+            self.notebook.select(self.processing_frame)
             self.overall_status.set("Analyzing BPM...")
             is_dry_run: bool = self.run_mode.get() == "Dry Run"
             parallel: bool = self.parallel_mode.get()
+            # Snapshot the mode on the main thread: the completion renders from
+            # it, and the worker must not call .get() (see _run_analysis).
+            self._run_mode = "Dry Run" if is_dry_run else "Live Update"
             logger.info(
                 "start_processing: folder=%s dry_run=%s bpm=[%d,%d] duration=%ds "
                 "parallel=%s workers=%d",
@@ -424,9 +438,7 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             "=" * 60 + "\n",
         ]
 
-        self.root.after(0, self._reset_progress_ui)
-
-        with active_batch("bpm_analyzer", "tag_edit"):
+        with active_batch(TOOL_ID, "tag_edit"):
             file_processor.run_analysis(
                 dir_path=dir_path,
                 is_dry_run=is_dry_run,
@@ -442,6 +454,36 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
                 max_workers=effective_workers,
             )
 
+    # ── Callbacks (called from worker threads — all UI via root.after) ────────
+
+    def _on_progress(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
+    ) -> None:
+        """Progress seam: hand the widget writes to the Tk thread."""
+        self.root.after(
+            0, self._update_progress_ui, processed, total, skipped, errors, display_text
+        )
+
+    def _update_progress_ui(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+    ) -> None:
+        """Render one progress tick (must run on the main thread)."""
+        self._render_progress_standard(processed, total, display_text)
+        self.stats_label.config(
+            text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
+        )
+
     # ── Completion ────────────────────────────────────────────────────────────
 
     def _on_complete(
@@ -456,11 +498,11 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         outside_range_files: list[dict[str, object]] | None = None,
         **_extra: Any,
     ) -> None:
-        """Record what the run could not analyse, then finish as usual.
+        """Record what the run could not analyse, then write the report.
 
-        Runs on the worker thread before the shared base writes the report and
-        schedules the Results update, so neither a damaged Tk nor an unwritable
-        log can suppress the note the Master Driver reads.
+        Runs on the worker thread before the Results update is scheduled, so
+        neither a damaged Tk nor an unwritable log can suppress the note the
+        Master Driver reads.
 
         ``outside_range_files`` arrives from ``run_analysis``'s completion
         callback: files whose tempo was measured outside the configured band
@@ -479,23 +521,64 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
                 ``{"filename", "bpm", "min_bpm", "max_bpm"}``.
             **_extra: The other tool-specific completion fields the processor
                 always publishes (``skipped_files``, ``error_files``).  They
-                feed the CLI's ``--json`` output and are ignored here, exactly
-                as the shared base documents: rejecting one aborted the whole
-                completion, so no report was written and the Results tab never
-                appeared.
+                feed the CLI's ``--json`` output and are ignored here: rejecting
+                one aborted the whole completion, so no report was written and
+                the Results tab never appeared.
         """
         outside = list(outside_range_files or [])
-        self._summary_rows = tuple(self._outside_summary(total=total, outside=outside))
+        rows = tuple(self._outside_summary(total=total, outside=outside))
+        self._summary_rows = rows
         self._record_run_note(total=total, errors=errors, outside=outside)
-        super()._on_complete(
-            header=header,
-            total=total,
-            processed=processed,
-            skipped=skipped,
-            errors=errors,
-            duration_secs=duration_secs,
-            log_entries=log_entries,
-            **_extra,
+
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        tagged = processed - skipped - errors
+
+        summary: list[str] = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {total}\n",
+            f"{self.TAGGED_LABEL}: {tagged}\n",
+            f"Skipped: {skipped}\n",
+            f"Errors: {errors}\n",
+        ]
+        summary.extend(f"{label}: {value}\n" for label, value in rows)
+        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+        all_entries: list[str] = header + log_entries + summary
+
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(all_entries)
+            logger.info("Log written to '%s'", self._log_path)
+        except PermissionError as exc:
+            logger.error(
+                "Permission denied writing log '%s': %s",
+                self._log_path,
+                exc,
+                exc_info=True,
+            )
+        except OSError as exc:
+            logger.error(
+                "OSError writing log '%s': %s", self._log_path, exc, exc_info=True
+            )
+        except Exception as exc:
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error(
+                "[%s] Unexpected error writing log: %s",
+                type(mapped).__name__,
+                mapped,
+                exc_info=True,
+            )
+
+        self.root.after(
+            0,
+            self._update_ui_on_complete,
+            total,
+            tagged,
+            skipped,
+            errors,
+            duration_secs,
+            list(rows),
         )
 
     def _summary_extras(self) -> list[tuple[str, str]]:
@@ -569,6 +652,56 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             problems.append(shortfall(len(missed), total, "track", outcome))
         record_caveats(DRIVER_TOOL_ID, *problems)
 
+    def _update_ui_on_complete(
+        self,
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        summary_extras: list[tuple[str, str]] | None = None,
+    ) -> None:
+        """Render the finished run (must run on the main thread)."""
+        rows: list[tuple[str, str]] = (
+            list(summary_extras)
+            if summary_extras is not None
+            else list(self._summary_extras())
+        )
+        text: str = (
+            f"Total: {total} files\n"
+            f"{self.TAGGED_LABEL}: {tagged}\n"
+            f"Skipped: {skipped}\n"
+            f"Errors: {errors}"
+        )
+        for label, value in rows:
+            text += f"\n{label}: {value}"
+        self.summary_label.config(text=text)
+
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        logger.info(
+            "Processing complete - total=%d tagged=%d skipped=%d "
+            "errors=%d time=%02d:%02d",
+            total,
+            tagged,
+            skipped,
+            errors,
+            minutes,
+            seconds,
+        )
+
+        # This window has always labelled a finished run by its mode; the shell
+        # renders ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            self.DRY_COMPLETE_LABEL
+            if self._run_mode == "Dry Run"
+            else self.LIVE_COMPLETE_LABEL
+        )
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
+
+        if self.auto_end:
+            self.root.after(2000, self.root.destroy)
+
     # ── Presets ───────────────────────────────────────────────────────────────
 
     def _collect_settings(self) -> dict[str, int | bool | str]:
@@ -592,3 +725,19 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
         self.max_workers.set(int(settings.get("max_workers", default_max_workers())))
         self.run_mode.set(str(settings.get("run_mode", "Dry Run")))
+
+    def _on_preset_selected(self, name: str) -> None:
+        """Load a named preset and apply its settings."""
+        settings = load_tool_preset(self.PRESET_KEY_PREFIX, name)
+        if settings is not None:
+            self._apply_preset(cast("dict[str, int | bool | str]", settings))
+
+    def _save_current_as_preset(self, name: str) -> None:
+        """Save the current settings as a named preset."""
+        save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
+        self._refresh_preset_list()
+
+    def _delete_preset(self, name: str) -> None:
+        """Delete a named preset."""
+        delete_tool_preset(self.PRESET_KEY_PREFIX, name)
+        self._refresh_preset_list()

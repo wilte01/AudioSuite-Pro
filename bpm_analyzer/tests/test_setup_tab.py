@@ -3,6 +3,10 @@ Tests for bpm_analyzer.ui.setup_tab — Setup tab construction.
 
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
+
+Changed in 2.9.0: every build lands on its own container, destroyed after the
+test, so a leftover tab cannot leave a second title label on the session root
+for the shell contract to count.
 """
 
 import tkinter as tk
@@ -31,6 +35,20 @@ def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
     }
 
 
+#: Containers built by this module, destroyed by the autouse fixture below.
+_containers: list[tk.Frame] = []
+
+
+@pytest.fixture(autouse=True)
+def _destroy_built_tabs():
+    """Leave the session-scoped root as clean as the test found it."""
+    yield
+    while _containers:
+        container = _containers.pop()
+        if container.winfo_exists():
+            container.destroy()
+
+
 def _build(root: tk.Tk, **overrides):
     """Build the tab on a fresh container; returns (kwargs, widgets, container)."""
     vars_ = _make_vars(root)
@@ -54,6 +72,7 @@ def _build(root: tk.Tk, **overrides):
     }
     kwargs.update(overrides)
     container = tk.Frame(root)
+    _containers.append(container)
     widgets = setup_tab.build(container, **kwargs)
     return kwargs, widgets, container
 

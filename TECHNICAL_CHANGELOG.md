@@ -137,6 +137,26 @@ used once, and every bullet belongs to exactly one of them.
   contract table gains the tool and its report drive, and the guide's Processing
   description now names the shared file list instead of the removed table.
 
+- **BPM Analyzer follows it in wave 2 (C1 stage 2).** `BPMAnalyzerApp` composes
+  `SuiteApp`. Its three tabs were already the shared builders, so the window's
+  frame and its Processing and Results content are unchanged. What it loses is
+  `AnalysisTagToolApp`, so the window now writes its own report
+  (`bpm_dry_run_log.txt` / `bpm_sync_log.txt`, ending with the `SUMMARY:` block
+  and the out-of-band row) and renders the shell's Results tab, keeping its own
+  wording for the processed files and its per-mode completion label. The run's mode is
+  snapshotted on the Tk thread in `start_processing`, and the bar and list reset
+  moved there with it. `_on_error`, Help and View Log are the shell's,
+  `_open_folder` stays this tool's source-folder override, and
+  `ui/processing_tab.py`/`ui/results_tab.py` are deleted.
+
+- **The per-tool preset store has one home.** `AnalysisTagToolApp`'s preset
+  methods wrote `<prefix>_preset_<name>` and a JSON name list at
+  `<prefix>_presets_list`; that logic now lives in
+  `ui_presets.load_tool_preset` / `save_tool_preset` / `delete_tool_preset`, and
+  the base delegates to it. A window that leaves the base (BPM Analyzer) reads
+  and writes the same keys, so a preset saved before the migration still loads,
+  and the four windows still on the base are unchanged.
+
 ### Fixed
 
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`

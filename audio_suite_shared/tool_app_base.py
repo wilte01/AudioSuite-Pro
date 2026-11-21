@@ -30,13 +30,15 @@ Changed in 2.8.0: the docstring no longer cites the denoiser as an example windo
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
+Changed in 2.9.0: the preset store is ``ui_presets.load_tool_preset`` /
+``save_tool_preset`` / ``delete_tool_preset``, so a window that leaves this base
+for ``SuiteApp`` keeps the same keys and the user's saved presets (C1 stage 2).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
@@ -57,6 +59,11 @@ from audio_suite_shared.thread_safe_slot_var import (
 )
 from audio_suite_shared.ui_audition import AuditionMixin
 from audio_suite_shared.ui_helpers import UIHelperMixin
+from audio_suite_shared.ui_presets import (
+    delete_tool_preset,
+    load_tool_preset,
+    save_tool_preset,
+)
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -213,48 +220,19 @@ class AnalysisTagToolApp(UIHelperMixin):
 
     def _on_preset_selected(self, name: str) -> None:
         """Load a named preset and apply its settings."""
-        data: str | None = cast(
-            str | None,
-            suite_config.load_value(f"{self.PRESET_KEY_PREFIX}_preset_{name}", None),
-        )
-        if data is not None:
-            try:
-                settings: dict[str, int | bool | str] = json.loads(data)
-                self._apply_preset(settings)
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.error("Failed to load preset '%s': %s", name, exc)
+        settings = load_tool_preset(self.PRESET_KEY_PREFIX, name)
+        if settings is not None:
+            self._apply_preset(cast("dict[str, int | bool | str]", settings))
 
     def _save_current_as_preset(self, name: str) -> None:
         """Save the current settings as a named preset."""
-        settings: dict[str, int | bool | str] = self._collect_settings()
-        suite_config.save_value(
-            f"{self.PRESET_KEY_PREFIX}_preset_{name}", json.dumps(settings)
-        )
-        names_json: str | None = cast(
-            str | None,
-            suite_config.load_value(f"{self.PRESET_KEY_PREFIX}_presets_list", None),
-        )
-        names: list[str] = json.loads(names_json) if names_json else []
-        if name not in names:
-            names.append(name)
-        suite_config.save_value(
-            f"{self.PRESET_KEY_PREFIX}_presets_list", json.dumps(names)
-        )
+        save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
         if self._refresh_preset_list is not None:
             self._refresh_preset_list()
 
     def _delete_preset(self, name: str) -> None:
         """Delete a named preset."""
-        names_json: str | None = cast(
-            str | None,
-            suite_config.load_value(f"{self.PRESET_KEY_PREFIX}_presets_list", None),
-        )
-        names: list[str] = json.loads(names_json) if names_json else []
-        if name in names:
-            names.remove(name)
-        suite_config.save_value(
-            f"{self.PRESET_KEY_PREFIX}_presets_list", json.dumps(names)
-        )
+        delete_tool_preset(self.PRESET_KEY_PREFIX, name)
         if self._refresh_preset_list is not None:
             self._refresh_preset_list()
 
