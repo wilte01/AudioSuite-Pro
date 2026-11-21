@@ -3,16 +3,28 @@
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tkinter window for the Duplicate Finder.
 
-The window is an ``AnalysisTagToolApp`` on the suite's three standard tabs, with
-a ``BaseSetupFrame`` Setup tab: the Run Controls strip supplies the source row,
+The window is a ``SuiteApp`` on the suite's three standard tabs, with a
+``BaseSetupFrame`` Setup tab: the Run Controls strip supplies the source row,
 the shared browse dialog and the Mode combobox, so a driven launch is locked and
-the driver's Auto Start/Auto End are honoured.  The scan runs through
+the driver's Auto Start/Auto End are honoured.  The shell owns the Help bar and
+the Processing and Results tabs; this tool keeps its Setup panel, its scan
+report and its preset store.  The scan runs through
 ``core.file_processor.run_duplicate_scan`` — the ``run_*`` entry point taking
 ``on_progress`` / ``on_complete`` / ``on_error`` — and each run writes its report
 into the folder it scanned, which is what the Results tab's View Log opens.
 
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the first window of
+D8's wave 3), so the shell owns the Help bar and the Processing and Results tabs
+and this tool keeps its Setup panel.  The scan report and the Results panel are
+written here now that the window no longer inherits ``AnalysisTagToolApp``: the
+report is serialised on the run's thread and the widget writes are marshalled,
+and the run's mode, disposition and folder are snapshotted on the Tk thread in
+``start_processing`` so the completion never reads a Tk variable off it.  The
+presets keep their existing keys through the shared ``ui_presets`` store, and
+View Log / Open Folder are the shell's.
 """
 
 from __future__ import annotations
@@ -21,17 +33,21 @@ import logging
 import os
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any, ClassVar
 
-from audio_suite_shared import styles
 from audio_suite_shared import suite_config as _suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.batch_undo import active_batch
-from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.exceptions import handle_audio_errors, map_to_audio_error
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
-from audio_suite_shared.tool_app_base import AnalysisTagToolApp
+from audio_suite_shared.suite_app import SuiteApp
+from audio_suite_shared.ui_presets import (
+    delete_tool_preset,
+    load_tool_preset,
+    save_tool_preset,
+)
 
 from ..core.disposition import (
     DEFAULT_DISPOSITION,
@@ -46,7 +62,7 @@ from ..core.file_processor import (
 )
 from ..core.models import DEFAULT_EXACT_MODE, DEFAULT_THRESHOLD, ScanSettings
 from ..utils import cli_args
-from . import processing_tab, results_tab, setup_tab
+from . import setup_tab
 
 logger = logging.getLogger(__name__)
 
@@ -66,26 +82,52 @@ LIVE_UPDATE = "Live Update"
 RUN_MODES = (DRY_RUN, LIVE_UPDATE)
 
 
-class DuplicateFinderApp(AnalysisTagToolApp):
+class DuplicateFinderApp(SuiteApp):
     """Tkinter window for the Duplicate Finder."""
 
-    TOOL_ID: str = DRIVER_TOOL_ID
+    title = "Duplicate Finder"
+    window_key = "duplicate_finder_window"
+    program_name = DRIVER_TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE = "Duplicate_Finder_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
 
     #: Nothing is tagged or analysed here: every file is fingerprinted and then
     #: either grouped or kept, so the shared "processed" count is "files scanned".
     TAGGED_LABEL: str = "Files scanned"
     DRY_COMPLETE_LABEL: str = "Duplicate Scan Complete!"
     LIVE_COMPLETE_LABEL: str = "Duplicate Handling Complete!"
+    #: The heading the tab shows before a run; a finished run replaces it with
+    #: the wording for its mode, which starts here.
+    completion_text: str = DRY_COMPLETE_LABEL
 
     #: Config-key prefix for the shared preset methods.  A ``ClassVar`` on the
-    #: base, so it must stay one here: an instance annotation is an incompatible
-    #: override and mypy rejects it.
+    #: old base, so it must stay one here: an instance annotation is an
+    #: incompatible override and mypy rejects it.
     PRESET_KEY_PREFIX: ClassVar[str] = DRIVER_TOOL_ID
+
+    #: The manifest id the window has always declared (tests and the undo GUI
+    #: read it); ``program_name`` above is the shell's copy of the same value.
+    TOOL_ID: str = DRIVER_TOOL_ID
 
     #: Rows the finished run adds to the summary, replaced per completion so one
     #: run's rows cannot survive into the next.
     _summary_rows: tuple[tuple[str, str], ...] = ()
+
+    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
+    #: test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
+    #: Read by the completion, which closes the window when it is set.
+    auto_end: bool = False
+    #: Built by the shell from the Setup panel.
+    _setup_frame: Any = None
+    #: The run's mode, disposition and folder, snapshotted on the Tk thread by
+    #: ``start_processing`` so the completion reads no Tk variable.
+    _run_mode: str = ""
+    _run_disposition: str = ""
+    _run_folder: str = ""
 
     def __init__(self, root: tk.Tk, *, apply_argv: bool = True) -> None:
         """Build the window, its variables and its run controls.
@@ -95,14 +137,6 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             apply_argv: Whether to apply the Master-Driver handshake from
                 ``sys.argv``.  A direct caller passes False.
         """
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Duplicate Finder",
-            "duplicate_finder_window",
-            DRIVER_TOOL_ID,
-        )
-
         self.folder_path: tk.StringVar = tk.StringVar()
         self.run_mode: tk.StringVar = tk.StringVar(value=DRY_RUN)
         self.threshold: tk.DoubleVar = tk.DoubleVar(value=DEFAULT_THRESHOLD)
@@ -115,19 +149,18 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         self.clear_logs_var = tk.BooleanVar(value=False)
         self.parallel_var = tk.BooleanVar(value=False)
 
-        #: Read by the shared completion handler, which closes the window when
-        #: it is set.
-        self.auto_end: bool = False
-
         #: Where the run's report goes; blank until a run starts, which makes
         #: View Log say so instead of opening the suite log.
         self._log_path: str = ""
 
+        self._preset_combo: Any = None
+        self._refresh_preset_list: Any = None
+
         self._launched_from_driver = apply_argv and cli_args.looks_like_driver_argv()
 
-        self._build_ui()
+        super().__init__(root)
         if apply_argv:
-            self._apply_driver_cli_args(cli_args.parse())
+            self._apply_cli_args(cli_args.parse())
 
         self.root.update_idletasks()
 
@@ -136,35 +169,12 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             if last:
                 self.folder_path.set(last)
 
-    # ── Window construction ───────────────────────────────────────────────
+    # ── Shell tabs ───────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        """Build the Help bar, the three shared tabs and the Setup strip."""
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
-        setup_widgets: dict[str, Any] = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folder, the similarity settings, the presets and the start."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             threshold=self.threshold,
@@ -185,30 +195,71 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             on_preset_selected=self._on_preset_selected,
             driver_locked=self._launched_from_driver,
         )
-        self.start_btn: tk.Button = setup_widgets["start_btn"]
-        self._preset_combo = setup_widgets.get("preset_combo")
-        self._refresh_preset_list = setup_widgets.get("refresh_preset_list")
-        self._setup_frame = setup_widgets.get("setup_frame")
+        self.start_btn = widgets["start_btn"]
+        self._preset_combo = widgets.get("preset_combo")
+        self._refresh_preset_list = widgets.get("refresh_preset_list")
+        self._setup_frame = widgets.get("setup_frame")
+        self.controls_panel = widgets["controls_panel"]
         self._set_disposition(DEFAULT_DISPOSITION)
 
-        proc_widgets: dict[str, Any] = processing_tab.build(tab_processing)
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.overall_status.set("Ready")
+    # ── CLI handling ───────────────────────────────────────────────────
 
-        res_widgets: dict[str, Any] = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
+    def _apply_cli_args(self, parsed: Any) -> None:
+        """Apply a parsed Master-Driver handshake onto the controls.
+
+        Every route that writes a control has to reach the same widget the
+        user's own edit would: a threshold or quarantine folder passed in argv
+        and never applied here would leave the window showing the defaults
+        while the run used the driver's values.
+
+        Args:
+            parsed: The per-tool ``cli_args.parse()`` dataclass.
+        """
+        self.run_mode.set(LIVE_UPDATE if parsed.live_mode else DRY_RUN)
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
+
+        self._apply_tool_cli_options(parsed)
+
+        if not parsed.folder_path:
+            return
+
+        cli_handler = UniversalCLIHandler(self)
+        should_auto_start = cli_handler.apply_cli_args(
+            parsed,
+            folder_var=self.folder_path,
+            auto_start_func=self.start_processing,
         )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
+        if should_auto_start:
+            self.root.after(1500, self.start_processing)
 
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+    def _apply_tool_cli_options(self, parsed: Any) -> None:
+        """Mirror this tool's driver flags onto the Setup controls.
+
+        Args:
+            parsed: The per-tool ``cli_args.parse()`` dataclass.
+        """
+        if parsed.threshold:
+            self.threshold.set(float(parsed.threshold))
+        if parsed.quarantine_dir:
+            self.quarantine_dir.set(parsed.quarantine_dir)
+        exact_mode = str(getattr(parsed, "exact_mode", "") or "")
+        if exact_mode:
+            self.exact_mode.set(exact_mode)
+        self._set_disposition(str(getattr(parsed, "disposition", DEFAULT_DISPOSITION)))
+        self.auto_end = bool(parsed.auto_end)
+
+    # ── User actions ──────────────────────────────────────────────────
+
+    def _browse_folder(self) -> None:
+        """Browse for a music directory, remembering the choice."""
+        self._browse_folder_standard(
+            title="Select Music Directory",
+            path_variable=self.folder_path,
+            save_last_dir=True,
+        )
 
     def _browse_quarantine_folder(self) -> None:
         """Browse for the quarantine folder, remembering the choice."""
@@ -234,28 +285,12 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         if frame is not None:
             frame.apply_disposition(canonical)
 
-    def _apply_tool_cli_options(self, parsed: Any) -> None:
-        """Mirror this tool's driver flags onto the Setup controls.
+    # ── Run ─────────────────────────────────────────────────────────────
 
-        Every route that writes a control has to reach the same widget the
-        user's own edit would: a threshold or quarantine folder passed in argv
-        and never applied here would leave the window showing the defaults
-        while the run used the driver's values.
-
-        Args:
-            parsed: The per-tool ``cli_args.parse()`` dataclass.
-        """
-        if parsed.threshold:
-            self.threshold.set(float(parsed.threshold))
-        if parsed.quarantine_dir:
-            self.quarantine_dir.set(parsed.quarantine_dir)
-        exact_mode = str(getattr(parsed, "exact_mode", "") or "")
-        if exact_mode:
-            self.exact_mode.set(exact_mode)
-        self._set_disposition(str(getattr(parsed, "disposition", DEFAULT_DISPOSITION)))
-        self.auto_end = bool(parsed.auto_end)
-
-    # ── Run ───────────────────────────────────────────────────────────────
+    def _reset_progress_ui(self) -> None:
+        """Reset the bar and the counters (must be called on the Tk thread)."""
+        self.progress["value"] = 0
+        self.stats_label.config(text=self.processing_stats_text)
 
     def start_processing(self) -> None:
         """Validate the inputs, then launch the scan on a worker thread."""
@@ -308,8 +343,13 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         self._log_path = os.path.join(
             folder, RUN_REPORT_DRY_RUN if dry_run else RUN_REPORT_LIVE
         )
+        # Snapshot what the completion renders from, on the Tk thread: the
+        # worker and its handler must not call .get().
+        self._run_mode = self.run_mode.get()
+        self._run_disposition = disposition
+        self._run_folder = folder
         self.start_btn.config(state="disabled")
-        self.notebook.select(self._tab_processing)
+        self.notebook.select(self.processing_frame)
         self.file_listbox.delete(0, tk.END)
         self._reset_progress_ui()
         self.overall_status.set("Scanning...")
@@ -374,7 +414,37 @@ class DuplicateFinderApp(AnalysisTagToolApp):
                 on_error=self._on_error,
             )
 
-    # ── Completion ────────────────────────────────────────────────────────
+    # ── Progress ──────────────────────────────────────────────────────
+
+    def _on_progress(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
+    ) -> None:
+        """Progress seam: hand the widget writes to the Tk thread."""
+        self.root.after(
+            0, self._update_progress_ui, processed, total, skipped, errors, display_text
+        )
+
+    def _update_progress_ui(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+    ) -> None:
+        """Render one progress tick (must run on the main thread)."""
+        self._render_progress_standard(processed, total, display_text)
+        self.stats_label.config(
+            text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
+        )
+
+    # ── Completion ────────────────────────────────────────────────────
 
     def _finish_run(
         self,
@@ -393,14 +463,14 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         stubbed: int,
         **_extra: Any,
     ) -> None:
-        """Record this run's rows and note, then finish as every peer does.
+        """Write this run's report, then hand the Results update to the Tk thread.
 
-        Wired as the ``on_complete`` handler itself rather than overriding
-        ``_on_complete``: this tool's payload carries three counts the shared
-        base never learns (``groups``, ``duplicates``, ``quarantined``), and a
-        required field an override adds to the supertype's signature is a type
-        error.  Declaring them required is the point — a default is how a
-        dropped field becomes a plausible zero in the summary.
+        Wired as the ``on_complete`` handler itself rather than overriding the
+        shell's: this tool's payload carries three counts the shell never learns
+        (``groups``, ``duplicates``, ``quarantined``), and a required field an
+        override adds to a supertype's signature is a type error.  Declaring
+        them required is the point — a default is how a dropped field becomes a
+        plausible zero in the summary.
 
         Args:
             header: Report header lines for this run.
@@ -419,8 +489,8 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             **_extra: Other completion fields; ignored here rather than
                 rejected, so a payload that grows cannot abort a finished run.
         """
-        disposition = normalize(self.disposition.get())
-        dry_run = self.run_mode.get() == DRY_RUN
+        disposition = normalize(self._run_disposition or DEFAULT_DISPOSITION)
+        dry_run = self._run_mode == DRY_RUN
         if disposition == DEFAULT_DISPOSITION:
             verb = "would quarantine" if dry_run else "quarantined"
             handled = quarantined
@@ -430,26 +500,105 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         else:
             verb = "would stub" if dry_run else "stubbed"
             handled = stubbed
-        self._summary_rows = (
+        rows: tuple[tuple[str, str], ...] = (
             ("Duplicate groups", str(groups)),
             ("Exact groups", str(exact_groups)),
             ("Duplicate files", str(duplicates)),
             (f"Files {verb}", str(handled)),
             ("Without a fingerprint", str(skipped)),
         )
+        self._summary_rows = rows
         self._record_run_note(
             total=total, skipped=skipped, errors=errors, disposition=disposition
         )
-        super()._on_complete(
-            header=header,
-            total=total,
-            processed=processed,
-            skipped=skipped,
-            errors=errors,
-            duration_secs=duration_secs,
-            log_entries=log_entries,
-            **_extra,
+
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        tagged = processed - skipped - errors
+        summary: list[str] = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {total}\n",
+            f"{self.TAGGED_LABEL}: {tagged}\n",
+            f"Skipped: {skipped}\n",
+            f"Errors: {errors}\n",
+        ]
+        summary.extend(f"{label}: {value}\n" for label, value in rows)
+        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(header + log_entries + summary)
+            logger.info("Log written to '%s'", self._log_path)
+        except PermissionError as exc:
+            logger.error(
+                "Permission denied writing log '%s': %s",
+                self._log_path,
+                exc,
+                exc_info=True,
+            )
+        except OSError as exc:
+            logger.error(
+                "OSError writing log '%s': %s", self._log_path, exc, exc_info=True
+            )
+        except Exception as exc:
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error(
+                "[%s] Unexpected error writing log: %s",
+                type(mapped).__name__,
+                mapped,
+                exc_info=True,
+            )
+
+        self.root.after(
+            0,
+            self._render_finish,
+            total,
+            tagged,
+            skipped,
+            errors,
+            duration_secs,
+            rows,
         )
+
+    def _render_finish(
+        self,
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        rows: tuple[tuple[str, str], ...],
+    ) -> None:
+        """Render the finished run (must run on the main thread).
+
+        Args:
+            total: Files the walk visited.
+            tagged: Files that were scanned without being skipped or erroring.
+            skipped: Files without a fingerprint.
+            errors: Files that could not be moved.
+            duration_secs: Wall-clock run time.
+            rows: This run's extra summary rows, already replaced on ``self``.
+        """
+        text: str = (
+            f"Total: {total} files\n"
+            f"{self.TAGGED_LABEL}: {tagged}\n"
+            f"Skipped: {skipped}\n"
+            f"Errors: {errors}"
+        )
+        for label, value in rows:
+            text += f"\n{label}: {value}"
+        self.summary_label.config(text=text)
+        # This window has always labelled a finished run by its mode; the shell
+        # renders ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            self.DRY_COMPLETE_LABEL
+            if self._run_mode == DRY_RUN
+            else self.LIVE_COMPLETE_LABEL
+        )
+        self.render_completion(duration_secs=duration_secs, output_dir=self._run_folder)
+        if self.auto_end:
+            self.root.after(2000, self.root.destroy)
 
     def _summary_extras(self) -> list[tuple[str, str]]:
         """Return this run's rows for the report and the Results panel."""
@@ -481,7 +630,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             else "",
         )
 
-    # ── Presets ───────────────────────────────────────────────────────────
+    # ── Presets ───────────────────────────────────────────────────────
 
     def _collect_settings(self) -> dict[str, Any]:
         """Return the settings a preset stores."""
@@ -504,6 +653,24 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         self._set_disposition(str(settings.get("disposition", DEFAULT_DISPOSITION)))
         if "run_mode" in settings:
             self.run_mode.set(str(settings["run_mode"]))
+
+    def _on_preset_selected(self, name: str) -> None:
+        """Load a named preset and apply its settings."""
+        settings = load_tool_preset(self.PRESET_KEY_PREFIX, name)
+        if settings is not None:
+            self._apply_preset(settings)
+
+    def _save_current_as_preset(self, name: str) -> None:
+        """Save the current settings as a named preset."""
+        save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list()
+
+    def _delete_preset(self, name: str) -> None:
+        """Delete a named preset."""
+        delete_tool_preset(self.PRESET_KEY_PREFIX, name)
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list()
 
 
 def main() -> None:

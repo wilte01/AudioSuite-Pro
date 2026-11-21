@@ -207,7 +207,23 @@ used once, and every bullet belongs to exactly one of them.
   starts rather than from the worker. View Log and Open Folder are the shell's.
   `ui/processing_tab.py`/`ui/results_tab.py` are deleted, along with a
   `_reset_ui` nothing called; the guide is unchanged because its Setup tab and
-  both shared tabs are.
+- **Duplicate Finder opens wave 3 on the shell (C1 stage 2).**
+  `DuplicateFinderApp` composes `SuiteApp`: the shell owns the Help bar and
+  the Processing and Results tabs, and the tool keeps its Setup panel, which
+  already came from `BaseSetupFrame`. The scan report and the Results summary
+  are written in the window again now that it no longer inherits
+  `AnalysisTagToolApp`: the report is serialised on the run's thread — a
+  log-write failure becomes a log line rather than a dialog raised off-thread
+  — and the summary, the sorted file list and the completion are marshalled
+  with `root.after`. `start_processing` snapshots the run's mode, disposition
+  and folder on the Tk thread, so the completion reads no Tk variable. The
+  presets keep their keys through `ui_presets`, View Log and Open Folder are
+  the shell's, and `ui/processing_tab.py`/`ui/results_tab.py` are deleted.
+  The guide is unchanged because the Setup tab and both shared tabs are.
+  Noted, not changed: `_on_progress`, `_on_error` and the completion still
+  marshal with `root.after` from the raw `_run_scan` thread — the shape fixed
+  for the fingerprinter in `46f70e7` — which this migration leaves for a
+  follow-up.
 
 ### Fixed
 

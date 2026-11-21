@@ -21,6 +21,9 @@ instead of silently widening the exemption.
 Changed in 2.4.1: new lock for orphan ui modules (plan WP-3, C-M9).
 Changed in 2.9.0: the discovery floor is 90 rather than 100, because the C1
 stage-2 migrations keep deleting one-line ``ui`` tab delegates (C1).
+
+Changed in 2.9.0: the floor is 88, for the Duplicate Finder's two deleted
+delegates (C1 stage 2, wave 3).
 """
 
 from __future__ import annotations
@@ -156,7 +159,7 @@ class TestTheScanIsReal:
         # windows deletes a pair of one-line tab delegates, so this only has to
         # catch a scan that found nothing (or a handful).  The per-module
         # reachability test below is the real lock.
-        assert len(UI_MODULES) >= 90, sorted(UI_MODULES)[:5]
+        assert len(UI_MODULES) >= 88, sorted(UI_MODULES)[:5]
         assert {
             "bpm_analyzer.ui.setup_tab",
             "master_driver.ui.cards.bpm_card",

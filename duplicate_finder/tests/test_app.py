@@ -2,14 +2,18 @@
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tests for the Duplicate Finder window.
 
-The window is an ``AnalysisTagToolApp`` on the shared three tabs, so what is
-checked here is the part that is this tool's own: the completion handler's row
-set, the validation a run must pass before it starts, the driver's pre-fill
-routes, and -- ``TestCompletionSeam`` -- the real scan driven into the handler it
-binds, asserting the report the run writes.
+The window is a ``SuiteApp`` on the shared three tabs, so what is checked here
+is the part that is this tool's own: the completion handler's row set and the
+report it writes, the validation a run must pass before it starts, the driver's
+pre-fill routes, and -- ``TestCompletionSeam`` -- the real scan driven into the
+handler it binds, asserting the report the run writes.
 
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
+
+Changed in 2.9.0: the window composes ``SuiteApp``, so the shells name the
+shell's tab frames and the completion is read from the report it writes (C1
+stage 2).
 """
 
 from __future__ import annotations
@@ -73,12 +77,14 @@ def shell(
     app.auto_end = False
     app._summary_rows = ()
     app._log_path = str(tmp_path / "report.txt") if tmp_path is not None else ""
-    app._notes = []
+    app._run_mode = mode
+    app._run_disposition = disposition
+    app._run_folder = folder
     app._record_run_note = MagicMock()  # type: ignore[method-assign]
     app.start_btn = MagicMock()
     app.notebook = MagicMock()
-    app._tab_processing = MagicMock()
-    app._tab_results = MagicMock()
+    app.processing_frame = MagicMock()
+    app.results_frame = MagicMock()
     app.file_listbox = MagicMock()
     app._reset_progress_ui = MagicMock()  # type: ignore[method-assign]
     app.overall_status = MagicMock()
@@ -88,16 +94,8 @@ def shell(
 class TestCompletionRows:
     """What the finished run adds to the report and the Results panel."""
 
-    def test_a_dry_run_reports_what_it_would_quarantine(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a_dry_run_reports_what_it_would_quarantine(self, tmp_path: Path) -> None:
         app = shell(mode=DRY_RUN, tmp_path=tmp_path)
-        forwarded: list[dict[str, Any]] = []
-        monkeypatch.setattr(
-            app_module.AnalysisTagToolApp,
-            "_on_complete",
-            lambda _self, **kwargs: forwarded.append(kwargs),
-        )
 
         app._finish_run(
             header=["h\n"],
@@ -123,13 +121,8 @@ class TestCompletionRows:
             ("Without a fingerprint", "0"),
         ]
 
-    def test_a_live_run_reports_what_it_moved(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a_live_run_reports_what_it_moved(self, tmp_path: Path) -> None:
         app = shell(mode=LIVE_UPDATE, tmp_path=tmp_path)
-        monkeypatch.setattr(
-            app_module.AnalysisTagToolApp, "_on_complete", lambda _self, **kwargs: None
-        )
 
         app._finish_run(
             header=[],
@@ -151,16 +144,8 @@ class TestCompletionRows:
         assert rows["Files quarantined"] == "3"
         assert rows["Without a fingerprint"] == "1"
 
-    def test_the_shared_fields_reach_the_base_handler(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_shared_fields_reach_the_report(self, tmp_path: Path) -> None:
         app = shell(tmp_path=tmp_path)
-        forwarded: list[dict[str, Any]] = []
-        monkeypatch.setattr(
-            app_module.AnalysisTagToolApp,
-            "_on_complete",
-            lambda _self, **kwargs: forwarded.append(kwargs),
-        )
 
         app._finish_run(
             header=["h\n"],
@@ -179,23 +164,17 @@ class TestCompletionRows:
             unexpected="ignored",
         )
 
-        (payload,) = forwarded
-        assert payload["header"] == ["h\n"]
-        assert payload["total"] == 4
-        assert payload["processed"] == 4
-        assert payload["skipped"] == 2
-        assert payload["errors"] == 1
-        assert payload["duration_secs"] == 2.5
-        assert payload["log_entries"] == ["a\n", "b\n"]
-        assert payload["unexpected"] == "ignored"
+        written = (tmp_path / "report.txt").read_text(encoding="utf-8")
+        assert written.startswith("h\na\nb\n")
+        assert "Total files: 4" in written
+        # 4 visited - 2 without a fingerprint - 1 unmoved.
+        assert "Files scanned: 1" in written
+        assert "Skipped: 2" in written
+        assert "Errors: 1" in written
+        assert "Time: 00:02" in written
 
-    def test_one_run_s_rows_do_not_survive_into_the_next(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_one_run_s_rows_do_not_survive_into_the_next(self, tmp_path: Path) -> None:
         app = shell(tmp_path=tmp_path)
-        monkeypatch.setattr(
-            app_module.AnalysisTagToolApp, "_on_complete", lambda _self, **kwargs: None
-        )
 
         app._finish_run(
             header=[],
@@ -480,14 +459,9 @@ class TestCompletionSeam:
     """The real scan into the handler the window binds."""
 
     def test_the_run_writes_the_report_it_reports(
-        self, library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, library: Path, tmp_path: Path
     ) -> None:
         app = shell(mode=DRY_RUN, tmp_path=tmp_path, folder=str(library))
-        monkeypatch.setattr(
-            app_module.AnalysisTagToolApp,
-            "_on_complete",
-            app_module.AnalysisTagToolApp._on_complete,
-        )
 
         from duplicate_finder.core.file_processor import run_duplicate_scan
         from duplicate_finder.core.models import ScanSettings

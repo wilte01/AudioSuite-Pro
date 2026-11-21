@@ -64,6 +64,8 @@ Changed in 2.9.0: Mood Analysis Batch Tagger follows it in wave 2, so the table
 is fourteen and the tagger gains a run-report drive through its engine.
 Changed in 2.9.0: Audio Fingerprinter follows it in wave 2, so the table is
 fifteen and the fingerprinter gains a run-report drive through its processor.
+Changed in 2.9.0: Duplicate Finder opens wave 3, so the table is sixteen and
+the finder gains a run-report drive through its completion handler.
 """
 
 from __future__ import annotations
@@ -98,6 +100,10 @@ from audio_suite_shared import suite_app
 from audio_suite_shared.cli_dataclasses import LyricsArgs
 from bpm_analyzer import app as bpm_analyzer_app
 from bpm_analyzer.app import BPMAnalyzerApp
+from duplicate_finder.core.disposition import DEFAULT_DISPOSITION
+from duplicate_finder.ui import app as duplicate_finder_app
+from duplicate_finder.ui.app import DuplicateFinderApp
+from duplicate_finder.utils.cli_args import DuplicateFinderArgs
 from file_reorganizer import app as reorganizer_app
 from file_reorganizer.app import FileReorganizerApp
 from file_reorganizer.core.engine import ReorganizerStats
@@ -142,6 +148,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     ASXExtractorTool,
     MoodAnalysisBatchTaggerApp,
     FingerprinterApp,
+    DuplicateFinderApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -340,6 +347,13 @@ def _stub_fingerprinter_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fingerprinter_app.cli_args, "parse", lambda: FingerprintArgs())
 
 
+def _stub_duplicate_finder_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the finder's launcher parse (it runs inside the constructor)."""
+    monkeypatch.setattr(
+        duplicate_finder_app.cli_args, "parse", lambda: DuplicateFinderArgs()
+    )
+
+
 def _stub_mood_analysis_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub the tagger's launcher parse (it runs inside the constructor)."""
     monkeypatch.setattr(
@@ -363,6 +377,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     LyricsManagerApp: _stub_lyrics_manager_edges,
     MoodAnalysisBatchTaggerApp: _stub_mood_analysis_edges,
     FingerprinterApp: _stub_fingerprinter_edges,
+    DuplicateFinderApp: _stub_duplicate_finder_edges,
 }
 
 
@@ -609,6 +624,37 @@ def _complete_fingerprinter_run(app: FingerprinterApp, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_duplicate_finder_run(app: DuplicateFinderApp, tmp_path: Path) -> None:
+    """Drive the finder's completion: the window writes the scan report.
+
+    ``_finish_run`` is the handler the scan is bound to and the report writer
+    itself, so the drive hands it the payload the processor publishes and reads
+    the report back.  The run's mode, disposition and folder are the snapshots
+    ``start_processing`` takes on the Tk thread.
+    """
+    app._run_mode = duplicate_finder_app.DRY_RUN
+    app._run_disposition = DEFAULT_DISPOSITION
+    app._run_folder = str(tmp_path)
+    app._log_path = str(tmp_path / duplicate_finder_app.RUN_REPORT_DRY_RUN)
+    app._finish_run(
+        header=["DUPLICATE REPORT\n"],
+        total=1,
+        processed=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[KEEP] a.mp3\n"],
+        groups=1,
+        exact_groups=0,
+        duplicates=1,
+        quarantined=0,
+        deleted=0,
+        stubbed=0,
+    )
+    # The completion is scheduled onto the Tk thread; run it now.
+    app.root.update()
+
+
 def _complete_mood_analysis_run(
     app: MoodAnalysisBatchTaggerApp, tmp_path: Path
 ) -> None:
@@ -656,6 +702,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     ASXExtractorTool: _complete_asx_extractor_run,
     MoodAnalysisBatchTaggerApp: _complete_mood_analysis_run,
     FingerprinterApp: _complete_fingerprinter_run,
+    DuplicateFinderApp: _complete_duplicate_finder_run,
 }
 
 
@@ -879,6 +926,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "ASXExtractorTool",
         "MoodAnalysisBatchTaggerApp",
         "FingerprinterApp",
+        "DuplicateFinderApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)
