@@ -15,7 +15,7 @@ Changed in 2.4.1: the local ``_ThreadSafeSlotVar`` clone is retired
 behind ``audio_suite_shared.thread_safe_slot_var.make_safe_slot_vars``,
 the helper four sibling tools already used (WP-3).
 
-Changed in 2.4.3: ``_on_open_log`` delegates to
+Changed in 2.4.3: the View Log button delegates to
 ``ui_helpers.open_log_file`` instead of carrying its own copy of the
 open/no-log branch, so the button's target and wording are the suite's one
 implementation (PLAN_2026-11-03_2.4.3_structure.md D-16, D-19).
@@ -23,6 +23,13 @@ implementation (PLAN_2026-11-03_2.4.3_structure.md D-16, D-19).
 Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the eighth window of
+D8's wave 2), so the shell owns the Help bar and the Processing and Results
+tabs and this tool keeps its Setup panel, its
+``Folders/Tagged/Skipped/Errors`` counters and its completion heading.  The
+poller keeps its queue, but its widget writes go to the shell's widgets, the
+completion renders through ``render_completion``, and View Log is the shell's
+report opener, so it opens the path the engine reports for the run.
 """
 
 from __future__ import annotations
@@ -30,20 +37,20 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 import tkinter as tk
 from queue import Empty, Queue
 from tkinter import ttk
 from typing import Any
 
-from audio_suite_shared import platform_utils, styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+from audio_suite_shared import platform_utils, suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS, default_max_workers
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_common import cap_typed_workers
-from audio_suite_shared.ui_helpers import UIHelperMixin, open_log_file
 from mood_analysis_batch_tagger.core import batch_analysis_engine
-from mood_analysis_batch_tagger.ui import processing_tab, results_tab, setup_tab
+from mood_analysis_batch_tagger.ui import setup_tab
 from mood_analysis_batch_tagger.utils import cli_args
 from mood_analysis_batch_tagger.utils.config import load_run_mode, save_run_mode
 
@@ -64,24 +71,28 @@ def _saved_worker_count(saved: object) -> int:
     return default_max_workers()
 
 
-class MoodAnalysisBatchTaggerApp(UIHelperMixin):
+class MoodAnalysisBatchTaggerApp(SuiteApp):
     """Main application window for the Mood Analysis Batch Tagger tool."""
 
+    title = _TOOL_TITLE
+    window_key = "mood_analysis_batch_tagger_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE = "Mood_Analysis_Batch_Tagger_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = ("  Setup  ", "  Processing  ", "  Results  ")
+    #: The heading the Results tab shows when a batch finishes.
+    completion_text = "Batch Mood Analysis Complete!"
+    #: This window counts folders, tagged files, skips and errors.
+    processing_stats_text = "Folders: 0 | Tagged: 0 | Skipped: 0 | Errors: 0"
 
     #: Set from argv in ``__init__``. The class default keeps an
     #: ``object.__new__`` test shell on the interactive (warning) path.
     _launched_from_driver: bool = False
 
     def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            _TOOL_TITLE,
-            "mood_analysis_batch_tagger_window",
-            "mood_analysis_batch_tagger",
-        )
-
+        # ── Tk variables ──────────────────────────────────────────────────────
         saved_mode = load_run_mode()
         self.root_path: tk.StringVar = tk.StringVar(
             value=suite_config.load_last_directory()
@@ -105,6 +116,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         self.parallel_var: tk.BooleanVar = tk.BooleanVar(value=False)
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
+        # ── Processing state ─────────────────────────────────────────────────
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
@@ -114,46 +126,27 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         self._skipped_count: int = 0
         self._error_count: int = 0
         self._folder_count: int = 0
-        self._log_path: str = ""
+        # Set by ``_on_start``; the completion's elapsed time reads it.
+        self._run_started: float = 0.0
         self.auto_end: bool = False
 
+        # ── Worker slot pool ──────────────────────────────────────────────────
+        # Built before super().__init__: the shell renders the grid from it.
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
 
-        self._build_ui()
+        super().__init__(root)
         self._apply_cli_args()
         self._on_duration_change()
 
-    def _build_ui(self) -> None:
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-        nb = ttk.Notebook(self.root)
-        nb.pack(expand=True, fill="both", padx=10, pady=10)
-        self._notebook = nb
-
-        setup_frame = tk.Frame(nb, bg=styles.BG_WHITE)
-        processing_frame = tk.Frame(nb, bg=styles.BG_WHITE)
-        results_frame = tk.Frame(nb, bg=styles.BG_WHITE)
-
-        nb.add(setup_frame, text="  Setup  ")
-        nb.add(processing_frame, text="  Processing  ")
-        nb.add(results_frame, text="  Results  ")
-
-        widgets = setup_tab.build(
-            setup_frame,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the root folder, the run settings, the presets and the start button."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             root_path=self.root_path,
             run_mode=self.run_mode,
             analysis_duration=self.analysis_duration,
@@ -171,18 +164,10 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
             on_delete_preset=self._delete_preset,
             on_preset_selected=self._on_preset_selected,
         )
-        self._start_btn: tk.Button = widgets["start_btn"]
+        self.start_btn = widgets["start_btn"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
         self._preset_combo = widgets["preset_combo"]
-        self._controls_panel = widgets["controls_panel"]
-
-        self._proc = processing_tab.build(processing_frame, slot_vars=self.slot_vars)
-
-        self._res = results_tab.build(
-            results_frame,
-            on_open_log=self._on_open_log,
-            on_open_folder=self._on_open_folder,
-        )
+        self.controls_panel = widgets["controls_panel"]
 
         self.analysis_duration.trace_add(
             "write",
@@ -229,6 +214,8 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         if parsed.auto_start:
             self.root.after(1500, self._on_start)
 
+    # ── Presets ───────────────────────────────────────────────────────────────
+
     def _collect_settings(self) -> dict[str, Any]:
         return {
             "root_path": self.root_path.get(),
@@ -265,8 +252,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         if self._refresh_preset_list:
             self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
-    def _open_help(self) -> None:
-        self._open_help_standard(self.HELP_GUIDE)
+    # ── User actions ──────────────────────────────────────────────────────────
 
     def _on_browse(self) -> None:
         self._browse_folder_standard(
@@ -276,6 +262,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         )
 
     def _on_start(self) -> None:
+        """Validate the root, persist the settings, then launch the batch."""
         root = self.root_path.get().strip()
         if not root:
             platform_utils.messagebox.showwarning(
@@ -319,17 +306,17 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         self._error_count = 0
         self._folder_count = 0
         self._log_path = ""
-        self._proc["file_listbox"].delete(0, tk.END)
-        self._proc["progress"]["value"] = 0
-        self._proc["overall_status"].set("Scanning...")
-        self._proc["stats_label"].config(
-            text="Folders: 0 | Tagged: 0 | Skipped: 0 | Errors: 0"
-        )
+        self._out_dir = root
+        self._run_started = time.monotonic()
+        self.file_listbox.delete(0, tk.END)
+        self.progress["value"] = 0
+        self.overall_status.set("Scanning...")
+        self.stats_label.config(text=self.processing_stats_text)
         self._reset_slot_vars()
 
         self._running = True
-        self._start_btn.config(state="disabled")
-        self._notebook.select(1)
+        self.start_btn.config(state="disabled")
+        self.notebook.select(self.processing_frame)
 
         live: bool = self.run_mode.get() == "Live Update"
         duration: int = self.analysis_duration.get()
@@ -368,11 +355,11 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
                 if kind == "folder":
                     _, rel_folder, count, folder_total = msg
                     self._folder_count += 1
-                    self._proc["file_listbox"].insert(
+                    self.file_listbox.insert(
                         tk.END, f"\u25b6  {rel_folder}  ({count} files)"
                     )
-                    self._proc["file_listbox"].see(tk.END)
-                    self._proc["overall_status"].set(f"Scanning: {rel_folder}")
+                    self.file_listbox.see(tk.END)
+                    self.overall_status.set(f"Scanning: {rel_folder}")
                     self._update_stats()
 
                 elif kind == "slot":
@@ -383,8 +370,8 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
                 elif kind == "progress":
                     _, current, total, filename = msg
                     pct = (current / total * 100) if total else 0
-                    self._proc["progress"]["value"] = pct
-                    self._proc["overall_status"].set(f"Processing: {filename}")
+                    self.progress["value"] = pct
+                    self.overall_status.set(f"Processing: {filename}")
 
                 elif kind == "result":
                     _, filepath, filename, success, detail = msg
@@ -394,8 +381,8 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
                     else:
                         self._skipped_count += 1
                         entry = f"    SKIP {filename}  --  {detail}"
-                    self._proc["file_listbox"].insert(tk.END, entry)
-                    self._proc["file_listbox"].see(tk.END)
+                    self.file_listbox.insert(tk.END, entry)
+                    self.file_listbox.see(tk.END)
                     self._update_stats()
 
                 elif kind == "done":
@@ -420,7 +407,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
             self.root.after(100, self._poll_queue)
 
     def _update_stats(self) -> None:
-        self._proc["stats_label"].config(
+        self.stats_label.config(
             text=(
                 f"Folders: {self._folder_count} | "
                 f"Tagged: {self._tagged_count} | "
@@ -430,11 +417,11 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         )
 
     def _on_done(self, tagged: int, skipped: int, errors: int, folders: int) -> None:
+        """Render the finished batch (must run on the main thread)."""
         self._running = False
-        self._start_btn.config(state="normal")
-        self._proc["progress"]["value"] = 100
-        self._proc["overall_status"].set("Complete.")
-        self._res["summary_label"].config(
+        self.progress["value"] = 100
+        self.overall_status.set("Complete.")
+        self.summary_label.config(
             text=(
                 f"Folders scanned: {folders}\n"
                 f"Files analysed:  {tagged + skipped + errors}\n"
@@ -443,8 +430,6 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
                 f"Errors:          {errors}"
             )
         )
-        self._res["completion_label"].config(text="Batch Mood Analysis Complete!")
-        self._notebook.select(2)
         logger.info(
             "Batch complete. Folders: %d, Tagged: %d, Skipped: %d, Errors: %d",
             folders,
@@ -453,20 +438,10 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
             errors,
         )
 
+        self.render_completion(
+            duration_secs=time.monotonic() - self._run_started,
+            output_dir=self._out_dir,
+        )
+
         if self.auto_end_var.get() or self.auto_end:
             self.root.after(1500, self.root.destroy)
-
-    def _on_open_log(self) -> None:
-        """Open this run's report through the suite's one log-button helper.
-
-        The branch was previously a local copy, so the wording and the
-        behaviour behind View Log could differ from every other tool's.
-        """
-        open_log_file(self._log_path)
-
-    def _on_open_folder(self) -> None:
-        root = self.root_path.get().strip()
-        if root and os.path.isdir(root):
-            platform_utils.open_path(root)
-        else:
-            platform_utils.messagebox.showinfo(_TOOL_TITLE, "No folder selected.")

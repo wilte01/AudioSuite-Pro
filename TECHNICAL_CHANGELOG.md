@@ -184,6 +184,18 @@ used once, and every bullet belongs to exactly one of them.
   deleted, and the guide's Processing and Results sections describe the shared
   tabs.
 
+- **Mood Analysis Batch Tagger follows it in wave 2 (C1 stage 2).**
+  `MoodAnalysisBatchTaggerApp` composes `SuiteApp`. The window keeps its queue
+  and its 100 ms poller — its engine publishes folders, files, worker slots and
+  a `done` message — but the poller's widget writes go to the shell's Processing
+  tab and its completion renders through `render_completion`, so View Log is the
+  shell's report opener (it opens the path the engine reports for the run) and
+  Open Folder opens the run's root. The tagger keeps its unnumbered tab labels,
+  its `Folders/Tagged/Skipped/Errors` counters and its completion heading.
+  `ui/processing_tab.py`/`ui/results_tab.py` are deleted. The batch log's footer
+  now names itself `SUMMARY:`, the marker every other tool's run report carries,
+  so the report lock reads this tool's report like the others'.
+
 ### Fixed
 
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`

@@ -7,9 +7,14 @@ DriverControlsPanel builds genuine widgets.
 Behaviour-lock (iteration-7 B3): the tool-own labels/defaults must
 survive the shared-builder consolidation — if dedup removes a
 tool-specific string or default, these tests fail.
+
+Changed in 2.9.0: every build lands on its own container, destroyed after the
+test, so a leftover tab cannot leave a second title label on the session root
+for the shell contract to count (C1 stage 2).
 """
 
 import tkinter as tk
+from collections.abc import Iterator
 from tkinter import ttk
 from unittest.mock import MagicMock
 
@@ -17,6 +22,19 @@ import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from mood_analysis_batch_tagger.ui import setup_tab
+
+#: Containers built by this module, destroyed by the autouse fixture below.
+_containers: list[tk.Frame] = []
+
+
+@pytest.fixture(autouse=True)
+def _destroy_built_tabs() -> Iterator[None]:
+    """Leave the session-scoped root as clean as the test found it."""
+    yield
+    while _containers:
+        container = _containers.pop()
+        if container.winfo_exists():
+            container.destroy()
 
 
 def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
@@ -55,6 +73,7 @@ def _build(root: tk.Tk, **overrides):
     }
     kwargs.update(overrides)
     container = tk.Frame(root)
+    _containers.append(container)
     widgets = setup_tab.build(container, **kwargs)
     return kwargs, widgets, container
 

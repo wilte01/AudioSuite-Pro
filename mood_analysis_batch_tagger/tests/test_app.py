@@ -11,6 +11,10 @@ capped (with a warning) before it is saved (D66).
 
 Changed in 2.4.3: the two View Log cases patch the shared helper's namespace,
 because ``_on_open_log`` now delegates to ``ui_helpers.open_log_file`` (D-19).
+
+Changed in 2.9.0: the window composes ``SuiteApp``, so the tests read the
+shell's widget names and its completion, which the stubbed ``root.after`` runs
+for the 0 ms writes (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -24,9 +28,22 @@ from mood_analysis_batch_tagger.app import MoodAnalysisBatchTaggerApp
 APP = "mood_analysis_batch_tagger.app"
 
 
+def _after_zero(delay: object, callback: object = None, *args: object) -> object:
+    """Run a ``root.after(0, ...)`` write now and leave later timers queued.
+
+    The shell schedules its widget writes at 0 ms and the poller at 100 ms, so
+    running only the former lets a test read the rendered completion without
+    entering the polling loop.
+    """
+    if delay == 0 and callable(callback):
+        return callback(*args)
+    return None
+
+
 def _make_app() -> MoodAnalysisBatchTaggerApp:
     app = object.__new__(MoodAnalysisBatchTaggerApp)
     app.root = MagicMock()
+    app.root.after.side_effect = _after_zero
     app.root_path = MagicMock()
     app.run_mode = MagicMock()
     app.analysis_duration = MagicMock()
@@ -44,18 +61,20 @@ def _make_app() -> MoodAnalysisBatchTaggerApp:
     app._error_count = 0
     app._folder_count = 0
     app._log_path = ""
-    app._start_btn = MagicMock()
-    app._notebook = MagicMock()
-    app._proc = {
-        "file_listbox": MagicMock(),
-        "progress": MagicMock(),
-        "overall_status": MagicMock(),
-        "stats_label": MagicMock(),
-    }
-    app._res = {
-        "summary_label": MagicMock(),
-        "completion_label": MagicMock(),
-    }
+    app._out_dir = ""
+    app._run_started = 0.0
+    # The shell's Processing and Results widgets.
+    app.progress = MagicMock()
+    app.stats_label = MagicMock()
+    app.file_listbox = MagicMock()
+    app.overall_status = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.time_label = MagicMock()
+    app.start_btn = MagicMock()
+    app.notebook = MagicMock()
+    app.processing_frame = MagicMock()
+    app.results_frame = MagicMock()
     app.slot_vars = []
     app.auto_end = False
     return app
@@ -75,22 +94,22 @@ class TestOnDone:
     def test_re_enables_start_button(self) -> None:
         app = self._app()
         app._on_done(tagged=5, skipped=2, errors=1, folders=3)
-        app._start_btn.config.assert_called_with(state="normal")
+        app.start_btn.config.assert_called_with(state="normal")
 
     def test_sets_progress_to_100(self) -> None:
         app = self._app()
         app._on_done(tagged=5, skipped=2, errors=1, folders=3)
-        app._proc["progress"].__setitem__.assert_any_call("value", 100)
+        app.progress.__setitem__.assert_any_call("value", 100)
 
     def test_sets_overall_status_complete(self) -> None:
         app = self._app()
         app._on_done(tagged=5, skipped=2, errors=1, folders=3)
-        app._proc["overall_status"].set.assert_called_with("Complete.")
+        app.overall_status.set.assert_called_with("Complete.")
 
     def test_summary_includes_errors(self) -> None:
         app = self._app()
         app._on_done(tagged=10, skipped=3, errors=2, folders=7)
-        call_kwargs = app._res["summary_label"].config.call_args
+        call_kwargs = app.summary_label.config.call_args
         text = call_kwargs[1]["text"]
         assert "Folders scanned: 7" in text
         assert "Files analysed:  15" in text
@@ -101,14 +120,14 @@ class TestOnDone:
     def test_completion_label_text(self) -> None:
         app = self._app()
         app._on_done(tagged=5, skipped=2, errors=1, folders=3)
-        app._res["completion_label"].config.assert_called_once_with(
+        app.completion_label.config.assert_called_once_with(
             text="Batch Mood Analysis Complete!"
         )
 
     def test_switches_to_results_tab(self) -> None:
         app = self._app()
         app._on_done(tagged=5, skipped=2, errors=1, folders=3)
-        app._notebook.select.assert_called_once_with(2)
+        app.notebook.select.assert_called_once_with(app.results_frame)
 
     def test_auto_end_schedules_destroy(self) -> None:
         app = self._app()
@@ -190,7 +209,7 @@ class TestUpdateStats:
     def test_zero_counts(self) -> None:
         app = _make_app()
         app._update_stats()
-        app._proc["stats_label"].config.assert_called_once_with(
+        app.stats_label.config.assert_called_once_with(
             text="Folders: 0 | Tagged: 0 | Skipped: 0 | Errors: 0"
         )
 
@@ -201,7 +220,7 @@ class TestUpdateStats:
         app._skipped_count = 3
         app._error_count = 2
         app._update_stats()
-        app._proc["stats_label"].config.assert_called_once_with(
+        app.stats_label.config.assert_called_once_with(
             text="Folders: 12 | Tagged: 45 | Skipped: 3 | Errors: 2"
         )
 
@@ -242,8 +261,8 @@ class TestOnStart:
 
             mock_config.save_last_directory.assert_called_once_with(str(tmp_path))
             assert app._running is True
-            app._start_btn.config.assert_called_once_with(state="disabled")
-            app._notebook.select.assert_called_once_with(1)
+            app.start_btn.config.assert_called_once_with(state="disabled")
+            app.notebook.select.assert_called_once_with(app.processing_frame)
 
             mock_thread.assert_called_once()
             thread_kwargs = mock_thread.call_args.kwargs
@@ -297,16 +316,16 @@ class TestPollQueue:
     def test_folder_message(self) -> None:
         app = self._app_with_msgs([("folder", "/music/sub", 3, 2)])
         app._poll_queue()
-        app._proc["file_listbox"].insert.assert_called_with(
+        app.file_listbox.insert.assert_called_with(
             tkinter.END, "\u25b6  /music/sub  (3 files)"
         )
-        app._proc["overall_status"].set.assert_called_with("Scanning: /music/sub")
+        app.overall_status.set.assert_called_with("Scanning: /music/sub")
 
     def test_progress_message(self) -> None:
         app = self._app_with_msgs([("progress", 5, 10, "track.mp3")])
         app._poll_queue()
-        app._proc["progress"].__setitem__.assert_any_call("value", 50.0)
-        app._proc["overall_status"].set.assert_called_with("Processing: track.mp3")
+        app.progress.__setitem__.assert_any_call("value", 50.0)
+        app.overall_status.set.assert_called_with("Processing: track.mp3")
 
     def test_result_success(self) -> None:
         app = self._app_with_msgs(
@@ -314,7 +333,7 @@ class TestPollQueue:
         )
         app._poll_queue()
         assert app._tagged_count == 1
-        app._proc["file_listbox"].insert.assert_called_with(
+        app.file_listbox.insert.assert_called_with(
             tkinter.END, "    OK   a.mp3  ->  Energetic (conf 0.87)"
         )
 
@@ -462,46 +481,6 @@ class TestOnDurationChange:
         mock_config.load_value.assert_called_once_with(
             "mood_analysis_batch_duration", 90
         )
-
-
-class TestOpenLogAndFolder:
-    def test_open_log_delegates_to_the_shared_helper(self, tmp_path) -> None:
-        """View Log goes through ``ui_helpers.open_log_file``, not a local copy.
-
-        A local copy is how two tools ended up with different wording (and one
-        with a different target) behind the same button.
-        """
-        app = _make_app()
-        log_file = tmp_path / "mood_analysis_batch_log.txt"
-        log_file.write_text("log")
-        app._log_path = str(log_file)
-        with patch("audio_suite_shared.ui_helpers.platform_utils") as mock_platform:
-            app._on_open_log()
-        mock_platform.open_path.assert_called_once_with(str(log_file))
-
-    def test_open_log_shows_the_shared_no_log_message(self) -> None:
-        app = _make_app()
-        app._log_path = ""
-        with patch("audio_suite_shared.ui_helpers.messagebox") as mock_messagebox:
-            app._on_open_log()
-        mock_messagebox.showinfo.assert_called_once_with(
-            "Log File", "No log file available yet."
-        )
-
-    def test_open_folder_calls_open_path_when_valid(self, tmp_path) -> None:
-        app = _make_app()
-        app.root_path.get.return_value = str(tmp_path)
-        with patch(f"{APP}.platform_utils") as mock_platform:
-            app._on_open_folder()
-        mock_platform.open_path.assert_called_once_with(str(tmp_path))
-
-    def test_open_folder_shows_info_when_invalid(self) -> None:
-        app = _make_app()
-        app.root_path.get.return_value = "Z:/no/such"
-        with patch(f"{APP}.platform_utils") as mock_platform:
-            app._on_open_folder()
-        mock_platform.open_path.assert_not_called()
-        mock_platform.messagebox.showinfo.assert_called_once()
 
 
 class _WorkerVarStub:

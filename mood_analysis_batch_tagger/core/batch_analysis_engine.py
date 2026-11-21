@@ -19,6 +19,10 @@ Workers post progress via a queue consumed by the UI:
 
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
+
+Changed in 2.9.0: the log footer names itself ``SUMMARY:``, the marker every
+other tool's run report carries, so the window's View Log opens a report the
+shell's contract recognises (C1 stage 2).
 """
 
 from __future__ import annotations
@@ -178,6 +182,7 @@ def _emit_footer(
     """Write the batch log footer, emit the ``done`` queue entry, and return
     the :class:`BatchResult` summary."""
     log_lines.append(f"\n{'=' * 70}")
+    log_lines.append("  SUMMARY:")
     log_lines.append(f"  Folders scanned: {folder_count}")
     log_lines.append(f"  Files tagged:    {cb.tagged_count[0]}")
     log_lines.append(f"  Files skipped:   {cb.skipped_count[0]}")

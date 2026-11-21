@@ -60,17 +60,21 @@ Changed in 2.9.0: Lyrics Manager follows it in wave 2, so the table is twelve
 and the manager gains a run-report drive.
 Changed in 2.9.0: ASX Playlist Extractor follows it in wave 2, so the table is
 thirteen and the extractor gains a run-report drive.
+Changed in 2.9.0: Mood Analysis Batch Tagger follows it in wave 2, so the table
+is fourteen and the tagger gains a run-report drive through its engine.
 """
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from queue import Queue
 from tkinter import ttk
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -95,6 +99,10 @@ from lyrics_manager import app as lyrics_manager_app
 from lyrics_manager.app import LyricsManagerApp
 from metadata_scrubber import app as metadata_scrubber_app
 from metadata_scrubber.app import MetadataScrubberApp
+from mood_analysis_batch_tagger import app as mood_app
+from mood_analysis_batch_tagger.app import MoodAnalysisBatchTaggerApp
+from mood_analysis_batch_tagger.core import batch_analysis_engine
+from mood_analysis_batch_tagger.utils.cli_args import MoodAnalysisBatchTaggerArgs
 from music_format_converter import app as converter_app
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
@@ -121,6 +129,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     BPMAnalyzerApp,
     LyricsManagerApp,
     ASXExtractorTool,
+    MoodAnalysisBatchTaggerApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -314,6 +323,13 @@ def _stub_lyrics_manager_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lyrics_manager_app.cli_args, "parse", lambda: LyricsArgs())
 
 
+def _stub_mood_analysis_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the tagger's launcher parse (it runs inside the constructor)."""
+    monkeypatch.setattr(
+        mood_app.cli_args, "parse", lambda: MoodAnalysisBatchTaggerArgs()
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -328,6 +344,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     ReplayGainAnalyzerApp: _stub_replaygain_analyzer_edges,
     BPMAnalyzerApp: _stub_bpm_analyzer_edges,
     LyricsManagerApp: _stub_lyrics_manager_edges,
+    MoodAnalysisBatchTaggerApp: _stub_mood_analysis_edges,
 }
 
 
@@ -541,6 +558,36 @@ def _complete_asx_extractor_run(app: ASXExtractorTool, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_mood_analysis_run(
+    app: MoodAnalysisBatchTaggerApp, tmp_path: Path
+) -> None:
+    """Drive the batch engine and the poller: the engine writes the log there.
+
+    The tagger's report is the engine's, so the drive runs the engine over one
+    file (with the analysis itself stubbed) and lets the window's own poller
+    read the ``done`` message, which is what names ``_log_path``.
+    """
+    (tmp_path / "track.mp3").write_bytes(b"x")
+    out: Queue[Any] = Queue()
+    with patch(
+        "mood_analysis_batch_tagger.core.batch_analysis_engine._analyse_file",
+        return_value=SimpleNamespace(
+            to_tag_string=lambda: "Calm;Soft;Warm", confidence=0.9, energy=2
+        ),
+    ):
+        batch_analysis_engine.run_batch(
+            root=str(tmp_path),
+            out_queue=out,
+            stop_event=threading.Event(),
+            live=False,
+            max_workers=1,
+        )
+    app._queue = out
+    app._poll_queue()
+    # The completion is scheduled onto the Tk thread; run it now.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -556,6 +603,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     BPMAnalyzerApp: _complete_bpm_analyzer_run,
     LyricsManagerApp: _complete_lyrics_manager_run,
     ASXExtractorTool: _complete_asx_extractor_run,
+    MoodAnalysisBatchTaggerApp: _complete_mood_analysis_run,
 }
 
 
@@ -777,6 +825,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "BPMAnalyzerApp",
         "LyricsManagerApp",
         "ASXExtractorTool",
+        "MoodAnalysisBatchTaggerApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)
