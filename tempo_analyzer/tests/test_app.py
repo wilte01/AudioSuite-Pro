@@ -32,6 +32,10 @@ Changed in 2.0.0: adds ``TestCompletionSeam``, which drives
 payload case this module used to rely on (PLAN D117).
 
 Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the completion
+renders through the shell's results frame, the error handler is the shell's,
+and the run's inputs are the snapshot ``start_processing`` takes on the main
+thread.
 """
 
 from __future__ import annotations
@@ -69,9 +73,9 @@ class TestOnComplete:
         app.completion_label = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_results = MagicMock()
-        app.run_mode = MagicMock()
-        app.run_mode.get.return_value = "Dry Run"
+        app.results_frame = MagicMock()
+        app._run_mode = "Dry Run"
+        app._run_path = str(tmp_path)
         app.auto_end = False
         return app
 
@@ -87,8 +91,10 @@ class TestOnComplete:
         }
         defaults.update(kwargs)
         app._on_complete(**defaults)  # type: ignore[arg-type]
-        if app._scheduled:
-            fn, args = app._scheduled[-1]
+        # Drain the queue: the completion schedules the render, which in turn
+        # schedules the shell's widget write.
+        while app._scheduled:
+            fn, args = app._scheduled.pop(0)
             fn(*args)
 
     def test_log_file_created(self, app: TempoAnalyzerApp) -> None:
@@ -126,7 +132,7 @@ class TestOnComplete:
         app.time_label.config.assert_called()
         app.summary_label.config.assert_called()
         app.completion_label.config.assert_called()
-        app.notebook.select.assert_called_with(app._tab_results)
+        app.notebook.select.assert_called_with(app.results_frame)
         app.start_btn.config.assert_called_with(state="normal")
 
     def test_oserror_during_log_write_does_not_crash(
@@ -147,12 +153,12 @@ class TestOnComplete:
         assert len(destroy_calls) == 1
 
     def test_ui_label_dry_run(self, app: TempoAnalyzerApp) -> None:
-        app.run_mode.get.return_value = "Dry Run"
+        app._run_mode = "Dry Run"
         self._run(app, total=1, processed=1)
         app.completion_label.config.assert_called_with(text="Analysis Complete!")
 
     def test_ui_label_live_update(self, app: TempoAnalyzerApp) -> None:
-        app.run_mode.get.return_value = "Live Update"
+        app._run_mode = "Live Update"
         self._run(app, total=1, processed=1)
         app.completion_label.config.assert_called_with(text="Tempo Tagging Complete!")
 
@@ -534,7 +540,13 @@ def _make_processing_app() -> TempoAnalyzerApp:
     app.file_listbox = MagicMock()
     app.notebook = MagicMock()
     app.overall_status = MagicMock()
-    app._tab_processing = MagicMock()
+    app.progress = MagicMock()
+    app.processing_frame = MagicMock()
+    app.run_mode = MagicMock()
+    app.run_mode.get.return_value = "Dry Run"
+    app.tempo_scheme = MagicMock()
+    app.tempo_scheme.get.return_value = "Italian"
+    app._active_markings = TEMPO_SCHEMES["Italian"]
     return app
 
 
@@ -604,11 +616,31 @@ class TestStartProcessingValidation:
             app.start_processing()
         app.start_btn.config.assert_called_once_with(state="disabled")
         app.file_listbox.delete.assert_called_once_with(0, "end")
-        app.notebook.select.assert_called_once_with(app._tab_processing)
+        app.notebook.select.assert_called_once_with(app.processing_frame)
         app.overall_status.set.assert_called_once_with("Analyzing tempo markings...")
         mock_thread.assert_called_once()
         thread_kwargs = mock_thread.call_args
         assert thread_kwargs[1]["daemon"] is True
+
+    def test_success_snapshots_the_run_inputs(self) -> None:
+        """The worker must never call .get() on a Tk variable."""
+        app = _make_processing_app()
+        app.folder_path.get.return_value = "/music"
+        app.run_mode.get.return_value = "Live Update"
+        app.tempo_scheme.get.return_value = "English"
+        app._active_markings = TEMPO_SCHEMES["English"]
+        with (
+            patch("tempo_analyzer.app.os.path.exists", return_value=True),
+            patch("tempo_analyzer.app.os.path.isdir", return_value=True),
+            patch("tempo_analyzer.app.os.listdir", return_value=["song.mp3"]),
+            patch("tempo_analyzer.app.is_supported_format", return_value=True),
+            patch("tempo_analyzer.app.threading.Thread"),
+        ):
+            app.start_processing()
+        assert app._run_path == "/music"
+        assert app._run_mode == "Live Update"
+        assert app._run_scheme == "English"
+        assert app._run_markings == TEMPO_SCHEMES["English"]
 
     def test_success_starts_thread_with_target_run(self) -> None:
         app = _make_processing_app()
@@ -650,35 +682,21 @@ class TestStartProcessingValidation:
 
 
 class TestErrorCallbacks:
-    """_on_error schedules _show_error; _show_error displays dialog."""
+    """The shell's error handler is the one this window inherits."""
 
     @staticmethod
     @pytest.fixture
     def app() -> TempoAnalyzerApp:
-        root = MagicMock()
-        scheduled: list = []
-        root.after.side_effect = lambda delay, fn, *a, **kw: scheduled.append((fn, a))
         app = object.__new__(TempoAnalyzerApp)
-        app.root = root
-        app._scheduled = scheduled
         app.start_btn = MagicMock()
         return app
 
-    def test_on_error_schedules_show_error(self, app: TempoAnalyzerApp) -> None:
-        app._on_error("something broke")
-        assert len(app._scheduled) == 1
-        fn, args = app._scheduled[0]
-        assert fn == app._show_error
-        assert args == ("something broke",)
-
-    def test_show_error_displays_messagebox(self, app: TempoAnalyzerApp) -> None:
-        with patch("tempo_analyzer.app.messagebox") as mock_mb:
-            app._show_error("disk full")
-        mock_mb.showerror.assert_called_once_with("Error", "disk full")
-
-    def test_show_error_re_enables_start_btn(self, app: TempoAnalyzerApp) -> None:
-        with patch("tempo_analyzer.app.messagebox"):
-            app._show_error("oops")
+    def test_on_error_shows_error_and_reenables_button(
+        self, app: TempoAnalyzerApp
+    ) -> None:
+        with patch("audio_suite_shared.suite_app.messagebox") as mock_mb:
+            app._on_error("something broke")
+        mock_mb.showerror.assert_called_once_with("Error", "something broke")
         app.start_btn.config.assert_called_once_with(state="normal")
 
 

@@ -50,6 +50,8 @@ Changed in 2.9.0: the shell's ``processing_panel`` handle is locked, and the
 synchroniser's Cancel button is read back as its child (C1 stage 2).
 Changed in 2.9.0: Genre Sync follows in wave 2, so the table is eight and the
 sync gains a run-report drive.
+Changed in 2.9.0: Tempo Analyzer follows it in wave 2, so the table is nine and
+the analyzer gains a run-report drive.
 """
 
 from __future__ import annotations
@@ -85,6 +87,8 @@ from music_format_converter.utils.cli_args import ConverterArgs
 from stem_separator import app as stem_separator_app
 from stem_separator.app import StemSeparatorApp
 from stem_separator.core.models import DEFAULT_MODEL
+from tempo_analyzer import app as tempo_analyzer_app
+from tempo_analyzer.app import TempoAnalyzerApp
 
 #: The tools that have adopted the shared shell, in migration order.
 MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
@@ -96,6 +100,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     MetadataScrubberApp,
     AudioSuiteV6,
     GenreSetterApp,
+    TempoAnalyzerApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -225,6 +230,26 @@ def _stub_genre_sync_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_tempo_analyzer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the analyzer's launcher argv and its saved tempo scheme."""
+    monkeypatch.setattr(
+        tempo_analyzer_app.cli_args,
+        "parse",
+        lambda: SimpleNamespace(
+            folder_path=None,
+            live_mode=False,
+            auto_start=False,
+            auto_end=False,
+            clear_logs=False,
+            parallel_run=False,
+            scheme=None,
+        ),
+    )
+    monkeypatch.setattr(
+        tempo_analyzer_app.suite_config, "load_value", lambda *a, **k: ""
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -235,6 +260,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     MetadataScrubberApp: _stub_metadata_scrubber_edges,
     AudioSuiteV6: _stub_album_art_sync_edges,
     GenreSetterApp: _stub_genre_sync_edges,
+    TempoAnalyzerApp: _stub_tempo_analyzer_edges,
 }
 
 
@@ -361,6 +387,24 @@ def _complete_genre_sync_run(app: GenreSetterApp, tmp_path: Path) -> None:
     app.root.update()
 
 
+def _complete_tempo_analyzer_run(app: TempoAnalyzerApp, tmp_path: Path) -> None:
+    """Drive the analyzer's completion: it serialises the report there."""
+    app._run_path = str(tmp_path)
+    app._log_path = str(tmp_path / "tempo_dry_run_log.txt")
+    app._on_complete(
+        header=["TEMPO ANALYSIS REPORT\n"],
+        total=1,
+        processed=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["a.mp3\n"],
+    )
+    # The render is scheduled onto the Tk thread; run it now so the queued
+    # widget writes land while the fixture's frames are alive.
+    app.root.update()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -371,6 +415,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MetadataScrubberApp: _complete_metadata_scrubber_run,
     AudioSuiteV6: _complete_album_art_sync_run,
     GenreSetterApp: _complete_genre_sync_run,
+    TempoAnalyzerApp: _complete_tempo_analyzer_run,
 }
 
 
@@ -587,6 +632,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "MetadataScrubberApp",
         "AudioSuiteV6",
         "GenreSetterApp",
+        "TempoAnalyzerApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

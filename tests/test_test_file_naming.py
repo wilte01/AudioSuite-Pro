@@ -41,6 +41,9 @@ already the composite ``test_pipeline_stages``.
 Changed in 2.9.0: ``genre_sync/test_ui`` leaves the allowlist with the two
 delegate tab modules it covered (C1 stage 2), so the frozen length is 31 — the
 setup builder it also covered keeps its own ``test_setup_tab.py``.
+Changed in 2.9.0: ``tempo_analyzer/test_ui`` leaves it for the same reason (C1
+stage 2), so the frozen length is 30; its setup coverage lives in that
+package's ``tests/test_setup_tab.py``.
 """
 
 from __future__ import annotations
@@ -64,7 +67,7 @@ _SKIP_DIRS = frozenset(
     {".git", ".venv", "__pycache__", "node_modules", "build", "dist"}
 )
 
-#: Deliberate non-mirroring test files, frozen at 32 entries.
+#: Deliberate non-mirroring test files, frozen at 30 entries.
 #: Key format: ``<package>/<test file stem>`` (stem includes ``test_``).
 ALLOWLIST: dict[str, str] = {
     "album_art_sync/test_album_art_sync": "whole-package smoke composite",
@@ -103,7 +106,6 @@ ALLOWLIST: dict[str, str] = {
     "replaygain_analyzer/test_replaygain_core": "core composite",
     "replaygain_analyzer/test_replaygain_pipeline": "core composite",
     "silence_trimmer/test_silence_trimmer": ("module-with-behaviour-suite composite"),
-    "tempo_analyzer/test_ui": "ui composite",
 }
 
 
@@ -245,8 +247,8 @@ class TestMatcher:
 
 class TestAllowlistFrozen:
     def test_allowlist_is_frozen_at_thirty_entries(self) -> None:
-        assert len(ALLOWLIST) == 31, (
-            "ALLOWLIST must stay at exactly 32 entries — add new violations "
+        assert len(ALLOWLIST) == 30, (
+            "ALLOWLIST must stay at exactly 30 entries — add new violations "
             "by fixing the test file's name, not by growing the allowlist"
         )
 

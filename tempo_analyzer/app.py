@@ -22,6 +22,12 @@ Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, the third window of
+D8's wave 2), so the shell owns the Help bar and the Processing and Results
+tabs; this tool keeps its Setup panel and its per-run completion wording. The
+run's folder, mode, scheme and markings are snapshotted on the main thread in
+``start_processing``, so the worker and the completion never read a Tk variable
+off the Tk thread.
 """
 
 import logging
@@ -32,8 +38,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+from audio_suite_shared import suite_config
 from audio_suite_shared.audio_formats import is_supported_format
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
@@ -44,12 +49,12 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
-from .core.tempo_schemes import DEFAULT_SCHEME, TEMPO_SCHEMES
-from .ui import processing_tab, results_tab, setup_tab
+from .core.tempo_schemes import DEFAULT_SCHEME, TEMPO_SCHEMES, MarkingList
+from .ui import setup_tab
 from .utils import cli_args
 
 logger = logging.getLogger(__name__)
@@ -60,20 +65,19 @@ TOOL_ID = "tempo_analyzer"
 DRIVER_TOOL_ID = "tempo"
 
 
-class TempoAnalyzerApp(UIHelperMixin):
+class TempoAnalyzerApp(SuiteApp):
     """Tempo Analyzer application GUI."""
 
+    title = "Tempo Analyzer & Tagger"
+    window_key = "tempo_analyzer_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE = "Tempo_Analyzer_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    # The heading the Results tab opens with; a finished run sets its own.
+    completion_text = "Tempo Analysis Complete!"
 
     def __init__(self, root: tk.Tk):
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Tempo Analyzer & Tagger",
-            "tempo_analyzer_window",
-            "tempo_analyzer",
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
         self.run_mode = tk.StringVar(value="Dry Run")
@@ -95,14 +99,19 @@ class TempoAnalyzerApp(UIHelperMixin):
 
         # ── State ─────────────────────────────────────────────────────────────
         self._log_path: str = ""
-        self._dir_path: str = ""
         self.auto_end: bool = False
+        # The run's inputs, snapshotted by start_processing on the Tk thread.
+        self._run_path: str = ""
+        self._run_mode: str = ""
+        self._run_scheme: str = ""
+        self._run_markings: MarkingList = TEMPO_SCHEMES[saved]
 
         # ── Worker slot pool ──────────────────────────────────────────────────
+        # Built before super().__init__: the shell renders the grid from it.
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
@@ -110,9 +119,10 @@ class TempoAnalyzerApp(UIHelperMixin):
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._update_reference: Callable[..., Any] = lambda _: None  # filled below
-        self._build_ui()
+        # The Setup tab replaces this while the shell builds it.
+        self._update_reference: Callable[..., Any] = lambda _: None
+
+        super().__init__(root)
 
         # Populate reference table with initial scheme
         self._update_reference(self._active_markings)
@@ -126,35 +136,12 @@ class TempoAnalyzerApp(UIHelperMixin):
             if last:
                 self.folder_path.set(last)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the run controls, the scheme selector and the reference table."""
         widgets = setup_tab.build(
-            tab_setup,
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             tempo_scheme=self.tempo_scheme,
@@ -175,24 +162,7 @@ class TempoAnalyzerApp(UIHelperMixin):
         self._update_reference = widgets["update_reference"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
         self._preset_combo = widgets["preset_combo"]
-
-        proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.controls_panel = widgets["controls_panel"]
 
     # ── Scheme change ─────────────────────────────────────────────────────────
 
@@ -273,12 +243,6 @@ class TempoAnalyzerApp(UIHelperMixin):
             save_last_dir=True,
         )
 
-    def _open_help(self) -> None:
-        self._open_help_standard(self.HELP_GUIDE)
-
-    def _open_log(self) -> None:
-        self._open_log_standard()
-
     def _open_folder(self) -> None:
         """Open the source folder since Tempo Analyzer processes files in-place."""
         self._open_source_folder_standard()
@@ -323,8 +287,16 @@ class TempoAnalyzerApp(UIHelperMixin):
 
             self.start_btn.config(state="disabled")
             self.file_listbox.delete(0, tk.END)
-            self.notebook.select(self._tab_processing)
+            self.progress["value"] = 0
+            self.notebook.select(self.processing_frame)
             self.overall_status.set("Analyzing tempo markings...")
+
+            # Snapshot the run's inputs on the main thread: the worker and the
+            # completion must never call .get() off the Tk thread (see _run).
+            self._run_path = folder
+            self._run_mode = self.run_mode.get()
+            self._run_scheme = self.tempo_scheme.get()
+            self._run_markings = self._active_markings
 
             threading.Thread(target=self._run, daemon=True).start()
 
@@ -340,17 +312,22 @@ class TempoAnalyzerApp(UIHelperMixin):
 
     @handle_audio_errors(reraise=False, context="tempo_analyzer_app_run")
     def _run(self) -> None:
-        dir_path = self.folder_path.get()
-        is_dry_run = self.run_mode.get() == "Dry Run"
-        scheme_name = self.tempo_scheme.get()
-        markings = self._active_markings  # snapshot for this run
+        """Analyse the folder on a worker thread.
 
-        self._dir_path = dir_path
+        Thread safety: this runs off the Tk main thread, so it must not touch
+        a widget or call ``.get()`` on a Tk variable. The inputs are the
+        snapshot ``start_processing`` took on the main thread, and every UI
+        write goes through ``root.after(0, ...)``.
+        """
+        dir_path = self._run_path
+        is_dry_run = self._run_mode == "Dry Run"
+        scheme_name = self._run_scheme
+        markings = self._run_markings
+
         self._log_path = os.path.join(
             dir_path,
             "tempo_dry_run_log.txt" if is_dry_run else "tempo_analysis_log.txt",
         )
-        self.progress["value"] = 0
 
         header: list[str] = [
             "TEMPO ANALYSIS REPORT\n",
@@ -441,8 +418,7 @@ class TempoAnalyzerApp(UIHelperMixin):
             analysed,
             skipped,
             errors,
-            minutes,
-            seconds,
+            duration_secs,
         )
 
         if self.auto_end:
@@ -484,29 +460,20 @@ class TempoAnalyzerApp(UIHelperMixin):
         analysed: int,
         skipped: int,
         errors: int,
-        minutes: int,
-        seconds: int,
+        duration_secs: float,
     ) -> None:
-        """Update UI after analysis completes (must run on main thread)."""
-        is_dry_run = self.run_mode.get() == "Dry Run"
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+        """Render the finished run (must run on the main thread)."""
         self.summary_label.config(
             text=f"Total: {total} files\n"
             f"Tagged/Analyzed: {analysed}\n"
             f"Skipped: {skipped}\n"
             f"Errors: {errors}"
         )
-        self.completion_label.config(
-            text="Analysis Complete!" if is_dry_run else "Tempo Tagging Complete!"
+        # This window has always labelled a finished run by its mode; the shell
+        # renders ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            "Analysis Complete!"
+            if self._run_mode == "Dry Run"
+            else "Tempo Tagging Complete!"
         )
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
-
-    def _on_error(self, message: str) -> None:
-        """Called from worker threads — schedule error dialog on main thread."""
-        self.root.after(0, self._show_error, message)
-
-    def _show_error(self, message: str) -> None:
-        """Show error dialog (must run on main thread)."""
-        messagebox.showerror("Error", message)
-        self.start_btn.config(state="normal")
+        self.render_completion(duration_secs=duration_secs, output_dir=self._run_path)

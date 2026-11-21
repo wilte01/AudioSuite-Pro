@@ -103,7 +103,27 @@ used once, and every bullet belongs to exactly one of them.
   `SUMMARY:` block the contract reads. `ui/main_tabs.py` loses the two tab
   builders the shell replaced.
 
+- **Tempo Analyzer follows it in wave 2 (C1 stage 2).** `TempoAnalyzerApp`
+  composes `SuiteApp` with the shell's tab labels and its own
+  `Processed / Skipped / Errors` stats line. Its Setup panel keeps its builder,
+  and the reference table it returns is still redrawn whenever the scheme
+  changes. The worker pool is built before `super().__init__` so the shell can
+  render the grid, and the shell's Results tab renders this run's per-mode
+  heading by pointing `completion_text` at "Analysis Complete!" or "Tempo
+  Tagging Complete!" before the completion. The window snapshots its folder,
+  mode, scheme and markings on the Tk thread in `start_processing`, so neither
+  the worker nor the completion reads a Tk variable off-thread; the bar reset
+  moved to the same place. `_on_error`, Help and View Log are the shell's,
+  `_open_folder` stays this tool's source-folder override, and
+  `ui/processing_tab.py`/`ui/results_tab.py` are deleted with `tests/test_ui.py`.
+  `tests/test_test_file_naming.py` drops that file's allowlist entry (30).
+
 ### Fixed
+
+- **Genre Sync's worker no longer reads its Tk variables.** `start_processing`
+  snapshots the folder and the run mode on the Tk thread, and both the worker
+  and the completion read that snapshot; the completion's log builder was still
+  calling `run_mode.get()` from the runner's pool.
 
 - **Album Art Sync's stats line counts the run.** The Processing tab's
   `Processed: 0 | Skipped: 0 | Errors: 0` line never changed: the window wrote
