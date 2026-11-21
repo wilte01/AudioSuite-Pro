@@ -12,6 +12,8 @@ Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the progress and
 completion handlers are asserted through the Tk-thread writes they schedule,
 the error handler is the shell's, and the completion shell carries the shell's
 results frame.
+Changed in 2.9.0: ``start_processing`` snapshots the run's folder and mode on
+the main thread, so the worker reads those instead of the Tk variables.
 """
 
 from pathlib import Path
@@ -72,6 +74,50 @@ class TestGenreSetterAppStartProcessing:
         with patch("genre_sync.app.threading.Thread"):
             mock_tk_app.start_processing()
             mock_tk_app.start_btn.config.assert_called()
+
+
+class TestRunInputsAreSnapshotted:
+    """The worker reads what ``start_processing`` took, not the Tk variables."""
+
+    def test_start_processing_snapshots_the_folder_and_mode(
+        self, mock_tk_app, tmp_path
+    ):
+        d = tmp_path / "music"
+        d.mkdir()
+        mock_tk_app.folder_path.set(str(d))
+        mock_tk_app.run_mode.set("Live Update")
+
+        with patch("genre_sync.app.threading.Thread"):
+            mock_tk_app.start_processing()
+
+        assert mock_tk_app._run_path == str(d)
+        assert mock_tk_app._run_mode == "Live Update"
+
+    def test_the_worker_reads_the_snapshot_not_the_widgets(self, mock_tk_app, tmp_path):
+        """A Tk variable read off the Tk thread is what this locks out."""
+        from genre_sync.app import GenreSetterApp
+
+        d = tmp_path / "music"
+        d.mkdir()
+        mock_tk_app.folder_path.set(str(d))
+        mock_tk_app.run_mode.set("Dry Run")
+        with patch("genre_sync.app.threading.Thread"):
+            mock_tk_app.start_processing()
+
+        # A late read would see these; the run must ignore both.
+        mock_tk_app.folder_path = MagicMock()
+        mock_tk_app.folder_path.get.return_value = "/somewhere/else"
+        mock_tk_app.run_mode = MagicMock()
+        mock_tk_app.run_mode.get.return_value = "Live Update"
+
+        with (
+            patch("genre_sync.app.active_batch"),
+            patch("genre_sync.app.file_processor.run_processing") as mock_run,
+        ):
+            GenreSetterApp._run(mock_tk_app)
+
+        assert mock_run.call_args.kwargs["dir_path"] == str(d)
+        assert mock_run.call_args.kwargs["is_dry_run"] is True
 
 
 class TestGenreSetterAppCallbackSignatures:
@@ -536,6 +582,7 @@ def _completion_shell(tmp_path: Path) -> Any:
     app._dir_path = str(tmp_path)
     app.run_mode = MagicMock()
     app.run_mode.get.return_value = "Dry Run"
+    app._run_mode = "Dry Run"
     app.auto_end = False
     app.time_label = MagicMock()
     app.summary_label = MagicMock()

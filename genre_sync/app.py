@@ -18,6 +18,9 @@ D8's wave 2), so the shell owns the Help bar and the Processing and Results
 tabs; this tool keeps its Setup panel and its per-run completion wording. The
 runner calls the progress and completion handlers from its worker pool, so both
 now do their file I/O there and hand every widget write to the Tk thread.
+Changed in 2.9.0: the run's folder and mode are read once in
+``start_processing``, so neither the worker nor the completion calls ``.get()``
+on a Tk variable off the Tk thread.
 """
 
 import logging
@@ -77,6 +80,8 @@ class GenreSetterApp(SuiteApp):
 
         # ── State ─────────────────────────────────────────────────────────────
         self._dir_path: str = ""
+        self._run_path: str = ""
+        self._run_mode: str = ""
         self.auto_end: bool = False
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
@@ -213,6 +218,11 @@ class GenreSetterApp(SuiteApp):
         self.notebook.select(self.processing_frame)
         self.overall_status.set("Processing genre fields...")
 
+        # Snapshot the run's inputs on the main thread: neither the worker nor
+        # the completion may call .get() on a Tk variable (see _run).
+        self._run_path = folder
+        self._run_mode = self.run_mode.get()
+
         threading.Thread(target=self._run, daemon=True).start()
 
     # ── Background thread ─────────────────────────────────────────────────────
@@ -223,10 +233,12 @@ class GenreSetterApp(SuiteApp):
 
         Thread safety: the runner publishes progress and completion from its
         own pool, so those handlers do their file I/O here and hand every
-        widget write to the Tk thread.
+        widget write to the Tk thread. The run's inputs are the snapshot
+        ``start_processing`` took on the main thread, never a Tk variable read
+        from here.
         """
-        dir_path = self.folder_path.get()
-        is_dry_run = self.run_mode.get() == "Dry Run"
+        dir_path = self._run_path
+        is_dry_run = self._run_mode == "Dry Run"
         self._dir_path = dir_path
         self._log_path = os.path.join(
             dir_path,
@@ -302,7 +314,7 @@ class GenreSetterApp(SuiteApp):
         **kwargs: object,
     ) -> None:
         """Completion seam: write the report here, render it on the Tk thread."""
-        is_dry_run = self.run_mode.get() == "Dry Run"
+        is_dry_run = self._run_mode == "Dry Run"
 
         log_lines = log_builder.build_log_lines(
             is_dry_run=is_dry_run,
