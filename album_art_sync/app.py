@@ -22,7 +22,9 @@ list, and the run report ends with the SUMMARY block the shell's contract
 reads.
 Changed in 2.9.0: the Processing tab's stats line counts the run — the file
 total as soon as the folder is read, then the applier's per-file ticks — so it
-no longer sits at zero for the whole run.
+no longer sits at zero for the whole run. A dry run writes nothing, so its line
+counts what the run examined (``Examined: N / N (dry run, nothing written)``)
+rather than claiming files were processed.
 """
 
 import json
@@ -378,13 +380,18 @@ class AudioSuiteV6(SuiteApp):
         else:
             self.progress.config(value=value, maximum=maximum)
 
-    def _set_stats(self, processed: int, total: int) -> None:
+    def _set_stats(self, processed: int, total: int, *, dry_run: bool = False) -> None:
         """Update the stats line's file counter from any thread."""
-        self.root.after(0, self._apply_stats, processed, total)
+        self.root.after(0, self._apply_stats, processed, total, dry_run)
 
-    def _apply_stats(self, processed: int, total: int) -> None:
+    def _apply_stats(self, processed: int, total: int, dry_run: bool = False) -> None:
         """Write the stats line (must run on the main thread)."""
-        self.stats_label.config(text=f"Processed: {processed} / {total}")
+        if dry_run:
+            self.stats_label.config(
+                text=f"Examined: {processed} / {total} (dry run, nothing written)"
+            )
+        else:
+            self.stats_label.config(text=f"Processed: {processed} / {total}")
 
     def _show_result(
         self,
@@ -467,8 +474,9 @@ class AudioSuiteV6(SuiteApp):
             return
 
         # The stats line counts this run from the moment the folder is read, so
-        # it shows the file total through the artwork search as well.
-        self._set_stats(0, len(files))
+        # it shows the file total through the artwork search as well.  A dry run
+        # writes nothing, so its line counts files examined, not processed.
+        self._set_stats(0, len(files), dry_run=mode == "Dry Run")
 
         # Read artist/album from first file.
         try:
@@ -574,7 +582,7 @@ class AudioSuiteV6(SuiteApp):
                 # A dry run writes nothing, so the applier reports no per-file
                 # ticks; it still examined the whole list, and the line says so
                 # rather than freezing at the starting count.
-                self._set_stats(len(files), len(files))
+                self._set_stats(len(files), len(files), dry_run=True)
 
             if success:
                 outcome = f"Sync Complete via {source_used}"

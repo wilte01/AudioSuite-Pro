@@ -52,7 +52,7 @@ stubs carry the shell's frames and result widgets, and View Log is the shell's
 report opener.
 Changed in 2.9.0: the Processing tab's stats line is locked against the run's
 file count and the applier's per-file ticks, and against its main-thread
-marshalling.
+marshalling; a dry run's line is locked to its "Examined" wording.
 """
 
 from __future__ import annotations
@@ -3082,7 +3082,7 @@ class TestAppRunLogic:
         AudioSuiteV6 = self._import_app_class()
         (tmp_path / "track01.mp3").write_bytes(b"fake")
         (tmp_path / "track02.mp3").write_bytes(b"fake")
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app = self._make_bare_app(AudioSuiteV6, tmp_path, mode="Update Artwork")
         with (
             patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
             patch("album_art_sync.app.read_album_artist", return_value=""),
@@ -3126,7 +3126,11 @@ class TestAppRunLogic:
     def test_a_dry_run_reports_its_examined_count_when_the_phase_ends(
         self, tmp_path: Path
     ) -> None:
-        """A dry run writes nothing, so the applier ticks nothing."""
+        """A dry run writes nothing, so the applier ticks nothing.
+
+        The line then has to count files examined rather than processed, or it
+        claims a write the run deliberately did not make.
+        """
         AudioSuiteV6 = self._import_app_class()
         (tmp_path / "track01.mp3").write_bytes(b"fake")
         (tmp_path / "track02.mp3").write_bytes(b"fake")
@@ -3145,8 +3149,12 @@ class TestAppRunLogic:
         texts = [
             call_.kwargs["text"] for call_ in app.stats_label.config.call_args_list
         ]
-        assert texts[0] == "Processed: 0 / 2"
-        assert texts[-1] == "Processed: 2 / 2"
+        # Nothing was written, so the line counts what was examined and says so;
+        # "Processed: 2 / 2" would claim the files were updated.
+        examined = "Examined: 2 / 2 (dry run, nothing written)"
+        assert texts[0] == "Examined: 0 / 2 (dry run, nothing written)"
+        assert texts[-1] == examined
+        assert not any(text.startswith("Processed:") for text in texts)
 
     # ---- small guard-clause methods ----------------------------------------
 

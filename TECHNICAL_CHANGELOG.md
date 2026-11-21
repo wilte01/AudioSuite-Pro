@@ -115,6 +115,12 @@ used once, and every bullet belongs to exactly one of them.
   through `progress.master`, which was an accident of the shared builder's
   layout.
 
+- **A dry run's stats line says what it examined.** The same line ended a dry
+  run at `Processed: 2 / 2` while nothing had been written, which claims a
+  write the run deliberately did not make. A dry run now reads
+  `Examined: 2 / 2 (dry run, nothing written)` from the moment the folder is
+  read, and a live run keeps `Processed: n / N`.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added
