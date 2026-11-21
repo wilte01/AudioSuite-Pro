@@ -689,10 +689,9 @@ class TestRunNote:
 class TestSummarySource:
     """The log's SUMMARY row and the panel row come from one place (D109).
 
-    ``_on_complete`` hands the rows it wrote to the scheduled UI update, so the
-    two surfaces cannot disagree; these tests pin the fallback the base uses
-    when the update is driven directly (the hook), because that is the path a
-    future caller reaches for.
+    ``_on_complete`` computes the row, writes it into the report and hands that
+    same list to the scheduled UI update, so the two surfaces cannot disagree
+    and no state is kept between them.
     """
 
     @staticmethod
@@ -710,36 +709,36 @@ class TestSummarySource:
 
     @staticmethod
     def _shown(app) -> str:
+        """Run the update the completion scheduled, then read the panel."""
+        args = app.root.after.call_args.args
+        args[1](*args[2:])
         return app.summary_label.config.call_args.kwargs["text"]
 
-    def test_the_panel_reads_the_hook_when_nothing_is_passed(
-        self, tmp_path, monkeypatch
-    ):
+    def test_the_panel_shows_the_row_the_log_wrote(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
         app = self._panel_app(tmp_path / "bpm_log.txt")
 
         _complete(app, total=12, outside=_OUTSIDE)
-        app._update_ui_on_complete(12, 12, 0, 0, 1.0)
 
-        assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in self._shown(app)
+        row = "Outside BPM range: 1 of 12 tracks (band 75-175)"
+        assert row in self._shown(app)
+        assert row in open(app._log_path, encoding="utf-8").read()
 
     def test_a_clean_run_leaves_the_panel_row_empty(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
         app = self._panel_app(tmp_path / "bpm_log.txt")
 
         _complete(app, total=12)
-        app._update_ui_on_complete(12, 12, 0, 0, 1.0)
 
         assert "Outside BPM range" not in self._shown(app)
 
     def test_a_later_clean_run_cannot_inherit_the_row(self, tmp_path, monkeypatch):
-        """Rows are replaced per run, not accumulated on the class."""
+        """Rows are computed per run, not kept on the window."""
         monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
         app = self._panel_app(tmp_path / "bpm_log.txt")
 
         _complete(app, total=12, outside=_OUTSIDE)
         _complete(app, total=12)
-        app._update_ui_on_complete(12, 12, 0, 0, 1.0)
 
         assert "Outside BPM range" not in self._shown(app)
 

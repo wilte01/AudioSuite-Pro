@@ -98,11 +98,6 @@ class BPMAnalyzerApp(SuiteApp):
     #: The preset keys this tool has always written (``bpm_preset_<name>``).
     PRESET_KEY_PREFIX: str = "bpm"
 
-    #: Rows added to the run summary for the run in progress (D109).  A tuple
-    #: replaced at the start of every completion, never mutated in place, so a
-    #: finished run's row cannot survive into the next one.
-    _summary_rows: tuple[tuple[str, str], ...] = ()
-
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
     _launched_from_driver: bool = False
@@ -147,7 +142,6 @@ class BPMAnalyzerApp(SuiteApp):
 
         # ── Processing state ─────────────────────────────────────────────────
         self._log_path: str = ""
-        self._dir_path: str = ""
         self.auto_end: bool = False
         # The run's mode, snapshotted by start_processing on the Tk thread.
         self._run_mode: str = ""
@@ -526,8 +520,7 @@ class BPMAnalyzerApp(SuiteApp):
                 the Results tab never appeared.
         """
         outside = list(outside_range_files or [])
-        rows = tuple(self._outside_summary(total=total, outside=outside))
-        self._summary_rows = rows
+        rows = self._outside_summary(total=total, outside=outside)
         self._record_run_note(total=total, errors=errors, outside=outside)
 
         minutes = int(duration_secs // 60)
@@ -578,16 +571,8 @@ class BPMAnalyzerApp(SuiteApp):
             skipped,
             errors,
             duration_secs,
-            list(rows),
+            rows,
         )
-
-    def _summary_extras(self) -> list[tuple[str, str]]:
-        """Return this run's out-of-band row for the log and the Results panel.
-
-        The rows are computed in :meth:`_on_complete` and handed over here, so
-        the log's SUMMARY block and the panel can never disagree.
-        """
-        return list(self._summary_rows)
 
     @staticmethod
     def _band_text(record: dict[str, object]) -> str:
@@ -659,14 +644,14 @@ class BPMAnalyzerApp(SuiteApp):
         skipped: int,
         errors: int,
         duration_secs: float,
-        summary_extras: list[tuple[str, str]] | None = None,
+        summary_extras: list[tuple[str, str]],
     ) -> None:
-        """Render the finished run (must run on the main thread)."""
-        rows: list[tuple[str, str]] = (
-            list(summary_extras)
-            if summary_extras is not None
-            else list(self._summary_extras())
-        )
+        """Render the finished run (must run on the main thread).
+
+        ``summary_extras`` is the row set :meth:`_on_complete` wrote into the
+        report, so the panel cannot show a row the log does not have (D109).
+        """
+        rows: list[tuple[str, str]] = list(summary_extras)
         text: str = (
             f"Total: {total} files\n"
             f"{self.TAGGED_LABEL}: {tagged}\n"
