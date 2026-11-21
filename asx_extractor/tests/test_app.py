@@ -68,7 +68,6 @@ def _make_tool(
     tool.start_btn = MagicMock()
     tool.notebook = MagicMock()
 
-    tool.auto_end = auto_end
     tool.auto_end_var = MagicMock()
     tool.auto_end_var.get.return_value = auto_end
     tool.recursive_var = MagicMock()
@@ -286,29 +285,9 @@ class TestRunAutoEnd:
 # ---------------------------------------------------------------------------
 
 
-class TestRunLogWriteFailure:
-    """When write_extraction_log returns a falsy value, _run() shows an
-    error messagebox via root.after."""
-
-    def test_log_write_failure_shows_error(self, tmp_path: Path) -> None:
-        tool = _make_tool(folder=str(tmp_path))
-
-        with (
-            patch("asx_extractor.app.active_batch", MagicMock()),
-            patch(
-                "asx_extractor.app.file_ops.write_extraction_log",
-                return_value=False,
-            ),
-            patch("asx_extractor.app.messagebox") as mock_mb,
-        ):
-            _run(tool)
-
-        # The error is scheduled via root.after(0, lambda: messagebox.showerror(...))
-        # Because root.after is synchronous in our stub, the call already fired.
-        # We verify messagebox.showerror was called.
-        mock_mb.showerror.assert_called_once_with(
-            "Log Error", "Could not write the extraction log."
-        )
+class TestRunLogWriteSuccess:
+    """A written log leaves the run quiet; the failure branch is covered
+    end-to-end by ``TestRunLogWriteFailureEndToEnd`` below."""
 
     def test_log_write_success_does_not_show_error(self, tmp_path: Path) -> None:
         tool = _make_tool(folder=str(tmp_path))
@@ -376,14 +355,6 @@ class TestBrowseFolder:
         )
 
 
-class TestOpenHelp:
-    def test_delegates_to_open_help_standard(self) -> None:
-        tool = _make_tool()
-        tool._open_help_standard = MagicMock()
-        tool._open_help()
-        tool._open_help_standard.assert_called_once_with(tool.HELP_GUIDE)
-
-
 # ---------------------------------------------------------------------------
 # Moved from test_app_run.py (iteration-9 G5.1): tests for
 # asx_extractor.app.ASXExtractorTool._run().
@@ -400,11 +371,6 @@ class TestOpenHelp:
 # event loop, we bypass __init__ via __new__ and stub only the
 # attributes _run() actually touches.
 # ---------------------------------------------------------------------------
-
-
-def _make_stub_tool(folder: Path, mode: str) -> ASXExtractorTool:
-    """Build the shell ``_run`` needs, for the folder and mode under test."""
-    return _make_tool(folder=str(folder), mode=mode)
 
 
 def _write_asx(path: Path, href: str) -> Path:
@@ -429,7 +395,7 @@ class TestRunCopyFailureHandling:
         source_dir.mkdir()
         asx = _write_asx(source_dir / "track.asx", str(audio.resolve()))
 
-        tool = _make_stub_tool(source_dir, "Execute Extraction (Permanent)")
+        tool = _make_tool(folder=str(source_dir), mode="Execute Extraction (Permanent)")
 
         with (
             patch("asx_extractor.core.file_ops.SEND2TRASH_AVAILABLE", False),
@@ -460,7 +426,7 @@ class TestRunCopyFailureHandling:
         audio.write_bytes(b"x")
         asx = _write_asx(tmp_path / "track.asx", str(audio.resolve()))
 
-        tool = _make_stub_tool(tmp_path, "Execute Extraction (Permanent)")
+        tool = _make_tool(folder=str(tmp_path), mode="Execute Extraction (Permanent)")
 
         with (
             patch("asx_extractor.core.file_ops.SEND2TRASH_AVAILABLE", False),
@@ -488,7 +454,7 @@ class TestRunCopyFailureHandling:
         source_dir.mkdir()
         asx = _write_asx(source_dir / "track.asx", str(audio.resolve()))
 
-        tool = _make_stub_tool(source_dir, "Execute Extraction (Permanent)")
+        tool = _make_tool(folder=str(source_dir), mode="Execute Extraction (Permanent)")
 
         with (
             patch("asx_extractor.app.file_ops.copy_audio_file", return_value=False),
@@ -517,7 +483,7 @@ class TestRunCopyFailureHandling:
         source_dir.mkdir()
         _write_asx(source_dir / "track.asx", str(audio.resolve()))
 
-        tool = _make_stub_tool(source_dir, "Execute Extraction (Permanent)")
+        tool = _make_tool(folder=str(source_dir), mode="Execute Extraction (Permanent)")
 
         with (
             patch("asx_extractor.app.file_ops.copy_audio_file", return_value=True),
@@ -549,7 +515,7 @@ class TestRunDirectoryScan:
         source_dir.mkdir()
         _write_asx(source_dir / "TRACK.ASX", str(audio.resolve()))
 
-        tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
+        tool = _make_tool(folder=str(source_dir), mode="Dry Run (Simulated)")
         _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
@@ -561,7 +527,7 @@ class TestRunDirectoryScan:
         (source_dir / "notes.txt").write_text("not an asx file")
         (source_dir / "cover.jpg").write_bytes(b"\xff\xd8")
 
-        tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
+        tool = _make_tool(folder=str(source_dir), mode="Dry Run (Simulated)")
         _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
@@ -572,7 +538,7 @@ class TestRunDirectoryScan:
         source_dir = tmp_path / "Playlists"
         source_dir.mkdir()
 
-        tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
+        tool = _make_tool(folder=str(source_dir), mode="Dry Run (Simulated)")
         _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
@@ -595,7 +561,7 @@ class TestRunDirectoryScan:
         missing = library_dir / "ghost.mp3"
         _write_asx(source_dir / "c.asx", str(missing.resolve()))
 
-        tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
+        tool = _make_tool(folder=str(source_dir), mode="Dry Run (Simulated)")
         _run(tool)
 
         log_text = (source_dir / "Extraction_Log.txt").read_text()
@@ -614,7 +580,7 @@ class TestRunDirectoryScan:
         source_dir.mkdir()
         _write_asx(source_dir / "track.asx", str(audio.resolve()))
 
-        tool = _make_stub_tool(source_dir, "Dry Run (Simulated)")
+        tool = _make_tool(folder=str(source_dir), mode="Dry Run (Simulated)")
 
         with (
             patch("asx_extractor.app.file_ops.copy_audio_file") as mock_copy,

@@ -98,7 +98,6 @@ class ASXExtractorTool(SuiteApp):
             self.asx_action_mode.set(initial_mode)
 
         # ── State ─────────────────────────────────────────────────────────────
-        self.auto_end = auto_end
         # The run's mode, snapshotted by start_extraction on the Tk thread.
         self._run_mode: str = ""
 
