@@ -14,6 +14,9 @@ base ``_dispatch_ui_message`` moved here from four adopters that had written the
 same wrapper byte for byte (D31).
 Changed in 2.9.0: covers ``_write_run_report_standard``, the report three
 adopters had written for themselves (D32).
+Changed in 2.9.0: covers the writer creating its report's folder, and a write
+failure the folder creation cannot repair (D33).
+
 """
 
 from __future__ import annotations
@@ -216,10 +219,11 @@ class TestWriteRunReport:
     def test_a_failed_write_is_logged_not_raised(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        # A missing folder is a real write failure: the run's audio work is
-        # already done, so the completion must not raise off the worker thread.
+        # The writer creates the folder, so the failure has to be one mkdir
+        # cannot repair: the report path is itself a directory.  The run's audio
+        # work is already done, so the completion must not raise off-thread.
         app = _window()
-        app._log_path = str(tmp_path / "gone" / "run_log.txt")
+        app._log_path = str(tmp_path)
         app.TAGGED_LABEL = "Files read"
 
         with caplog.at_level(logging.ERROR):
@@ -235,3 +239,23 @@ class TestWriteRunReport:
             )
 
         assert "Could not write log" in caplog.text
+
+    def test_it_creates_the_reports_folder(self, tmp_path: Path) -> None:
+        # A run that writes into a fresh output directory must still leave a
+        # report View Log can open, not a logged failure.
+        app = _window()
+        app._log_path = str(tmp_path / "run" / "nested" / "run_log.txt")
+        app.TAGGED_LABEL = "Files read"
+
+        app._write_run_report_standard(
+            header=["REPORT\n"],
+            log_entries=[],
+            rows=(),
+            total=1,
+            tagged=1,
+            skipped=0,
+            errors=0,
+            duration_secs=0.0,
+        )
+
+        assert Path(app._log_path).is_file()

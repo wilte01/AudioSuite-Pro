@@ -341,6 +341,21 @@ used once, and every bullet belongs to exactly one of them.
   `audio_suite_shared/tests/test_suite_app.py` cover the footer, the rows' order
   and the logged failure, and `tests/test_tk_event_pump.py`'s shell-owns-it rule
   now includes the writer, so a fifth copy fails the suite.
+- **A shell-written report creates its folder and names its count.** The report
+  writer now creates the folder it writes into, so a tool whose run produces a
+  fresh output directory still ends with a report View Log can open instead of a
+  logged failure; the three current adopters write beside the scanned folder, so
+  their files are unchanged, and the writer's failure test now fails the way the
+  new `mkdir` cannot repair (the report path is itself a directory).
+  `TAGGED_LABEL` is locked rather than incidental: `tests/test_suite_app_contract.py`
+  reads the label line back out of the report each shell writer produces -
+  `Files changed: 1`, `Files read: 1`, `Files scanned: 1` - and freezes the set
+  of adopters that must name one, so a fourth adopter leaving the shell's
+  `Tagged` fallback in place fails the suite. Only the finder's own suite pinned
+  its word before; the editor's and the updater's stopped at `SUMMARY:`. The
+  fallback stays, because the label is interpolated outside the writer's `try`:
+  requiring it by omission would raise off the worker thread and abort the
+  completion (D112/D113), not fail the report.
 
 ### Fixed
 

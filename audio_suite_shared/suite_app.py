@@ -71,6 +71,10 @@ writes the header, the per-file lines and the ``SUMMARY:`` footer into
 ``_log_path``; a tool supplies its own rows, and a failed write is logged rather
 than raised off the worker thread.  Three adopters had carried the same block
 (C1 stage 2, D32).
+Changed in 2.9.0: the writer creates the report's folder when it is missing,
+so a tool that writes into a fresh output directory still finishes with a report
+View Log can open rather than a logged failure (D33).
+
 """
 
 from __future__ import annotations
@@ -79,6 +83,7 @@ import logging
 import threading
 import tkinter as tk
 from collections.abc import Callable
+from pathlib import Path
 from queue import SimpleQueue
 from tkinter import messagebox, ttk
 from typing import Any
@@ -356,6 +361,10 @@ class SuiteApp(UIHelperMixin):
         handler, which runs off the Tk thread; a failed write is logged, never
         raised, because the audio work is already done.
 
+        The report's folder is created when it does not exist, so a run that
+        writes into a fresh output directory still leaves a report View Log can
+        open instead of a logged failure.
+
         Args:
             header: Report header lines for this run.
             log_entries: The per-file report lines.
@@ -380,6 +389,7 @@ class SuiteApp(UIHelperMixin):
         summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
 
         try:
+            Path(self._log_path).parent.mkdir(parents=True, exist_ok=True)
             with open(self._log_path, "w", encoding="utf-8") as f:
                 f.writelines(header + log_entries + summary)
             logger.info("Log written to '%s'", self._log_path)

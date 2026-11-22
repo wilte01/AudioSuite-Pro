@@ -25,7 +25,9 @@ What is locked, and why each one is not visible to another check:
 * the shell receives the tool's manifest identity, so the window, log file and
   saved geometry stay the tool's own;
 * a finished run writes the report View Log opens, read back from disk, so a
-  tool that only remembers a path fails here.
+  tool that only remembers a path fails here;
+* a shell-written report labels its handled count with the tool's own word, so
+  a tool that never names a ``TAGGED_LABEL`` cannot ship the shell's fallback.
 
 ``MIGRATED`` is frozen.  A newly migrated tool must be added deliberately (the
 plan migrates one tool per commit), and a tool that drifts back to its own
@@ -70,6 +72,9 @@ Changed in 2.9.0: Tag Editor follows it in wave 3, so the table is seventeen
 and the editor gains a run-report drive through its apply completion.
 Changed in 2.9.0: Tag Field Updater closes wave 3's grid pair, so the table is
 eighteen and the updater gains a run-report drive through its scan completion.
+Changed in 2.9.0: locks ``TAGGED_LABEL`` in the report each shell writer
+produces, through the same completion drive (D33).
+
 """
 
 from __future__ import annotations
@@ -795,6 +800,16 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     TagFieldUpdaterApp: _complete_tag_field_updater_run,
 }
 
+#: The label line each adopter that writes through
+#: ``SuiteApp._write_run_report_standard`` must leave in its report.  The shell
+#: falls back to ``Tagged``, so a tool that never names its own label would ship
+#: that word with every other gate green.
+SHELL_REPORT_LABELS: dict[type[suite_app.SuiteApp], str] = {
+    DuplicateFinderApp: "Files scanned: 1",
+    TagEditorApp: "Files changed: 1",
+    TagFieldUpdaterApp: "Files read: 1",
+}
+
 
 def _walk(widget: tk.Misc) -> Iterator[tk.Misc]:
     """Every widget at or under *widget*."""
@@ -996,6 +1011,38 @@ def test_the_album_art_sync_cancel_button_rides_the_shell_panel(
 def test_every_migrated_tool_has_a_run_report_drive() -> None:
     """A newly migrated tool must add its completion drive deliberately."""
     assert set(_RUN_REPORTS) == set(MIGRATED)
+
+
+@pytest.mark.parametrize(
+    "window",
+    SHELL_REPORT_LABELS,
+    ids=[cls.__name__ for cls in SHELL_REPORT_LABELS],
+    indirect=True,
+)
+def test_a_shell_written_report_labels_the_count_the_tool_counts(
+    window: SimpleNamespace, tmp_path: Path
+) -> None:
+    """The report carries the tool's word, read from the file it wrote.
+
+    ``_write_run_report_standard`` prints ``TAGGED_LABEL``; reading the line back
+    out of the report proves the tool declared one instead of accepting the
+    shell's fallback, which no other check can see.
+    """
+    drive = _RUN_REPORTS[window.cls]
+    drive(window.app, tmp_path)
+
+    report = Path(window.app._log_path).read_text(encoding="utf-8")
+
+    assert SHELL_REPORT_LABELS[window.cls] in report, report
+
+
+def test_every_shell_written_report_has_its_label_locked() -> None:
+    """A fourth adopter of the shell's writer must name its own label."""
+    assert set(SHELL_REPORT_LABELS) == {
+        DuplicateFinderApp,
+        TagEditorApp,
+        TagFieldUpdaterApp,
+    }
 
 
 def test_the_migrated_table_is_frozen() -> None:
