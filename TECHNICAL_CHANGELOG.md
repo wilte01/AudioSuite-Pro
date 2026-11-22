@@ -250,6 +250,14 @@ used once, and every bullet belongs to exactly one of them.
   and asserted instead of being swallowed by `handle_audio_errors` after the
   report had already been written.
 
+- **The Duplicate Finder's poller and run note lost two leftovers.** The review
+  of `92aa6b5` found the drain rewriting the tick's line as
+  `display_text or None`: every tick the scan publishes carries a line, and the
+  fingerprinter's drain passes it straight through, so the rewrite only differed
+  from the pre-migration renderer. `_record_run_note` also still fell back to
+  `self.disposition.get()`, a Tk read from the scan's thread that `_finish_run`
+  handing it the run's snapshot had made unreachable.
+
 - **Genre Sync's worker no longer reads its Tk variables.** `start_processing`
   snapshots the folder and the run mode on the Tk thread, and both the worker
   and the completion read that snapshot; the completion's log builder was still

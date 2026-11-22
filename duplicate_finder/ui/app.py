@@ -26,7 +26,9 @@ and the run's mode, disposition and folder are snapshotted on the Tk thread in
 callback the scan publishes — progress, the run error and the completion — is a
 message on a ``SimpleQueue`` that a poller the Tk thread starts drains, because
 ``_run_scan`` is a raw ``threading.Thread`` and may not call ``root.after`` or a
-widget at all.  The presets keep their existing keys through the shared
+widget at all.  The drain passes the tick's line straight through, and the run
+note reads the disposition ``start_processing`` snapshotted rather than a Tk
+variable.  The presets keep their existing keys through the shared
 ``ui_presets`` store, and View Log / Open Folder are the shell's.
 """
 
@@ -486,7 +488,7 @@ class DuplicateFinderApp(SuiteApp):
             kind = message[0]
             if kind == "progress":
                 _, processed, total, skipped, errors, display_text = message
-                self._render_progress_standard(processed, total, display_text or None)
+                self._render_progress_standard(processed, total, display_text)
                 self.stats_label.config(
                     text=(
                         f"Processed: {processed} | Skipped: {skipped} "
@@ -649,6 +651,9 @@ class DuplicateFinderApp(SuiteApp):
     ) -> None:
         """Record what this run could not fingerprint or move, for the driver.
 
+        Runs on the scan's thread, so it reads the run's snapshotted
+        disposition and never a Tk variable.
+
         Args:
             total: Files the walk visited.
             skipped: Files without a fingerprint.
@@ -659,7 +664,7 @@ class DuplicateFinderApp(SuiteApp):
             "quarantine": "quarantined",
             "delete": "deleted",
             "asx-stub": "stubbed",
-        }.get(normalize(disposition or self.disposition.get()), "handled")
+        }.get(normalize(disposition), "handled")
         record_caveats(
             DRIVER_TOOL_ID,
             shortfall(errors, total, "file", f"could not be {action}")
