@@ -22,6 +22,9 @@ line instead of calling ``root.after``, and the Tk poller writes it (D22).
 Changed in 2.9.0: the same lock covers the progress tick, the completion and a
 run error: each is queued by the run's thread and rendered by the Tk poller
 (D23).
+Changed in 2.9.0: the worker thread is started by ``SuiteApp._start_worker``,
+so the tests patch ``suite_app.threading`` rather than this window's module
+(D31).
 """
 
 import sys
@@ -196,7 +199,7 @@ class TestStartGuardsD3:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         fake_threading = MagicMock()
-        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_suite_shared.suite_app.threading", fake_threading)
         monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
         monkeypatch.setattr(
             "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
@@ -240,7 +243,7 @@ class TestStartGuardsD3:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         fake_threading = MagicMock()
-        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_suite_shared.suite_app.threading", fake_threading)
         monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
         monkeypatch.setattr(
             "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
@@ -281,7 +284,7 @@ class TestStartGuardsD3:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         fake_threading = MagicMock()
-        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_suite_shared.suite_app.threading", fake_threading)
         monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
         monkeypatch.setattr(
             "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
@@ -534,7 +537,7 @@ class TestStartProcessingAlbumMode:
             # start_processing persists the MBID region preference; patch
             # so the run never writes to the host's real suite config.
             patch("audio_fingerprinter.app.suite_config.save_value"),
-            patch("audio_fingerprinter.app.threading.Thread") as mock_thread,
+            patch("audio_suite_shared.suite_app.threading.Thread") as mock_thread,
         ):
             app.start_processing()
         return mock_thread
@@ -892,7 +895,7 @@ class TestStartGuardsIsrcSubmission:
         from audio_fingerprinter.core.musicbrainz_client import MBAuth
 
         fake_threading = MagicMock()
-        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_suite_shared.suite_app.threading", fake_threading)
         monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
         monkeypatch.setattr(
             "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")

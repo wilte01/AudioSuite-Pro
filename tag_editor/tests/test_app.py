@@ -26,6 +26,9 @@ publishes — the progress tick, the run error, the completion, the grid fill,
 the row refresh and the CSV warnings — is a queue message a Tk poller drains,
 so the completion tests drive ``_poll_ui_updates`` instead of reading
 ``root.after``.
+Changed in 2.9.0: the worker thread is started by ``SuiteApp._start_worker``,
+so the tests patch ``suite_app.threading`` rather than this window's module
+(D31).
 """
 
 from __future__ import annotations
@@ -197,7 +200,7 @@ def fake_thread(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         setattr(thread, "args", kwargs.get("args")),
         thread,
     )[-1]
-    monkeypatch.setattr(_ui_app_module(), "threading", threading_ns)
+    monkeypatch.setattr(suite_app, "threading", threading_ns)
     return thread
 
 
@@ -1102,7 +1105,7 @@ class TestQueuedUiUpdates:
         app = _make_shell_app()
         app.folder_path.get.return_value = str(tmp_path)
         thread = MagicMock()
-        monkeypatch.setattr(_ui_app_module(), "threading", MagicMock(Thread=thread))
+        monkeypatch.setattr(suite_app, "threading", MagicMock(Thread=thread))
 
         app.start_processing()
 

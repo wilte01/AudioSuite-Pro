@@ -312,6 +312,19 @@ used once, and every bullet belongs to exactly one of them.
   one result per run and is not part of the suite build), every entry must still
   trip the rule, and two controls prove the detector can fail.
 
+- **The window shell owns the worker hand-off.** `SuiteApp._start_worker` builds
+  the run's queue, starts its daemon thread and starts the poller, and
+  `SuiteApp._poll_ui_updates` drains it through `event_pump.pump_events`; a tool
+  supplies only `_dispatch_ui_message`, which the base refuses to guess. The
+  four queue-driven adopters had written the first two byte for byte, and two of
+  them built their thread inline instead of calling the helper, so all four now
+  start a run the same way and the imports that only that code used left with
+  it. Their suites patched their own module's `threading` to capture the worker;
+  they patch `suite_app.threading` now, because that is where the thread is
+  created. New `audio_suite_shared/tests/test_suite_app.py` locks the hand-off
+  itself, and `tests/test_tk_event_pump.py` gains a rule that only the shell may
+  define either method.
+
 ### Fixed
 
 - **The Duplicate Finder's scan thread no longer touches Tk.** `_run_scan` is

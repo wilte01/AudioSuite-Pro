@@ -18,7 +18,10 @@ What the shell owns:
 - the Processing tab (progress, stats, worker grid, file list) and the Results
   tab (completion, summary and time labels, View Log, Open Folder);
 - the progress and completion tails, ``_on_error``, and the help/log/folder
-  helpers, all obeying the GUI callback contract in ``AGENTS.md``.
+  helpers, all obeying the GUI callback contract in ``AGENTS.md``;
+- the worker hand-off: the run's queue, its daemon thread and the
+  ``event_pump.pump_events`` poller, so a tool supplies only its
+  ``_dispatch_ui_message``.
 
 What a tool supplies:
 
@@ -27,7 +30,9 @@ What a tool supplies:
 - ``slot_vars`` (optional) *before* calling ``super().__init__``: the Processing
   tab renders its worker grid from that list when it is present;
 - ``_build_setup_tab(parent)``, the one layout hook.  A tool that needs an extra
-  tab overrides ``_tab_specs`` and extends ``tab_labels`` in lockstep.
+  tab overrides ``_tab_specs`` and extends ``tab_labels`` in lockstep;
+- ``_dispatch_ui_message(message)``, the rendering of one message the run's
+  thread queued.  ``_start_worker`` starts the run and the poller that feeds it.
 
 A tool keeps a payload handler when the payload is its own.  The shell offers
 ``render_progress`` / ``render_completion`` for the universal widgets and a
@@ -54,17 +59,25 @@ does not resize or restyle its window (C1 stage 2).
 Changed in 2.9.0: ``result_extra_labels`` lets an adopter keep a label of its
 own on the Results tab (the fingerprinter's ISRC submission line), built by the
 shared builder and published on the instance under its name (C1 stage 2).
+Changed in 2.9.0: the shell owns the worker hand-off.  ``_start_worker`` builds
+the run's queue and starts its daemon thread, and ``_poll_ui_updates`` drains it
+through ``event_pump.pump_events``; a tool supplies only
+``_dispatch_ui_message``.  The four queue-driven adopters had written that
+wrapper four times, byte for byte (C1 stage 2, D31).
 """
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from collections.abc import Callable
+from queue import SimpleQueue
 from tkinter import messagebox, ttk
 from typing import Any
 
 from . import styles
 from .app_bootstrap import bootstrap_tool_app
+from .event_pump import pump_events
 from .ui_common import build_processing_tab, build_results_tab
 from .ui_helpers import UIHelperMixin
 
@@ -128,6 +141,11 @@ class SuiteApp(UIHelperMixin):
     apply_ttk_styles: bool = True
     #: Extra Results-tab labels this tool drives, below the summary line.
     result_extra_labels: tuple[str, ...] = ()
+    #: Messages the run's thread queues for the Tk poller; built per run by
+    #: ``_start_worker``.
+    _ui_updates: SimpleQueue[tuple[Any, ...]]
+    #: The run's thread; the poller stops when it ends.
+    _run_thread: threading.Thread | None = None
 
     def __init__(self, root: tk.Tk) -> None:
         """Bootstrap the window and build the shell's notebook.
@@ -251,6 +269,57 @@ class SuiteApp(UIHelperMixin):
     def _open_folder(self) -> None:
         """Open the folder the last run wrote to."""
         self._open_folder_standard()
+
+    # ── Worker protocol ───────────────────────────────────────────────────────
+
+    def _start_worker(self, target: Callable[..., None], args: tuple[Any, ...]) -> None:
+        """Run *target* on a daemon thread and start the Tk poller.
+
+        A fresh queue per run: the poller drains it and stops with the run's
+        thread, so no message from an earlier run can reach a widget.
+
+        Args:
+            target: The window's thread entry point.  It may not touch a widget
+                or call ``root.after``.
+            args: Its arguments, in order.
+        """
+        self._ui_updates = SimpleQueue()
+        self._run_thread = threading.Thread(target=target, args=args, daemon=True)
+        self._run_thread.start()
+        self._poll_ui_updates()
+
+    def _poll_ui_updates(self) -> None:
+        """Apply the run's queued messages while its thread is alive.
+
+        The loop is ``event_pump.pump_events``: it drains in order, re-arms
+        while the run's thread lives, and drains once more after it ends, so the
+        completion queued as the worker exited still renders.  No tick id is
+        kept - the shell has no close handler, and a destroyed root drops its
+        pending ``after`` callbacks itself.
+        """
+        pump_events(
+            self.root,
+            self._ui_updates,
+            self._dispatch_ui_message,
+            is_running=lambda: (
+                self._run_thread is not None and self._run_thread.is_alive()
+            ),
+            next_tick=self._poll_ui_updates,
+        )
+
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued message on the Tk thread.
+
+        Args:
+            message: One item the run's thread queued.
+
+        Raises:
+            NotImplementedError: Always, in the base class: what a message
+                means is the tool's own.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _dispatch_ui_message(message)"
+        )
 
     # ── Callback contract ─────────────────────────────────────────────────────
 

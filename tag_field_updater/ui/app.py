@@ -52,6 +52,10 @@ drain loop and its finished-run drain are the suite's one implementation (B2).
 Changed in 2.9.0: the window keeps no tick id.  It has no close handler, so
 nothing could ever cancel the pending tick, and a destroyed root drops its
 ``after`` callbacks itself (D30).
+
+Changed in 2.9.0: the shell owns the hand-off - ``_start_worker`` builds the
+queue and starts the thread, and ``_poll_ui_updates`` is inherited - so this
+window supplies only ``_dispatch_ui_message`` (D31).
 """
 
 from __future__ import annotations
@@ -59,16 +63,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import threading
 import tkinter as tk
-from collections.abc import Callable
-from queue import SimpleQueue
 from tkinter import messagebox, simpledialog, ttk
 from typing import Any
 
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
-from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import handle_audio_errors, map_to_audio_error
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
@@ -133,11 +133,6 @@ class TagFieldUpdaterApp(SuiteApp):
     #: The manifest id the window has always declared (tests and the driver read
     #: it); ``program_name`` above is the shell's copy of the same value.
     TOOL_ID: str = DRIVER_TOOL_ID
-
-    #: Messages the scan's thread queues for the Tk poller; built per run.
-    _ui_updates: SimpleQueue[tuple[Any, ...]]
-    #: The scan's thread; the poller stops when it ends.
-    _run_thread: threading.Thread | None = None
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -706,24 +701,6 @@ class TagFieldUpdaterApp(SuiteApp):
         """
         self._ui_updates.put(("error", message))
 
-    def _poll_ui_updates(self) -> None:
-        """Apply the run's queued messages while its thread is alive.
-
-        The loop is the suite's ``event_pump.pump_events``: it drains in order,
-        re-arms while the run's thread lives, and drains once more after it
-        ends, so the completion queued as the worker exited still renders.  The
-        tick id is dropped: with no close handler there is nothing to cancel.
-        """
-        pump_events(
-            self.root,
-            self._ui_updates,
-            self._dispatch_ui_message,
-            is_running=lambda: (
-                self._run_thread is not None and self._run_thread.is_alive()
-            ),
-            next_tick=self._poll_ui_updates,
-        )
-
     def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
         """Render one queued message on the Tk thread."""
         kind = message[0]
@@ -747,21 +724,6 @@ class TagFieldUpdaterApp(SuiteApp):
         """Reset the bar and the counters (must be called on the Tk thread)."""
         self.progress["value"] = 0
         self.stats_label.config(text=self.processing_stats_text)
-
-    def _start_worker(self, target: Callable[..., None], args: tuple[Any, ...]) -> None:
-        """Launch *target* on a daemon thread and start the UI poller.
-
-        A fresh queue per run: the poller drains it and stops with the run's
-        thread, so no message from an earlier run can reach a widget.
-
-        Args:
-            target: The window's thread entry point.
-            args: Its arguments, in order.
-        """
-        self._ui_updates = SimpleQueue()
-        self._run_thread = threading.Thread(target=target, args=args, daemon=True)
-        self._run_thread.start()
-        self._poll_ui_updates()
 
 
 def main(directory: str | None = None) -> None:

@@ -37,22 +37,23 @@ drain loop and its finished-run drain are the suite's one implementation (B2).
 Changed in 2.9.0: the window keeps no tick id.  It has no close handler, so
 nothing could ever cancel the pending tick, and a destroyed root drops its
 ``after`` callbacks itself (D30).
+
+Changed in 2.9.0: the shell owns the hand-off - ``_start_worker`` builds the
+queue and starts the thread, and ``_poll_ui_updates`` is inherited - so this
+window supplies only ``_dispatch_ui_message`` (D31).
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import threading
 import tkinter as tk
-from queue import SimpleQueue
 from tkinter import messagebox
 from typing import Any, ClassVar
 
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
-from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import handle_audio_errors, map_to_audio_error
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
@@ -124,11 +125,6 @@ class DuplicateFinderApp(SuiteApp):
     #: The manifest id the window has always declared (tests and the undo GUI
     #: read it); ``program_name`` above is the shell's copy of the same value.
     TOOL_ID: str = DRIVER_TOOL_ID
-
-    #: Messages the scan's thread queues for the Tk poller; built per run.
-    _ui_updates: SimpleQueue[tuple[Any, ...]]
-    #: The scan's thread; the poller stops when it ends.
-    _run_thread: threading.Thread | None = None
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -371,12 +367,9 @@ class DuplicateFinderApp(SuiteApp):
             threshold,
         )
 
-        # A fresh queue per run: the poller drains it and stops with the run's
-        # thread, so no message from an earlier run can reach a row.
-        self._ui_updates = SimpleQueue()
-        self._run_thread = threading.Thread(
-            target=self._run_scan,
-            args=(
+        self._start_worker(
+            self._run_scan,
+            (
                 folder,
                 dry_run,
                 threshold,
@@ -384,10 +377,7 @@ class DuplicateFinderApp(SuiteApp):
                 disposition,
                 str(self.exact_mode.get()),
             ),
-            daemon=True,
         )
-        self._run_thread.start()
-        self._poll_ui_updates()
 
     @handle_audio_errors(reraise=False, context="duplicate_finder_app_run")
     def _run_scan(
@@ -468,24 +458,6 @@ class DuplicateFinderApp(SuiteApp):
             message: The user-facing message the processor published.
         """
         self._ui_updates.put(("error", message))
-
-    def _poll_ui_updates(self) -> None:
-        """Apply the run's queued messages while its thread is alive.
-
-        The loop is the suite's ``event_pump.pump_events``: it drains in order,
-        re-arms while the run's thread lives, and drains once more after it
-        ends, so the completion queued as the worker exited still renders.  The
-        tick id is dropped: with no close handler there is nothing to cancel.
-        """
-        pump_events(
-            self.root,
-            self._ui_updates,
-            self._dispatch_ui_message,
-            is_running=lambda: (
-                self._run_thread is not None and self._run_thread.is_alive()
-            ),
-            next_tick=self._poll_ui_updates,
-        )
 
     def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
         """Render one queued message on the Tk thread."""

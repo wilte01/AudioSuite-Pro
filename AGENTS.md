@@ -402,9 +402,11 @@ Rules:
   `PLAN_feature_expansion.md` D136 — the first version of that window marshalled
   from the worker and hung on a real launch. The poller is
   `audio_suite_shared.event_pump.pump_events`, which owns the drain, the re-arm
-  and the finished-run drain, so a window keeps only its `_dispatch_ui_message`;
+  and the finished-run drain, so a window supplies only its
+  `_dispatch_ui_message` and starts its run with `SuiteApp._start_worker`;
   `tests/test_tk_event_pump.py` fails when a module that imports Tk reads a
-  queue itself.
+  queue itself, and when anything but the shell defines either half of that
+  hand-off.
 
 `tests/test_callback_payload_contract.py` enforces the rules. It parses (never
 imports) every first-party module, resolves each `on_complete=` /

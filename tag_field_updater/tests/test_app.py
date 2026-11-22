@@ -38,6 +38,9 @@ Changed in 2.9.0: covers the migration onto ``SuiteApp`` (C1 stage 2, D8's wave
 only-fill-blanks choice are snapshotted before the thread starts, and every
 callback the scan publishes is a queue message a Tk poller drains, so the
 completion tests drive ``_poll_ui_updates`` instead of reading ``root.after``.
+Changed in 2.9.0: the worker thread is started by ``SuiteApp._start_worker``,
+so the tests patch ``suite_app.threading`` rather than this window's module
+(D31).
 """
 
 from __future__ import annotations
@@ -155,7 +158,7 @@ def fake_thread(
         setattr(thread, "args", kwargs.get("args")),
         thread,
     )[-1]
-    monkeypatch.setattr(_ui_app_module(), "threading", threading_ns)
+    monkeypatch.setattr(suite_app, "threading", threading_ns)
     return thread
 
 
@@ -870,7 +873,7 @@ class TestQueuedUiUpdates:
         app = _make_shell_app()
         app.folder_path.get.return_value = str(tmp_path)
         thread = MagicMock()
-        monkeypatch.setattr(_ui_app_module(), "threading", MagicMock(Thread=thread))
+        monkeypatch.setattr(suite_app, "threading", MagicMock(Thread=thread))
 
         app.start_processing()
 
@@ -1079,7 +1082,7 @@ class TestMain:
         started = threading.Event()
         threading_ns = MagicMock()
         threading_ns.Thread = lambda *a, **k: started.set()  # pragma: no cover
-        monkeypatch.setattr(app_module, "threading", threading_ns)
+        monkeypatch.setattr(suite_app, "threading", threading_ns)
 
         with pytest.raises(SystemExit) as exit_exc:
             app_module.main(directory=str(marker))

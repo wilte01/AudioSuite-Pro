@@ -19,6 +19,9 @@ stage 2).
 Changed in 2.9.0: ``TestQueuedUiUpdates`` locks the queue poller the scan's
 thread publishes into (no ``root.after`` and no widget write off the Tk
 thread).
+Changed in 2.9.0: the worker thread is started by ``SuiteApp._start_worker``,
+so the tests patch ``suite_app.threading`` rather than this window's module
+(D31).
 """
 
 from __future__ import annotations
@@ -329,7 +332,7 @@ class TestQueuedUiUpdates:
     ) -> None:
         app = shell(folder=str(tmp_path))
         thread = MagicMock()
-        monkeypatch.setattr(app_module, "threading", MagicMock(Thread=thread))
+        monkeypatch.setattr(suite_app, "threading", MagicMock(Thread=thread))
 
         DuplicateFinderApp.start_processing(app)
 
@@ -428,7 +431,7 @@ class TestStartValidation:
         started: list[tuple[Any, ...]] = []
         thread = MagicMock()
         monkeypatch.setattr(
-            app_module,
+            suite_app,
             "threading",
             MagicMock(
                 Thread=lambda **kwargs: (
@@ -523,7 +526,7 @@ class TestDispositionPrefill:
         app = shell(folder=str(tmp_path), mode=LIVE_UPDATE, disposition="delete")
         dialogs.askyesno.return_value = False
         thread = MagicMock()
-        monkeypatch.setattr(app_module, "threading", MagicMock(Thread=thread))
+        monkeypatch.setattr(suite_app, "threading", MagicMock(Thread=thread))
 
         DuplicateFinderApp.start_processing(app)
 
@@ -536,7 +539,7 @@ class TestDispositionPrefill:
         app = shell(folder=str(tmp_path), mode=LIVE_UPDATE, disposition="delete")
         app._launched_from_driver = True
         thread = MagicMock()
-        monkeypatch.setattr(app_module, "threading", MagicMock(Thread=thread))
+        monkeypatch.setattr(suite_app, "threading", MagicMock(Thread=thread))
 
         DuplicateFinderApp.start_processing(app)
 
