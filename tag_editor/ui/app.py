@@ -36,6 +36,9 @@ the row refresh and the CSV warnings — is a message on one ``SimpleQueue`` tha
 a poller the Tk thread starts drains, because the runs are raw
 ``threading.Thread`` workers and may not call ``root.after`` or a widget at all.
 View Log and Open Folder are the shell's.
+
+Changed in 2.9.0: that poller is the shared ``event_pump.pump_events``, so the
+drain loop and its finished-run drain are the suite's one implementation (B2).
 """
 
 from __future__ import annotations
@@ -47,12 +50,13 @@ import threading
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
-from queue import Empty, SimpleQueue
+from queue import SimpleQueue
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import (
     AudioSuiteError,
     handle_audio_errors,
@@ -110,9 +114,6 @@ RUN_MODES = (DRY_RUN, LIVE_UPDATE)
 SCAN_LABEL = "Files read"
 APPLY_LABEL = "Files changed"
 
-#: How often the Tk thread drains the messages a run's thread queues.
-_UI_POLL_MS = 100
-
 
 class TagEditorApp(SuiteApp):
     """Interactive grid for editing common tag fields across audio files."""
@@ -143,6 +144,7 @@ class TagEditorApp(SuiteApp):
     _ui_updates: SimpleQueue[tuple[Any, ...]]
     #: The run's thread; the poller stops when it ends.
     _run_thread: threading.Thread | None = None
+    _poll_id: str = ""
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -965,7 +967,7 @@ class TagEditorApp(SuiteApp):
         """Queue one progress tick for the Tk thread's poller.
 
         Called from the run's own thread, so it only queues; the tick is
-        written by ``_drain_ui_updates`` (AGENTS.md).
+        written by ``_dispatch_ui_message`` (AGENTS.md).
 
         Args:
             processed: Files finished so far.
@@ -993,50 +995,45 @@ class TagEditorApp(SuiteApp):
     def _poll_ui_updates(self) -> None:
         """Apply the run's queued messages while its thread is alive.
 
-        Runs on the Tk thread and re-schedules itself; the drain after the last
-        tick delivers whatever was queued as the run finished — its completion,
-        or the error that ended it.
+        The loop is the suite's ``event_pump.pump_events``: it drains in order,
+        re-arms while the run's thread lives, and drains once more after it
+        ends, so the completion queued as the worker exited still renders.
         """
-        self._drain_ui_updates()
-        worker = self._run_thread
-        if worker is not None and worker.is_alive():
-            self.root.after(_UI_POLL_MS, self._poll_ui_updates)
-            return
-        self._drain_ui_updates()
+        self._poll_id = pump_events(
+            self.root,
+            self._ui_updates,
+            self._dispatch_ui_message,
+            is_running=lambda: (
+                self._run_thread is not None and self._run_thread.is_alive()
+            ),
+            next_tick=self._poll_ui_updates,
+        )
 
-    def _drain_ui_updates(self) -> None:
-        """Write every queued message to its widget (Tk thread)."""
-        while True:
-            try:
-                message = self._ui_updates.get_nowait()
-            except Empty:
-                return
-            kind = message[0]
-            if kind == "progress":
-                _, processed, total, skipped, errors, display_text = message
-                self._render_progress_standard(processed, total, display_text)
-                self.stats_label.config(
-                    text=(
-                        f"Processed: {processed} | Skipped: {skipped} "
-                        f"| Errors: {errors}"
-                    )
-                )
-            elif kind == "error":
-                _, text = message
-                super()._on_error(text)
-                self.stop_btn.config(state=tk.DISABLED)
-            elif kind == "grid":
-                _, rows = message
-                self._fill_grid(rows)
-            elif kind == "results":
-                _, results = message
-                self._refresh_rows(results)
-            elif kind == "warnings":
-                _, warnings = message
-                self._warn_rows(warnings)
-            elif kind == "complete":
-                _, total, tagged, skipped, errors, duration_secs, rows = message
-                self._render_finish(total, tagged, skipped, errors, duration_secs, rows)
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued message on the Tk thread."""
+        kind = message[0]
+        if kind == "progress":
+            _, processed, total, skipped, errors, display_text = message
+            self._render_progress_standard(processed, total, display_text)
+            self.stats_label.config(
+                text=(f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}")
+            )
+        elif kind == "error":
+            _, text = message
+            super()._on_error(text)
+            self.stop_btn.config(state=tk.DISABLED)
+        elif kind == "grid":
+            _, rows = message
+            self._fill_grid(rows)
+        elif kind == "results":
+            _, results = message
+            self._refresh_rows(results)
+        elif kind == "warnings":
+            _, warnings = message
+            self._warn_rows(warnings)
+        elif kind == "complete":
+            _, total, tagged, skipped, errors, duration_secs, rows = message
+            self._render_finish(total, tagged, skipped, errors, duration_secs, rows)
 
     # ── Shared run plumbing ───────────────────────────────────────────────────
 

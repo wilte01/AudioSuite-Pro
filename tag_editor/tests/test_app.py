@@ -41,6 +41,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from audio_suite_shared import suite_app
+from audio_suite_shared.event_pump import DEFAULT_POLL_MS
 from audio_suite_shared.ui_common import BaseSetupFrame
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from tag_editor.core.csv_io import CsvImportPlan
@@ -1093,9 +1094,7 @@ class TestQueuedUiUpdates:
 
         app._poll_ui_updates()
 
-        app.root.after.assert_called_once_with(
-            _ui_app_module()._UI_POLL_MS, app._poll_ui_updates
-        )
+        app.root.after.assert_called_once_with(DEFAULT_POLL_MS, app._poll_ui_updates)
 
     def test_a_run_builds_its_queue_and_starts_the_poller(
         self, tmp_path: Path, stubbed_dialogs, monkeypatch: pytest.MonkeyPatch
@@ -1109,6 +1108,4 @@ class TestQueuedUiUpdates:
 
         assert isinstance(app._ui_updates, SimpleQueue)
         assert app._run_thread is thread.return_value
-        app.root.after.assert_called_once_with(
-            _ui_app_module()._UI_POLL_MS, app._poll_ui_updates
-        )
+        app.root.after.assert_called_once_with(DEFAULT_POLL_MS, app._poll_ui_updates)

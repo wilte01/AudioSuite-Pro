@@ -271,6 +271,27 @@ used once, and every bullet belongs to exactly one of them.
   with a drive through its scan completion, and the window's suite gains
   `TestQueuedUiUpdates`.
 
+- **The four queue-driven SuiteApp windows drain through the shared pump (B2).**
+  `audio_fingerprinter`, `duplicate_finder`, `tag_editor` and
+  `tag_field_updater` wrote the Tk drain loop by hand — a local `_UI_POLL_MS`, a
+  `_poll_ui_updates` that re-armed itself and drained twice, and a
+  `_drain_ui_updates` holding the `while True`/`queue.Empty` skeleton around
+  their own `if kind ==` chain. `audio_suite_shared.event_pump.pump_events`
+  already owned exactly that loop for eight windows, so the four now call it:
+  each keeps only `_dispatch_ui_message` (one message, its own rendering), the
+  local interval is the module's `DEFAULT_POLL_MS`, and `_poll_id` stores the
+  scheduled tick so a window can cancel it on close. The loop is now one
+  implementation with one test file instead of four copies with none.
+
+- **The shared Tk pump no longer strands a message queued as the run ended.**
+  `pump_events` drained the queue, checked `is_running` and stopped, so a
+  completion the worker queued between that drain and the check was never
+  rendered and nothing was scheduled to pick it up. It now drains again once the
+  run has finished and stops only when the queue is empty — safe because the
+  worker is the queue's only writer. The new
+  `audio_suite_shared/tests/test_event_pump.py` covers that race along with the
+  drain order, the re-arm, the inactive window and the poll interval.
+
 ### Fixed
 
 - **The Duplicate Finder's scan thread no longer touches Tk.** `_run_scan` is

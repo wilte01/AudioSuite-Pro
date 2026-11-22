@@ -30,6 +30,9 @@ widget at all.  The drain passes the tick's line straight through, and the run
 note reads the disposition ``start_processing`` snapshotted rather than a Tk
 variable.  The presets keep their existing keys through the shared
 ``ui_presets`` store, and View Log / Open Folder are the shell's.
+
+Changed in 2.9.0: that poller is the shared ``event_pump.pump_events``, so the
+drain loop and its finished-run drain are the suite's one implementation (B2).
 """
 
 from __future__ import annotations
@@ -38,13 +41,14 @@ import logging
 import os
 import threading
 import tkinter as tk
-from queue import Empty, SimpleQueue
+from queue import SimpleQueue
 from tkinter import messagebox
 from typing import Any, ClassVar
 
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import handle_audio_errors, map_to_audio_error
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
@@ -86,9 +90,6 @@ RUN_REPORT_LIVE = "duplicate_finder_sync_log.txt"
 DRY_RUN = "Dry Run"
 LIVE_UPDATE = "Live Update"
 
-#: How often the Tk thread drains the messages the scan's thread queues.
-_UI_POLL_MS = 100
-
 
 class DuplicateFinderApp(SuiteApp):
     """Tkinter window for the Duplicate Finder."""
@@ -124,6 +125,7 @@ class DuplicateFinderApp(SuiteApp):
     _ui_updates: SimpleQueue[tuple[Any, ...]]
     #: The scan's thread; the poller stops when it ends.
     _run_thread: threading.Thread | None = None
+    _poll_id: str = ""
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -439,7 +441,7 @@ class DuplicateFinderApp(SuiteApp):
         """Queue one progress tick for the Tk thread's poller.
 
         Called from the scan's own thread, so it only queues; the tick is
-        written by ``_drain_ui_updates`` (AGENTS.md).
+        written by ``_dispatch_ui_message`` (AGENTS.md).
 
         Args:
             processed: Files finished so far.
@@ -467,40 +469,35 @@ class DuplicateFinderApp(SuiteApp):
     def _poll_ui_updates(self) -> None:
         """Apply the run's queued messages while its thread is alive.
 
-        Runs on the Tk thread and re-schedules itself; the drain after the last
-        tick delivers whatever was queued as the run finished — its completion,
-        or the error that ended it.
+        The loop is the suite's ``event_pump.pump_events``: it drains in order,
+        re-arms while the run's thread lives, and drains once more after it
+        ends, so the completion queued as the worker exited still renders.
         """
-        self._drain_ui_updates()
-        worker = self._run_thread
-        if worker is not None and worker.is_alive():
-            self.root.after(_UI_POLL_MS, self._poll_ui_updates)
-            return
-        self._drain_ui_updates()
+        self._poll_id = pump_events(
+            self.root,
+            self._ui_updates,
+            self._dispatch_ui_message,
+            is_running=lambda: (
+                self._run_thread is not None and self._run_thread.is_alive()
+            ),
+            next_tick=self._poll_ui_updates,
+        )
 
-    def _drain_ui_updates(self) -> None:
-        """Write every queued message to its widget (Tk thread)."""
-        while True:
-            try:
-                message = self._ui_updates.get_nowait()
-            except Empty:
-                return
-            kind = message[0]
-            if kind == "progress":
-                _, processed, total, skipped, errors, display_text = message
-                self._render_progress_standard(processed, total, display_text)
-                self.stats_label.config(
-                    text=(
-                        f"Processed: {processed} | Skipped: {skipped} "
-                        f"| Errors: {errors}"
-                    )
-                )
-            elif kind == "error":
-                _, text = message
-                super()._on_error(text)
-            elif kind == "complete":
-                _, total, tagged, skipped, errors, duration_secs, rows = message
-                self._render_finish(total, tagged, skipped, errors, duration_secs, rows)
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued message on the Tk thread."""
+        kind = message[0]
+        if kind == "progress":
+            _, processed, total, skipped, errors, display_text = message
+            self._render_progress_standard(processed, total, display_text)
+            self.stats_label.config(
+                text=(f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}")
+            )
+        elif kind == "error":
+            _, text = message
+            super()._on_error(text)
+        elif kind == "complete":
+            _, total, tagged, skipped, errors, duration_secs, rows = message
+            self._render_finish(total, tagged, skipped, errors, duration_secs, rows)
 
     # ── Completion ────────────────────────────────────────────────────
 

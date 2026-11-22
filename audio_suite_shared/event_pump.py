@@ -19,6 +19,9 @@ finished drains what is left and then stops re-arming; collapsing the two would
 either lose the last events or spin forever.
 
 Changed in 2.9.0: new module - the Tk poller eight windows wrote by hand (B1).
+Changed in 2.9.0: a finished run is drained once more before the pump stops, so
+a completion queued as the worker exited still renders (B2), and
+``DEFAULT_POLL_MS`` is the one interval every caller shares.
 """
 
 from __future__ import annotations
@@ -28,7 +31,10 @@ import tkinter as tk
 from collections.abc import Callable
 from typing import Any
 
-__all__ = ["pump_events"]
+__all__ = ["DEFAULT_POLL_MS", "pump_events"]
+
+#: The interval a window polls at when it has no reason to choose another.
+DEFAULT_POLL_MS = 100
 
 
 def pump_events(
@@ -39,7 +45,7 @@ def pump_events(
     is_running: Callable[[], bool],
     next_tick: Callable[[], None],
     is_active: Callable[[], bool] | None = None,
-    poll_ms: int = 100,
+    poll_ms: int = DEFAULT_POLL_MS,
 ) -> str:
     """Apply every queued worker result, then re-arm while the run is live.
 
@@ -62,12 +68,19 @@ def pump_events(
         return ""
 
     while True:
-        try:
-            item = events.get_nowait()
-        except queue.Empty:
-            break
-        dispatch(item)
+        while True:
+            try:
+                item = events.get_nowait()
+            except queue.Empty:
+                break
+            dispatch(item)
 
-    if is_running():
-        return root.after(poll_ms, next_tick)
-    return ""
+        if is_running():
+            return root.after(poll_ms, next_tick)
+
+        # The run has finished.  A message queued as the worker exited — its
+        # completion, or the error that ended it — can land after the drain
+        # above, and only the worker writes to this queue, so an empty read now
+        # means nothing more can arrive and the pump can stop.
+        if events.empty():
+            return ""

@@ -35,6 +35,9 @@ ISRC note on the worker, leaving the Tk thread only widget writes (D22).
 Changed in 2.9.0: the progress ticks, the completion and a run error ride that
 same queue, so nothing the run's own thread publishes calls ``root.after`` or
 touches a widget either (D23).
+
+Changed in 2.9.0: that poller is the shared ``event_pump.pump_events``, so the
+drain loop and its finished-run drain are the suite's one implementation (B2).
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from queue import Empty, Queue, SimpleQueue
+from queue import Queue, SimpleQueue
 from tkinter import filedialog, messagebox
 from typing import Any
 
@@ -52,6 +55,7 @@ from audio_suite_shared import styles, suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
+from audio_suite_shared.event_pump import pump_events
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -91,9 +95,6 @@ TOOL_ID = "audio_fingerprinter"
 #: the two together so a rename fails loudly rather than silently.
 DRIVER_TOOL_ID = "fingerprinter"
 _DEFAULT_THRESHOLD = "0.5"
-
-#: How often the Tk thread drains the messages the run's threads queue.
-_UI_POLL_MS = 100
 
 
 def _isrc_outcome_text(submission: dict[str, Any] | None) -> tuple[str, str]:
@@ -141,6 +142,7 @@ class FingerprinterApp(SuiteApp):
     _ui_updates: SimpleQueue[tuple[Any, ...]]
     #: The run's thread; the slot poller stops when it ends.
     _run_thread: threading.Thread | None = None
+    _poll_id: str = ""
 
     def __init__(self, root: tk.Tk) -> None:
         # ── Tk variables ──────────────────────────────────────────────────────
@@ -590,7 +592,7 @@ class FingerprinterApp(SuiteApp):
         """Queue one progress tick for the Tk thread's poller.
 
         Called from the run's threads, so it only queues; the tick is written
-        by ``_drain_ui_updates``.
+        by ``_dispatch_ui_message``.
 
         Args:
             processed: Files finished so far.
@@ -615,50 +617,48 @@ class FingerprinterApp(SuiteApp):
     def _poll_ui_updates(self) -> None:
         """Apply the run's queued messages while its thread is alive.
 
-        Runs on the Tk thread and re-schedules itself; the drain after the last
-        tick delivers whatever was queued as the run finished — its completion,
-        or the error that ended it.
+        The loop is the suite's ``event_pump.pump_events``: it drains in order,
+        re-arms while the run's thread lives, and drains once more after it
+        ends, so the completion queued as the worker exited still renders.
         """
-        self._drain_ui_updates()
-        worker = self._run_thread
-        if worker is not None and worker.is_alive():
-            self.root.after(_UI_POLL_MS, self._poll_ui_updates)
-            return
-        self._drain_ui_updates()
+        self._poll_id = pump_events(
+            self.root,
+            self._ui_updates,
+            self._dispatch_ui_message,
+            is_running=lambda: (
+                self._run_thread is not None and self._run_thread.is_alive()
+            ),
+            next_tick=self._poll_ui_updates,
+        )
 
-    def _drain_ui_updates(self) -> None:
-        """Write every queued message to its widget (Tk thread)."""
-        while True:
-            try:
-                message = self._ui_updates.get_nowait()
-            except Empty:
-                return
-            kind = message[0]
-            if kind == "slot":
-                _, slot_idx, text = message
-                self.slot_vars[slot_idx].set(text)
-            elif kind == "progress":
-                _, processed, total, errors, display_text = message
-                self._render_progress_standard(processed, total, display_text or None)
-                self.stats_label.config(
-                    text=f"Processed: {processed} | Total: {total} | Errors: {errors}"
-                )
-            elif kind == "error":
-                _, text = message
-                super()._on_error(text)
-            elif kind == "complete":
-                (
-                    _,
-                    summary_text,
-                    duration_secs,
-                    results,
-                    isrc_text,
-                    isrc_fg,
-                    log_error,
-                ) = message
-                self._render_complete(
-                    summary_text, duration_secs, results, isrc_text, isrc_fg, log_error
-                )
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued message on the Tk thread."""
+        kind = message[0]
+        if kind == "slot":
+            _, slot_idx, text = message
+            self.slot_vars[slot_idx].set(text)
+        elif kind == "progress":
+            _, processed, total, errors, display_text = message
+            self._render_progress_standard(processed, total, display_text or None)
+            self.stats_label.config(
+                text=f"Processed: {processed} | Total: {total} | Errors: {errors}"
+            )
+        elif kind == "error":
+            _, text = message
+            super()._on_error(text)
+        elif kind == "complete":
+            (
+                _,
+                summary_text,
+                duration_secs,
+                results,
+                isrc_text,
+                isrc_fg,
+                log_error,
+            ) = message
+            self._render_complete(
+                summary_text, duration_secs, results, isrc_text, isrc_fg, log_error
+            )
 
     # ── Completion ────────────────────────────────────────────────────────────
 

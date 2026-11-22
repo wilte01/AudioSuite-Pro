@@ -34,8 +34,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import audio_fingerprinter.app as fp_mod
-from audio_fingerprinter.app import _UI_POLL_MS, FingerprinterApp
+from audio_fingerprinter.app import FingerprinterApp
 from audio_suite_shared import suite_app, suite_config
+from audio_suite_shared.event_pump import DEFAULT_POLL_MS
 
 
 @pytest.fixture(autouse=True)
@@ -1096,7 +1097,7 @@ class TestQueuedUiUpdates:
 
         app._poll_ui_updates()
 
-        app.root.after.assert_called_once_with(_UI_POLL_MS, app._poll_ui_updates)
+        app.root.after.assert_called_once_with(DEFAULT_POLL_MS, app._poll_ui_updates)
 
 
 # ---------------------------------------------------------------------------
