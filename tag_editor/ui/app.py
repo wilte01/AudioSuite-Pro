@@ -47,6 +47,9 @@ nothing could ever cancel the pending tick, and a destroyed root drops its
 Changed in 2.9.0: the shell owns the hand-off - ``_start_worker`` builds the
 queue and starts the thread, and ``_poll_ui_updates`` is inherited - so this
 window supplies only ``_dispatch_ui_message`` (D31).
+
+Changed in 2.9.0: the run report is the shell's ``_write_run_report_standard``,
+so this window supplies only the run's rows (D32).
 """
 
 from __future__ import annotations
@@ -64,7 +67,6 @@ from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.exceptions import (
     AudioSuiteError,
     handle_audio_errors,
-    map_to_audio_error,
 )
 from audio_suite_shared.styles import bootstrap_theme
 from audio_suite_shared.suite_app import SuiteApp
@@ -407,7 +409,7 @@ class TagEditorApp(SuiteApp):
         summary_rows: tuple[tuple[str, str], ...] = (
             (("Audio files", f"{len(rows)} of {total} files"),) if total else ()
         )
-        self._write_run_report(
+        self._write_run_report_standard(
             header=header,
             log_entries=log_entries,
             rows=summary_rows,
@@ -823,7 +825,7 @@ class TagEditorApp(SuiteApp):
             ("Tag edits", f"{len(results)} planned, {written} written"),
             *self._pending_extra_summary,
         )
-        self._write_run_report(
+        self._write_run_report_standard(
             header=header,
             log_entries=list(log_entries) + list(self._pending_extra_entries),
             rows=summary_rows,
@@ -839,62 +841,6 @@ class TagEditorApp(SuiteApp):
         )
         if self._pending_warnings:
             self._ui_updates.put(("warnings", self._pending_warnings))
-
-    def _write_run_report(
-        self,
-        *,
-        header: list[str],
-        log_entries: list[str],
-        rows: tuple[tuple[str, str], ...],
-        total: int,
-        tagged: int,
-        skipped: int,
-        errors: int,
-        duration_secs: float,
-    ) -> None:
-        """Serialise one run's report into ``_log_path``.
-
-        The footer is the one every peer writes, so the run-report lock can read
-        this tool's report the way it reads an adopter's.
-
-        Args:
-            header: Report header lines for this run.
-            log_entries: The per-file report lines.
-            rows: This run's extra summary rows.
-            total: Files the run visited.
-            tagged: Files handled without being skipped or erroring.
-            skipped: Files left alone.
-            errors: Files that failed.
-            duration_secs: Wall-clock run time.
-        """
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"{self.TAGGED_LABEL}: {tagged}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-        ]
-        summary.extend(f"{label}: {value}\n" for label, value in rows)
-        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
-
-        try:
-            with open(self._log_path, "w", encoding="utf-8") as f:
-                f.writelines(header + log_entries + summary)
-            logger.info("Log written to '%s'", self._log_path)
-        except Exception as exc:
-            # The audio work is already done by the time the report is
-            # serialised, so a failed write is logged, never raised (AGENTS.md).
-            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
-            logger.error(
-                "[%s] Could not write log '%s': %s",
-                type(mapped).__name__,
-                self._log_path,
-                mapped,
-                exc_info=True,
-            )
 
     def _render_finish(
         self,

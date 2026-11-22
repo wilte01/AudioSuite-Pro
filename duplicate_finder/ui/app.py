@@ -41,6 +41,9 @@ nothing could ever cancel the pending tick, and a destroyed root drops its
 Changed in 2.9.0: the shell owns the hand-off - ``_start_worker`` builds the
 queue and starts the thread, and ``_poll_ui_updates`` is inherited - so this
 window supplies only ``_dispatch_ui_message`` (D31).
+
+Changed in 2.9.0: the run report is the shell's ``_write_run_report_standard``,
+so this window supplies only the run's rows (D32).
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ from typing import Any, ClassVar
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
-from audio_suite_shared.exceptions import handle_audio_errors, map_to_audio_error
+from audio_suite_shared.exceptions import handle_audio_errors
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
 from audio_suite_shared.suite_app import SuiteApp
@@ -545,36 +548,17 @@ class DuplicateFinderApp(SuiteApp):
             total=total, skipped=skipped, errors=errors, disposition=disposition
         )
 
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
         tagged = processed - skipped - errors
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"{self.TAGGED_LABEL}: {tagged}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-        ]
-        summary.extend(f"{label}: {value}\n" for label, value in rows)
-        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
-
-        try:
-            with open(self._log_path, "w", encoding="utf-8") as f:
-                f.writelines(header + log_entries + summary)
-            logger.info("Log written to '%s'", self._log_path)
-        except Exception as exc:
-            # The audio work is already done by the time the report is
-            # serialised, so a failed write is logged, never raised (AGENTS.md).
-            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
-            logger.error(
-                "[%s] Could not write log '%s': %s",
-                type(mapped).__name__,
-                self._log_path,
-                mapped,
-                exc_info=True,
-            )
-
+        self._write_run_report_standard(
+            header=header,
+            log_entries=log_entries,
+            rows=rows,
+            total=total,
+            tagged=tagged,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+        )
         self._ui_updates.put(
             ("complete", total, tagged, skipped, errors, duration_secs, rows)
         )

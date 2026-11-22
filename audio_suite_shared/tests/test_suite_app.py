@@ -4,18 +4,23 @@ Strategy
 --------
 A window's own rendering is covered by that window's suite; what belongs to the
 shell is the hand-off around it: a fresh queue per run, a daemon thread, and the
-``event_pump.pump_events`` poller that drains the queue while the thread lives.
+``event_pump.pump_events`` poller that drains the queue while the thread lives,
+plus the run report whose ``SUMMARY:`` footer every tool's View Log reads.
 Each test drives the real methods on an ``object.__new__`` shell with a stub
 root, so no Tk display is needed and nothing is mocked that the shell owns.
 
 Changed in 2.9.0: new file.  ``_start_worker``, ``_poll_ui_updates`` and the
 base ``_dispatch_ui_message`` moved here from four adopters that had written the
 same wrapper byte for byte (D31).
+Changed in 2.9.0: covers ``_write_run_report_standard``, the report three
+adopters had written for themselves (D32).
 """
 
 from __future__ import annotations
 
+import logging
 import threading
+from pathlib import Path
 from queue import SimpleQueue
 from typing import Any
 from unittest.mock import MagicMock
@@ -41,7 +46,6 @@ def _window() -> _Window:
     """
     app = object.__new__(_Window)
     app.root = MagicMock()
-    app._run_thread = None
     app.rendered = []
     return app
 
@@ -152,3 +156,82 @@ class TestDispatchIsTheToolsOwn:
 
         with pytest.raises(NotImplementedError, match="_dispatch_ui_message"):
             app._dispatch_ui_message(("progress", 1))
+
+
+class TestWriteRunReport:
+    def test_it_writes_the_header_the_entries_and_the_summary(
+        self, tmp_path: Path
+    ) -> None:
+        app = _window()
+        app._log_path = str(tmp_path / "run_log.txt")
+        app.TAGGED_LABEL = "Files read"
+
+        app._write_run_report_standard(
+            header=["REPORT\n"],
+            log_entries=["[OK] a.mp3\n"],
+            rows=(),
+            total=2,
+            tagged=1,
+            skipped=1,
+            errors=0,
+            duration_secs=75.0,
+        )
+
+        lines = (tmp_path / "run_log.txt").read_text(encoding="utf-8").splitlines()
+        assert lines[:2] == ["REPORT", "[OK] a.mp3"]
+        for expected in (
+            "SUMMARY:",
+            "Total files: 2",
+            "Files read: 1",
+            "Skipped: 1",
+            "Errors: 0",
+            "Time: 01:15",
+        ):
+            assert expected in lines, lines
+        assert lines[-1] == "Time: 01:15"
+        assert lines.index("[OK] a.mp3") < lines.index("SUMMARY:")
+
+    def test_the_tools_own_rows_follow_the_shared_counters(
+        self, tmp_path: Path
+    ) -> None:
+        app = _window()
+        app._log_path = str(tmp_path / "run_log.txt")
+        app.TAGGED_LABEL = "Files scanned"
+
+        app._write_run_report_standard(
+            header=[],
+            log_entries=[],
+            rows=(("Duplicate groups", "2"), ("Files quarantined", "3")),
+            total=4,
+            tagged=4,
+            skipped=0,
+            errors=0,
+            duration_secs=0.0,
+        )
+
+        lines = (tmp_path / "run_log.txt").read_text(encoding="utf-8").splitlines()
+        assert lines.index("Errors: 0") < lines.index("Duplicate groups: 2")
+        assert lines.index("Duplicate groups: 2") < lines.index("Files quarantined: 3")
+
+    def test_a_failed_write_is_logged_not_raised(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A missing folder is a real write failure: the run's audio work is
+        # already done, so the completion must not raise off the worker thread.
+        app = _window()
+        app._log_path = str(tmp_path / "gone" / "run_log.txt")
+        app.TAGGED_LABEL = "Files read"
+
+        with caplog.at_level(logging.ERROR):
+            app._write_run_report_standard(
+                header=[],
+                log_entries=[],
+                rows=(),
+                total=1,
+                tagged=1,
+                skipped=0,
+                errors=0,
+                duration_secs=0.0,
+            )
+
+        assert "Could not write log" in caplog.text

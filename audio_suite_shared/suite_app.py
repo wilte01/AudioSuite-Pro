@@ -21,7 +21,9 @@ What the shell owns:
   helpers, all obeying the GUI callback contract in ``AGENTS.md``;
 - the worker hand-off: the run's queue, its daemon thread and the
   ``event_pump.pump_events`` poller, so a tool supplies only its
-  ``_dispatch_ui_message``.
+  ``_dispatch_ui_message``;
+- the run report: one writer for the ``SUMMARY:`` block every tool's View Log
+  reads, so a tool supplies its header, its per-file lines and its own rows.
 
 What a tool supplies:
 
@@ -64,10 +66,16 @@ the run's queue and starts its daemon thread, and ``_poll_ui_updates`` drains it
 through ``event_pump.pump_events``; a tool supplies only
 ``_dispatch_ui_message``.  The four queue-driven adopters had written that
 wrapper four times, byte for byte (C1 stage 2, D31).
+Changed in 2.9.0: the shell owns the run report.  ``_write_run_report_standard``
+writes the header, the per-file lines and the ``SUMMARY:`` footer into
+``_log_path``; a tool supplies its own rows, and a failed write is logged rather
+than raised off the worker thread.  Three adopters had carried the same block
+(C1 stage 2, D32).
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 import tkinter as tk
 from collections.abc import Callable
@@ -78,8 +86,11 @@ from typing import Any
 from . import styles
 from .app_bootstrap import bootstrap_tool_app
 from .event_pump import pump_events
+from .exceptions import map_to_audio_error
 from .ui_common import build_processing_tab, build_results_tab
 from .ui_helpers import UIHelperMixin
+
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 #: Emits one tab's widgets into the frame the shell created for it.
 TabBuilder = Callable[[tk.Frame], Any]
@@ -141,6 +152,9 @@ class SuiteApp(UIHelperMixin):
     apply_ttk_styles: bool = True
     #: Extra Results-tab labels this tool drives, below the summary line.
     result_extra_labels: tuple[str, ...] = ()
+    #: The run report's label for its handled count.  A tool whose runs count
+    #: something else (``Files read``, ``Files scanned``) names its own.
+    TAGGED_LABEL: str = "Tagged"
     #: Messages the run's thread queues for the Tk poller; built per run by
     #: ``_start_worker``.
     _ui_updates: SimpleQueue[tuple[Any, ...]]
@@ -320,6 +334,66 @@ class SuiteApp(UIHelperMixin):
         raise NotImplementedError(
             f"{type(self).__name__} must implement _dispatch_ui_message(message)"
         )
+
+    # ── Run report ────────────────────────────────────────────────────────────
+
+    def _write_run_report_standard(
+        self,
+        *,
+        header: list[str],
+        log_entries: list[str],
+        rows: tuple[tuple[str, str], ...],
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+    ) -> None:
+        """Serialise one run's report into ``_log_path``.
+
+        The footer is the one every peer writes, so the run-report lock reads
+        this file the way it reads an adopter's.  Call it from the completion
+        handler, which runs off the Tk thread; a failed write is logged, never
+        raised, because the audio work is already done.
+
+        Args:
+            header: Report header lines for this run.
+            log_entries: The per-file report lines.
+            rows: This run's extra summary rows, in display order.
+            total: Files the run visited.
+            tagged: Files handled without being skipped or erroring.
+            skipped: Files left alone.
+            errors: Files that failed.
+            duration_secs: Wall-clock run time.
+        """
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        summary: list[str] = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {total}\n",
+            f"{self.TAGGED_LABEL}: {tagged}\n",
+            f"Skipped: {skipped}\n",
+            f"Errors: {errors}\n",
+        ]
+        summary.extend(f"{label}: {value}\n" for label, value in rows)
+        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(header + log_entries + summary)
+            logger.info("Log written to '%s'", self._log_path)
+        except Exception as exc:
+            # The audio work is already done by the time the report is
+            # serialised, so a failed write is logged, never raised (AGENTS.md).
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error(
+                "[%s] Could not write log '%s': %s",
+                type(mapped).__name__,
+                self._log_path,
+                mapped,
+                exc_info=True,
+            )
 
     # ── Callback contract ─────────────────────────────────────────────────────
 

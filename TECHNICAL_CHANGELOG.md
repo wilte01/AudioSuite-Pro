@@ -324,6 +324,23 @@ used once, and every bullet belongs to exactly one of them.
   created. New `audio_suite_shared/tests/test_suite_app.py` locks the hand-off
   itself, and `tests/test_tk_event_pump.py` gains a rule that only the shell may
   define either method.
+- **The run report is the shell's.** `SuiteApp._write_run_report_standard`
+  serialises a run's header, its per-file lines and the `SUMMARY:` footer into
+  `_log_path`, from the tool's `TAGGED_LABEL` and its own summary rows after the
+  shared counters; a failed write is logged, never raised off the worker thread.
+  `TagEditorApp` and `TagFieldUpdaterApp` had each carried the same method and
+  `DuplicateFinderApp` the same block inline in `_finish_run`, so all three call
+  the shell now and supply only their rows - and the editor's and updater's
+  `map_to_audio_error` imports leave with the code. The writer is
+  `_write_run_report_standard`, not `_write_run_report`, because four older
+  adopters override that name with summary shapes of their own: a base method of
+  the same name would make each of them a required `# type: ignore` (mypy's
+  `[override]`), which this repository forbids. The shell declares
+  `TAGGED_LABEL` (default `Tagged`) and logs through its own module, so the
+  report's line no longer comes from the tool module. Three tests in
+  `audio_suite_shared/tests/test_suite_app.py` cover the footer, the rows' order
+  and the logged failure, and `tests/test_tk_event_pump.py`'s shell-owns-it rule
+  now includes the writer, so a fifth copy fails the suite.
 
 ### Fixed
 

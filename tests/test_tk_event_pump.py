@@ -20,16 +20,19 @@ thread, is a different thing and is not what this lock is about.
 every entry must still trip the rule - a converged module that kept its entry
 would pre-approve the next copy.
 
-A window does not own the wrapper around the pump either.  ``SuiteApp`` holds
-``_start_worker`` (the per-run queue and its daemon thread) and
-``_poll_ui_updates`` (the ``pump_events`` call), so a tool supplies only
-``_dispatch_ui_message``; the second rule here fails if any module outside the
-shell defines one of those two methods, which is how the four adopters had
-carried four byte-identical copies of it.
+A window does not own the wrapper around the pump either, nor the report that
+wraps up its run.  ``SuiteApp`` holds ``_start_worker`` (the per-run queue and
+its daemon thread), ``_poll_ui_updates`` (the ``pump_events`` call) and
+``_write_run_report_standard`` (the ``SUMMARY:`` footer every tool's View Log
+reads), so a tool supplies only ``_dispatch_ui_message`` and the rows of its own
+report; the second rule here fails if any module outside the shell defines one
+of those three methods, which is how four adopters had carried byte-identical
+copies of the hand-off and three had carried the report block.
 
 Changed in 2.9.0: new lock, after the four SuiteApp windows' drain loops became
 ``pump_events`` calls and their dead ``_poll_id`` was cut (D29, D30).
 Changed in 2.9.0: the second rule, for the wrapper the shell now owns (D31).
+Changed in 2.9.0: the rule also covers the shell's run-report writer (D32).
 """
 
 from __future__ import annotations
@@ -51,9 +54,13 @@ DRAIN_CALL = "get_nowait"
 #: The shell that owns the worker hand-off around the pump.
 SHELL = "audio_suite_shared/suite_app.py"
 
-#: The methods that hand-off consists of.  A tool supplies ``_dispatch_ui_message``
-#: and nothing else.
-SHELL_METHODS: tuple[str, ...] = ("_start_worker", "_poll_ui_updates")
+#: The helpers the shell owns for every tool.  A tool supplies
+#: ``_dispatch_ui_message`` and its own report rows, and nothing else.
+SHELL_METHODS: tuple[str, ...] = (
+    "_start_worker",
+    "_poll_ui_updates",
+    "_write_run_report_standard",
+)
 
 #: Modules that still drain a queue on the Tk thread, with the reason.
 ALLOWLIST: dict[str, str] = {
@@ -251,7 +258,7 @@ class TestTheShellOwnsTheHandOff:
             + "\n  ".join(offenders)
         )
 
-    def test_the_shell_still_defines_both(self) -> None:
+    def test_the_shell_still_defines_them_all(self) -> None:
         defined = {method for method, _line in SHELL_METHOD_DEFS.get(SHELL, [])}
         assert defined == set(SHELL_METHODS), (
             f"{SHELL} no longer defines {sorted(set(SHELL_METHODS) - defined)}, "
@@ -264,11 +271,17 @@ class TestTheShellOwnsTheHandOff:
             "    def _start_worker(self, target: object) -> None:\n"
             "        pass\n"
             "\n"
+            "    def _write_run_report_standard(self) -> None:\n"
+            "        pass\n"
+            "\n"
             "    def _dispatch_ui_message(self, message: object) -> None:\n"
             "        pass\n"
         )
 
-        assert _shell_method_defs(source) == [("_start_worker", 2)]
+        assert _shell_method_defs(source) == [
+            ("_start_worker", 2),
+            ("_write_run_report_standard", 5),
+        ]
 
 
 class TestTheDetectorCanFail:
