@@ -74,6 +74,9 @@ than raised off the worker thread.  Three adopters had carried the same block
 Changed in 2.9.0: the writer creates the report's folder when it is missing,
 so a tool that writes into a fresh output directory still finishes with a report
 View Log can open rather than a logged failure (D33).
+Changed in 2.9.0: the report's ``SUMMARY:`` footer is
+``run_report.summary_lines``, shared with the analysis scaffold instead
+of built in each writer (D35).
 Changed in 2.9.0: ``audition_row`` gives the shared Results tab the
 before/after audition row and binds ``AuditionMixin``, so an in-place repair
 tool's last capability is the shell's instead of a base class of its own
@@ -96,6 +99,7 @@ from . import styles
 from .app_bootstrap import bootstrap_tool_app
 from .event_pump import pump_events
 from .exceptions import map_to_audio_error
+from .run_report import summary_lines
 from .ui_audition import AuditionMixin
 from .ui_common import build_processing_tab, build_results_tab
 from .ui_helpers import UIHelperMixin
@@ -390,18 +394,15 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
             errors: Files that failed.
             duration_secs: Wall-clock run time.
         """
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"{self.TAGGED_LABEL}: {tagged}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-        ]
-        summary.extend(f"{label}: {value}\n" for label, value in rows)
-        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+        summary: list[str] = summary_lines(
+            total=total,
+            tagged=tagged,
+            tagged_label=self.TAGGED_LABEL,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            rows=rows,
+        )
 
         try:
             Path(self._log_path).parent.mkdir(parents=True, exist_ok=True)

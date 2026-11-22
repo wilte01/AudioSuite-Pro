@@ -18,6 +18,20 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The run report's SUMMARY footer is one function.** `SuiteApp`'s writer and
+  the analysis scaffold's `_on_complete` built the same block -- the rule, the
+  five counter lines, the tool's extra rows and `Time: MM:SS` -- in two places,
+  so it is `audio_suite_shared.run_report.summary_lines`. Both writers still
+  supply their own header, per-file lines and rows (`TAGGED_LABEL`,
+  `_summary_extras()`), so both reports are byte-identical;
+  `tests/test_run_report.py` pins the footer's shape and fails if either writer
+  builds it by hand again, and `tests/test_tool_app_base.py` covers the
+  scaffold's completion, which had no report test before. The module is listed
+  in `documentation/docs/api.md`, as every shared module must be. The other call sites
+  that still build the block for themselves (`AnalysisAppBase`, the individual
+  analysis windows and the core log builders) are unchanged and are the next
+  extraction.
+
 - **Restoration adopts the shared window shell, and the shell gains the
   audition row.** `RestorationApp` is a `SuiteApp` now: its two one-line tab
   delegates (`restoration/ui/processing_tab.py`, `results_tab.py`) are gone, the

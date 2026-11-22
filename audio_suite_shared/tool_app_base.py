@@ -28,6 +28,9 @@ callback-payload lock instead of hiding behind a local wrapper (Sprint 6).
 
 Changed in 2.8.0: the docstring no longer cites the denoiser as an example window.
 
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``run_report.summary_lines``, the one implementation the shared shell
+writes with too (D35).
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
 Changed in 2.9.0: the preset store is ``ui_presets.load_tool_preset`` /
@@ -53,6 +56,7 @@ from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import map_to_audio_error
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.thread_safe_slot_var import (
     ThreadSafeSlotVar,
     make_safe_slot_vars,
@@ -310,16 +314,15 @@ class AnalysisTagToolApp(UIHelperMixin):
         tagged: int = processed - skipped - errors
         extras: list[tuple[str, str]] = list(self._summary_extras())
 
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"{self.TAGGED_LABEL}: {tagged}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-        ]
-        summary.extend(f"{label}: {value}\n" for label, value in extras)
-        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+        summary: list[str] = summary_lines(
+            total=total,
+            tagged=tagged,
+            tagged_label=self.TAGGED_LABEL,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            rows=extras,
+        )
         all_entries: list[str] = header + log_entries + summary
 
         try:
