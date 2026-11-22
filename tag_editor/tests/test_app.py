@@ -19,6 +19,13 @@ reports the window writes into the scanned folder (the file View Log opens).
 The grid, the single-field/bulk apply paths and the CSV import/export keep the
 behaviour coverage they had before the rebuild, driven through the new worker
 entry points.
+
+Changed in 2.9.0: covers the migration onto ``SuiteApp`` (C1 stage 2, D8's wave
+3).  The window writes its own run reports now, and every callback a run
+publishes — the progress tick, the run error, the completion, the grid fill,
+the row refresh and the CSV warnings — is a queue message a Tk poller drains,
+so the completion tests drive ``_poll_ui_updates`` instead of reading
+``root.after``.
 """
 
 from __future__ import annotations
@@ -26,12 +33,14 @@ from __future__ import annotations
 import tkinter
 from collections.abc import Generator
 from pathlib import Path
+from queue import SimpleQueue
 from tkinter import ttk
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from audio_suite_shared import suite_app
 from audio_suite_shared.ui_common import BaseSetupFrame
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from tag_editor.core.csv_io import CsvImportPlan
@@ -39,6 +48,7 @@ from tag_editor.core.processor import (
     EditResult,
     FieldEdit,
     TagEditorProcessor,
+    TagRow,
 )
 
 
@@ -96,14 +106,18 @@ def _make_shell_app() -> Any:
     app.completion_label = MagicMock()
     app.time_label = MagicMock()
     app.summary_label = MagicMock()
-    app._tab_processing = "processing-tab"
-    app._tab_results = "results-tab"
+    app.processing_frame = "processing-tab"
+    app.results_frame = "results-tab"
     app._log_path = ""
     app.auto_end = False
     app.start_btn = MagicMock()
     app.stop_btn = MagicMock()
     app.processor = TagEditorProcessor()
-    app._summary_rows = ()
+    #: A run's messages and its thread: the completion and the poller read them.
+    app._ui_updates = SimpleQueue()
+    app._run_thread = None
+    app._run_mode = "Live Update"
+    app._run_folder = ""
     app._pending_extra_entries = ()
     app._pending_extra_summary = ()
     app._pending_warnings = ()
@@ -213,6 +227,21 @@ def _labels(widget: Any) -> list[str]:
     return found
 
 
+def _run_scheduled(app: Any, name: str) -> None:
+    """Run the ``root.after`` callback named *name*, as the Tk thread would.
+
+    ``render_completion`` marshals the shell's widget writes with
+    ``root.after(0, ...)``; a MagicMock root records them instead of running
+    them, so a test that reads a Results-tab widget runs that one itself.
+    """
+    for call in app.root.after.call_args_list:
+        callback = call.args[1]
+        if getattr(callback, "__name__", "") == name:
+            callback(*call.args[2:])
+            return
+    raise AssertionError(f"{name} was never scheduled: {app.root.after.call_args_list}")
+
+
 def _widgets(widget: Any, kind: type) -> list[Any]:
     """Return every descendant of *widget* that is an instance of *kind*."""
     found: list[Any] = []
@@ -221,20 +250,6 @@ def _widgets(widget: Any, kind: type) -> list[Any]:
             found.append(child)
         found.extend(_widgets(child, kind))
     return found
-
-
-def _scheduled(app: Any, name: str) -> tuple[Any, ...]:
-    """Return the arguments of the ``root.after`` call that runs *name*.
-
-    Handlers marshal onto the Tk thread with ``root.after(0, self.<method>,
-    ...)``; the shell records those instead of running them, so a test picks
-    the one it wants to execute rather than assuming the call order (progress
-    updates are scheduled too).
-    """
-    for call in reversed(app.root.after.call_args_list):
-        if getattr(call.args[1], "__name__", "") == name:
-            return tuple(call.args[2:])
-    raise AssertionError(f"{name} was never scheduled: {app.root.after.call_args_list}")
 
 
 class TestConstructorWiring:
@@ -251,12 +266,13 @@ class TestConstructorWiring:
         assert str(app.stop_btn.cget("state")) == "disabled"
 
     def test_the_window_is_a_peer_scaffold(self, app_root) -> None:
-        """The app is the shared analysis/tag scaffold, not its own wiring."""
-        from audio_suite_shared.tool_app_base import AnalysisTagToolApp
+        """The app is the shared window shell, not its own wiring."""
+        from audio_suite_shared.suite_app import SuiteApp
 
         app = _ui_app_module().TagEditorApp(app_root)
 
-        assert isinstance(app, AnalysisTagToolApp)
+        assert isinstance(app, SuiteApp)
+        assert "_build_setup_tab" in type(app).__dict__
         assert app.TOOL_ID == "tag_editor"
         assert app.HELP_GUIDE.endswith(".docx")
 
@@ -325,7 +341,7 @@ class TestRunControlsStrip:
         app = _ui_app_module().TagEditorApp(app_root)
         panel = app.controls_panel
 
-        assert isinstance(app.setup_frame, BaseSetupFrame)
+        assert isinstance(app._setup_frame, BaseSetupFrame)
         assert isinstance(panel, DriverControlsPanel)
         # The suite's primary action is the full-width bottom button.
         assert app.start_btn.pack_info()["fill"] == "x"
@@ -426,8 +442,8 @@ class TestLoadRun:
         assert "SUMMARY:" in report
         assert "Audio files: 1 of 2 files" in report
 
-        # The grid is filled on the Tk thread, which the shell schedules.
-        app._fill_grid(*_scheduled(app, "_fill_grid"))
+        # The grid fill is queued for the Tk poller, which writes it.
+        app._poll_ui_updates()
         iid = str(tmp_path / "a.mp3")
         app.tree.insert.assert_called_once()
         assert app._rows[iid][1]["title"] == "One"
@@ -572,7 +588,7 @@ class TestApplySelection:
         report = (tmp_path / "tag_editor_sync_log.txt").read_text(encoding="utf-8")
         assert "[WRITTEN] track.mp3: title 'Old' -> 'New'" in report, report
 
-        app._refresh_rows(*_scheduled(app, "_refresh_rows"))
+        app._poll_ui_updates()
         app.tree.set.assert_called_once_with(str(path), "title", "New")
 
     def test_a_failed_edit_is_reported_and_leaves_the_row(
@@ -603,7 +619,7 @@ class TestApplySelection:
         assert "[FAILED]" in report
         assert "Errors: 1" in report
 
-        app._refresh_rows(*_scheduled(app, "_refresh_rows"))
+        app._poll_ui_updates()
         app.tree.set.assert_not_called()
 
 
@@ -722,8 +738,7 @@ class TestCsvImportExport:
             written=1,
         )
 
-        warnings = _scheduled(app, "_warn_rows")
-        app._warn_rows(*warnings)
+        app._poll_ui_updates()
         messagebox.showwarning.assert_called_once()
         assert "gone.mp3" in messagebox.showwarning.call_args.args[1]
 
@@ -865,10 +880,10 @@ class TestGridInteraction:
 
 
 class TestCompletionSeam:
-    """The processor's completion payload lands on the shared handlers."""
+    """The processor's completion payload lands on this window's handler."""
 
     @staticmethod
-    def _complete(app: Any, **overrides: Any) -> None:
+    def _complete(app: Any, tmp_path: Path, **overrides: Any) -> None:
         payload: dict[str, Any] = {
             "header": ["header\n"],
             "total": 4,
@@ -882,16 +897,19 @@ class TestCompletionSeam:
             "written": 3,
         }
         payload.update(overrides)
+        app._log_path = str(tmp_path / "report.txt")
         app._finish_apply(**payload)
+        app._poll_ui_updates()
+        # The poller renders the finish; the shell marshals its Results-tab
+        # writes, which a MagicMock root records rather than runs.
+        _run_scheduled(app, "_render_completion")
 
     def test_the_results_panel_reports_the_shared_counters(
         self, tmp_path: Path
     ) -> None:
         app = _make_shell_app()
-        app._log_path = str(tmp_path / "report.txt")
 
-        self._complete(app)
-        app._update_ui_on_complete(4, 3, 1, 0, 1, 5, list(app._summary_extras()))
+        self._complete(app, tmp_path)
 
         summary = str(app.summary_label.config.call_args.kwargs["text"])
         for fragment in ("4", "3", "1", "Files changed", "Tag edits"):
@@ -900,11 +918,9 @@ class TestCompletionSeam:
 
     def test_the_mode_decides_the_completion_caption(self, tmp_path: Path) -> None:
         app = _make_shell_app()
-        app.run_mode.get.return_value = "Dry Run"
-        app._log_path = str(tmp_path / "report.txt")
+        app._run_mode = "Dry Run"
 
-        self._complete(app)
-        app._update_ui_on_complete(4, 3, 1, 0, 0, 0)
+        self._complete(app, tmp_path)
 
         assert app.completion_label.config.call_args.kwargs["text"] == (
             "Apply Complete!"
@@ -913,23 +929,21 @@ class TestCompletionSeam:
     def test_auto_end_closes_the_window(self, tmp_path: Path) -> None:
         """A driven batch blocks on this process, so Auto End must exit."""
         app = _make_shell_app()
-        app._log_path = str(tmp_path / "report.txt")
         app.auto_end = True
 
-        self._complete(app)
-        app._update_ui_on_complete(4, 3, 1, 0, 0, 0)
+        self._complete(app, tmp_path)
 
         app.root.after.assert_any_call(2000, app.root.destroy)
 
     def test_an_unknown_field_does_not_abort_the_completion(
         self, tmp_path: Path
     ) -> None:
+        """A processor field the handler ignores must never raise."""
         app = _make_shell_app()
-        app._log_path = str(tmp_path / "report.txt")
 
-        self._complete(app, plugin_updates=3)
+        self._complete(app, tmp_path, plugin_updates=3)
 
-        assert app._summary_rows, "the completion never ran"
+        assert (tmp_path / "report.txt").is_file(), "the completion never ran"
 
     def test_the_real_run_drives_the_bound_handler(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -942,7 +956,8 @@ class TestCompletionSeam:
             lambda _path: {"title": "Old"},
         )
         app = _make_shell_app()
-        app.run_mode.get.return_value = "Dry Run"
+        app._run_mode = "Dry Run"
+        app._run_folder = str(tmp_path)
         app.folder_path.get.return_value = str(tmp_path)
         app._log_path = str(tmp_path / "tag_editor_dry_run_log.txt")
         path = tmp_path / "a.mp3"
@@ -956,10 +971,144 @@ class TestCompletionSeam:
             on_error=app._on_error,
             processor=app.processor,
         )
+        app._poll_ui_updates()
 
         text = (tmp_path / "tag_editor_dry_run_log.txt").read_text(encoding="utf-8")
         assert "header" in text
         assert "[WOULD WRITE] a.mp3: title 'Old' -> 'New'" in text
         assert "SUMMARY:" in text
         assert "Tag edits: 1 planned, 0 written" in text
-        assert app._summary_rows
+
+
+class TestQueuedUiUpdates:
+    """A run's thread queues its widget writes; the Tk poller applies them.
+
+    The load walk and every apply run are raw ``threading.Thread`` workers, so
+    they must not call ``root.after`` or touch a widget (AGENTS.md): every
+    callback the processor publishes is a queue message.
+    """
+
+    @staticmethod
+    def _app() -> Any:
+        app = object.__new__(_ui_app_module().TagEditorApp)
+        app.root = MagicMock()
+        app._ui_updates = SimpleQueue()
+        app._run_thread = None
+        app.stats_label = MagicMock()
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
+        app.start_btn = MagicMock()
+        app.stop_btn = MagicMock()
+        app.tree = MagicMock()
+        app.summary_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.time_label = MagicMock()
+        app.notebook = MagicMock()
+        app.results_frame = MagicMock()
+        app.overall_status = MagicMock()
+        app._rows = {}
+        app._run_mode = "Dry Run"
+        app._run_folder = "D:/music"
+        app.auto_end = False
+        return app
+
+    def test_a_progress_tick_is_queued_not_written(self) -> None:
+        app = self._app()
+
+        app._on_progress(4, 10, 2, 1, "song.flac")
+
+        app.root.after.assert_not_called()
+        app.stats_label.config.assert_not_called()
+        assert app._ui_updates.get_nowait() == ("progress", 4, 10, 2, 1, "song.flac")
+
+    def test_a_run_error_is_queued_not_raised(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dialogs = MagicMock()
+        monkeypatch.setattr(suite_app, "messagebox", dialogs)
+        app = self._app()
+
+        app._on_error("Not a directory: D:/music")
+
+        app.root.after.assert_not_called()
+        dialogs.showerror.assert_not_called()
+        assert app._ui_updates.get_nowait() == ("error", "Not a directory: D:/music")
+
+    def test_the_poller_writes_the_queued_tick(self) -> None:
+        app = self._app()
+        app._on_progress(4, 10, 2, 1, "song.flac")
+
+        app._poll_ui_updates()
+
+        assert app.stats_label.config.call_args.kwargs["text"] == (
+            "Processed: 4 | Skipped: 2 | Errors: 1"
+        )
+        assert app.file_listbox.insert.call_args.args[1] == "song.flac"
+        # The run's thread is gone, so the poller stops instead of rescheduling.
+        app.root.after.assert_not_called()
+
+    def test_the_poller_writes_the_queued_completion(self) -> None:
+        app = self._app()
+        app._ui_updates.put(
+            ("complete", 7, 7, 0, 0, 65.0, (("Tag edits", "2 planned, 1 written"),))
+        )
+
+        app._poll_ui_updates()
+
+        text = app.summary_label.config.call_args.kwargs["text"]
+        assert text.startswith("Total: 7 files")
+        assert "Tag edits: 2 planned, 1 written" in text
+        assert app.stop_btn.config.call_args.kwargs["state"] == tkinter.DISABLED
+        # ``render_completion`` records the run's folder for Open Folder.
+        assert app._out_dir == "D:/music"
+
+    def test_the_poller_fills_the_grid_from_a_queued_scan(self) -> None:
+        app = self._app()
+        row = TagRow(path=Path("a.mp3"), values={"title": "One"})
+        app._ui_updates.put(("grid", [row]))
+
+        app._poll_ui_updates()
+
+        app.tree.insert.assert_called_once()
+        assert app._rows[str(row.path)][1]["title"] == "One"
+
+    def test_the_poller_raises_a_queued_error_on_the_tk_thread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dialogs = MagicMock()
+        monkeypatch.setattr(suite_app, "messagebox", dialogs)
+        app = self._app()
+        app._on_error("Not a directory: D:/music")
+
+        app._poll_ui_updates()
+
+        dialogs.showerror.assert_called_once_with("Error", "Not a directory: D:/music")
+        app.start_btn.config.assert_called_once_with(state="normal")
+        app.stop_btn.config.assert_called_once_with(state=tkinter.DISABLED)
+
+    def test_the_poller_keeps_polling_while_the_run_thread_lives(self) -> None:
+        app = self._app()
+        app._run_thread = MagicMock()
+        app._run_thread.is_alive.return_value = True
+
+        app._poll_ui_updates()
+
+        app.root.after.assert_called_once_with(
+            _ui_app_module()._UI_POLL_MS, app._poll_ui_updates
+        )
+
+    def test_a_run_builds_its_queue_and_starts_the_poller(
+        self, tmp_path: Path, stubbed_dialogs, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _make_shell_app()
+        app.folder_path.get.return_value = str(tmp_path)
+        thread = MagicMock()
+        monkeypatch.setattr(_ui_app_module(), "threading", MagicMock(Thread=thread))
+
+        app.start_processing()
+
+        assert isinstance(app._ui_updates, SimpleQueue)
+        assert app._run_thread is thread.return_value
+        app.root.after.assert_called_once_with(
+            _ui_app_module()._UI_POLL_MS, app._poll_ui_updates
+        )
