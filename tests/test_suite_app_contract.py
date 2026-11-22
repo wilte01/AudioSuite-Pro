@@ -74,6 +74,9 @@ Changed in 2.9.0: Tag Field Updater closes wave 3's grid pair, so the table is
 eighteen and the updater gains a run-report drive through its scan completion.
 Changed in 2.9.0: locks ``TAGGED_LABEL`` in the report each shell writer
 produces, through the same completion drive (D33).
+Changed in 2.9.0: Restoration follows last in wave 3, so the table is
+nineteen, the declipper gains a report drive, and its report's label is
+locked (C1 stage 2, D34).
 
 """
 
@@ -134,6 +137,9 @@ from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
 from replaygain_analyzer import app as replaygain_analyzer_app
 from replaygain_analyzer.app import ReplayGainAnalyzerApp
+from restoration.ui import app as restoration_app
+from restoration.ui.app import RestorationApp
+from restoration.utils.cli_args import RestorationArgs
 from stem_separator import app as stem_separator_app
 from stem_separator.app import StemSeparatorApp
 from stem_separator.core.models import DEFAULT_MODEL
@@ -166,6 +172,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     DuplicateFinderApp,
     TagEditorApp,
     TagFieldUpdaterApp,
+    RestorationApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -383,6 +390,11 @@ def _stub_tag_field_updater_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_restoration_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the declipper's launcher parse (it runs in the constructor)."""
+    monkeypatch.setattr(restoration_app.cli_args, "parse", lambda: RestorationArgs())
+
+
 def _stub_mood_analysis_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub the tagger's launcher parse (it runs inside the constructor)."""
     monkeypatch.setattr(
@@ -409,6 +421,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     DuplicateFinderApp: _stub_duplicate_finder_edges,
     TagEditorApp: _stub_tag_editor_edges,
     TagFieldUpdaterApp: _stub_tag_field_updater_edges,
+    RestorationApp: _stub_restoration_edges,
 }
 
 
@@ -748,6 +761,32 @@ def _complete_tag_field_updater_run(app: TagFieldUpdaterApp, tmp_path: Path) -> 
     app._poll_ui_updates()
 
 
+def _complete_restoration_run(app: RestorationApp, tmp_path: Path) -> None:
+    """Drive the declipper's completion: the window writes the run report.
+
+    ``_finish_run`` is the handler the batch is bound to and the report
+    writer itself, so the drive hands it the payload the processor publishes
+    and reads the report back.  The run's mode and folder are the snapshots
+    ``start_processing`` takes on the Tk thread.
+    """
+    app._run_mode = restoration_app.DRY_RUN
+    app._run_was_dry_run = True
+    app._run_folder = str(tmp_path)
+    app._log_path = str(tmp_path / restoration_app.RUN_REPORT_DRY_RUN)
+    app._ui_updates = SimpleQueue()
+    app._finish_run(
+        header=["RESTORATION (DECLIP) REPORT\n"],
+        total=1,
+        succeeded=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[REPAIRED] a.flac\n"],
+    )
+    # The completion is queued for the Tk poller; drain it now.
+    app._poll_ui_updates()
+
+
 def _complete_mood_analysis_run(
     app: MoodAnalysisBatchTaggerApp, tmp_path: Path
 ) -> None:
@@ -798,6 +837,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     DuplicateFinderApp: _complete_duplicate_finder_run,
     TagEditorApp: _complete_tag_editor_run,
     TagFieldUpdaterApp: _complete_tag_field_updater_run,
+    RestorationApp: _complete_restoration_run,
 }
 
 #: The label line each adopter that writes through
@@ -808,6 +848,7 @@ SHELL_REPORT_LABELS: dict[type[suite_app.SuiteApp], str] = {
     DuplicateFinderApp: "Files scanned: 1",
     TagEditorApp: "Files changed: 1",
     TagFieldUpdaterApp: "Files read: 1",
+    RestorationApp: "Repaired: 1",
 }
 
 
@@ -1042,6 +1083,7 @@ def test_every_shell_written_report_has_its_label_locked() -> None:
         DuplicateFinderApp,
         TagEditorApp,
         TagFieldUpdaterApp,
+        RestorationApp,
     }
 
 
@@ -1066,6 +1108,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "DuplicateFinderApp",
         "TagEditorApp",
         "TagFieldUpdaterApp",
+        "RestorationApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

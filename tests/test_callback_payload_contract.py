@@ -65,6 +65,9 @@ Changed in 2.5.0: EXPECTED_TOOLS gains the Track Splitter (F-E4).
 Changed in 2.6.0: EXPECTED_TOOLS gains the CUE Sheet Generator (F-E8).
 
 Changed in 2.8.0: the denoiser's payload tuple leaves with the window.
+Changed in 2.9.0: ``RestorationApp`` adopts the shared shell and binds its
+batch through the three callback keywords, so the declipper joins
+``EXPECTED_TOOLS`` instead of hiding behind local closures (C1 stage 2, D34).
 """
 
 from __future__ import annotations
@@ -121,6 +124,8 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("metadata_scrubber/app.py", "MetadataScrubberApp"),
         ("music_format_converter/app.py", "MusicFormatConverterApp"),
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
+        # Changed in 2.9.0: the declipper's window (C1 stage 2, D34).
+        ("restoration/ui/app.py", "RestorationApp"),
         ("stem_separator/app.py", "StemSeparatorApp"),
         ("tag_editor/ui/app.py", "TagEditorApp"),
         ("tag_field_updater/ui/app.py", "TagFieldUpdaterApp"),

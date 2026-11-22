@@ -11,6 +11,9 @@ rewritten**, so a clean file's bytes are untouched.
 
 Changed in 2.3.0: new declip tool (backlog F-08a): peak reconstruction over the shared
 in-place workflow.
+Changed in 2.9.0: the run's processor is ``DeclipProcessor``, a named default-
+constructible subclass rather than a bare ``BaseFileProcessor``, so the window's
+worker grid and the processor it drives are checked against one class (D34).
 """
 
 from __future__ import annotations
@@ -23,7 +26,6 @@ from typing import Any
 
 from pydub import AudioSegment
 
-from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import handle_audio_errors
 from audio_suite_shared.file_processor_base import (
     BaseFileProcessor,
@@ -67,8 +69,26 @@ class _HeadlessSlot:
         return ""
 
 
+class DeclipProcessor(BaseFileProcessor):
+    """The shared in-place workflow configured for declipping.
+
+    Restoration is the one suite tool that runs ``BaseFileProcessor`` itself
+    rather than a subclass of it; naming the configuration gives the window's
+    worker grid and the processor it drives one class to agree on, which is
+    what ``tests/test_slot_grid_consistency.py`` reads for a tool-owned grid.
+    """
+
+    def __init__(self, max_workers: int | None = None) -> None:
+        """Build the processor the declip batch runs on.
+
+        Args:
+            max_workers: Worker count; ``None`` resolves the suite's default.
+        """
+        super().__init__(max_workers=max_workers, operation_type="declip")
+
+
 def _build_processor() -> BaseFileProcessor:
-    return BaseFileProcessor(max_workers=DEFAULT_MAX_WORKERS, operation_type="declip")
+    return DeclipProcessor()
 
 
 def _resolve_pool(

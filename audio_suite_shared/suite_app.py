@@ -74,6 +74,10 @@ than raised off the worker thread.  Three adopters had carried the same block
 Changed in 2.9.0: the writer creates the report's folder when it is missing,
 so a tool that writes into a fresh output directory still finishes with a report
 View Log can open rather than a logged failure (D33).
+Changed in 2.9.0: ``audition_row`` gives the shared Results tab the
+before/after audition row and binds ``AuditionMixin``, so an in-place repair
+tool's last capability is the shell's instead of a base class of its own
+(C1 stage 2, D34).
 
 """
 
@@ -92,6 +96,7 @@ from . import styles
 from .app_bootstrap import bootstrap_tool_app
 from .event_pump import pump_events
 from .exceptions import map_to_audio_error
+from .ui_audition import AuditionMixin
 from .ui_common import build_processing_tab, build_results_tab
 from .ui_helpers import UIHelperMixin
 
@@ -101,7 +106,7 @@ logger = logging.getLogger(f"audio_suite.{__name__}")
 TabBuilder = Callable[[tk.Frame], Any]
 
 
-class SuiteApp(UIHelperMixin):
+class SuiteApp(UIHelperMixin, AuditionMixin):
     """One window shell for a batch-transformer tool.
 
     Subclasses set the identity attributes, finish any state a tab reads (Tk
@@ -134,6 +139,8 @@ class SuiteApp(UIHelperMixin):
         result_extra_labels: Extra Results-tab labels the tool drives; the
             shell builds each one and publishes it on the instance under its
             name.
+        audition_row: Whether the shared Results tab carries the before/after
+            audition row; the shell binds the shared mixin when it does.
     """
 
     #: Window title, and the heading the Setup tab shows.  Shown once.
@@ -157,6 +164,10 @@ class SuiteApp(UIHelperMixin):
     apply_ttk_styles: bool = True
     #: Extra Results-tab labels this tool drives, below the summary line.
     result_extra_labels: tuple[str, ...] = ()
+    #: Whether the shared Results tab carries the before/after audition row.
+    #: An in-place tool sets it, so Play Original has the snapshot the mixin
+    #: captured before the run and Play Result the file it rewrote.
+    audition_row: bool = False
     #: The run report's label for its handled count.  A tool whose runs count
     #: something else (``Files read``, ``Files scanned``) names its own.
     TAGGED_LABEL: str = "Tagged"
@@ -261,19 +272,23 @@ class SuiteApp(UIHelperMixin):
         self.file_listbox: tk.Listbox = widgets["file_listbox"]
 
     def _build_results_tab(self, parent: tk.Frame) -> None:
-        """Build the shared Results tab and wire its two buttons."""
+        """Build the shared Results tab and wire its buttons."""
         widgets = build_results_tab(
             parent,
             self.completion_text,
             on_open_log=self._open_log,
             on_open_folder=self._open_folder,
             extra_labels=list(self.result_extra_labels) or None,
+            on_play_original=self._play_original if self.audition_row else None,
+            on_play_result=self._play_result if self.audition_row else None,
         )
         self.completion_label: tk.Label = widgets["completion_label"]
         self.summary_label: tk.Label = widgets["summary_label"]
         self.time_label: tk.Label = widgets["time_label"]
         for name in self.result_extra_labels:
             setattr(self, name, widgets[name])
+        if self.audition_row:
+            self.setup_audition(widgets)
 
     # ── Shared helpers ────────────────────────────────────────────────────────
 

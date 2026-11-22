@@ -48,6 +48,8 @@ Changed in 2.5.0: the publisher table gains the Track Splitter (F-E4).
 Changed in 2.7.0: the publisher table gains ``pitch_time`` (F-S4).
 
 Changed in 2.8.0: the published-payload lock drops the denoiser window.
+Changed in 2.9.0: registers ``restoration``, whose batch publishes from
+``run_declipping`` through the shared in-place runner (C1 stage 2, D34).
 """
 
 from __future__ import annotations
@@ -88,6 +90,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
         "music_format_converter.core.file_processor.run_conversion"
     ),
     "pitch_time": "pitch_time.core.engine.run_pitch_time",
+    "restoration": "restoration.core.file_processor.run_declipping",
     "replaygain_analyzer": "replaygain_analyzer.core.file_processor.run_analysis",
     "stem_separator": "stem_separator.core.file_processor.run_stem_separation",
     "tag_editor": "tag_editor.core.processor.run_apply",

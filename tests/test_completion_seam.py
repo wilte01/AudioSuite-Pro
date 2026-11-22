@@ -64,6 +64,9 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the wiring count gains the Track Splitter (F-E4).
 Changed in 2.7.0: ``PitchTimeApp`` joins the required-field table (F-S4).
+Changed in 2.9.0: ``RestorationApp`` joins it with the payload the shared
+in-place batch publishes, because the window now binds its handlers by
+keyword instead of through local closures (C1 stage 2, D34).
 """
 
 from __future__ import annotations
@@ -240,6 +243,17 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "log_entries",
         }
     ),
+    "RestorationApp": frozenset(
+        {
+            "header",
+            "total",
+            "succeeded",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+        }
+    ),
     "StemSeparatorApp": frozenset(
         {
             "total",
@@ -334,7 +348,9 @@ def test_the_seam_table_covers_every_gui_tool() -> None:
     # 22 since 2.7.0: Pitch / Time is the twenty-second window on the shared
     # shell (F-S4), on the 21 the 2.6.0 wave left.  Changed in 2.8.0: back to
     # 21; the denoiser window is gone with its tool.
-    assert len(COMPLETION_WIRINGS) == 21
+    # Changed in 2.9.0: 22; Restoration binds the shared batch by keyword and
+    # joins the table (C1 stage 2, D34).
+    assert len(COMPLETION_WIRINGS) == 22
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

@@ -18,6 +18,28 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Restoration adopts the shared window shell, and the shell gains the
+  audition row.** `RestorationApp` is a `SuiteApp` now: its two one-line tab
+  delegates (`restoration/ui/processing_tab.py`, `results_tab.py`) are gone, the
+  notebook, the worker hand-off and the run report are the shell's, and a
+  completion writes `restoration_dry_run_log.txt`/`restoration_sync_log.txt`
+  beside the repaired folder, so View Log opens a real report for the first time
+  (the old `NoisePopToolApp` base left `_log_path` empty and never set
+  `_out_dir`, which also left Open Folder always unavailable). The before/after
+  audition row was reachable only through that base, so `SuiteApp` grows
+  `audition_row`: when a window sets it the shared Results tab wires the two Play
+  buttons and the shell binds `AuditionMixin`. The run snapshots its threshold,
+  plateau width and mode on the Tk thread instead of reading Tk variables from
+  the worker, and publishes progress, completion and errors through the shell's
+  queue. `TAGGED_LABEL` is `Repaired`; the contract test drives the completion
+  and reads `Repaired: 1` back out of the report, and the callback-payload lock
+  gains `restoration/ui/app.py` now that the batch binds the three callbacks by
+  keyword instead of local closures, and the completion-seam and
+  published-payload tables gain its row (22 windows). The tool's processor is the named
+  `DeclipProcessor` (default-constructible, `operation_type="declip"`) rather
+  than a bare `BaseFileProcessor`, because a tool-owned worker grid is checked
+  against a processor class in the tool's package.
+
 - **One implementation for the helpers the review found duplicated.** A
   structural clone scan of the 618 shipped modules (146,602 lines) found the
   remaining verbatim copies, and each now has a single home:
