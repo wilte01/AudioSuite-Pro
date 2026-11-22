@@ -68,6 +68,8 @@ Changed in 2.9.0: Duplicate Finder opens wave 3, so the table is sixteen and
 the finder gains a run-report drive through its completion handler.
 Changed in 2.9.0: Tag Editor follows it in wave 3, so the table is seventeen
 and the editor gains a run-report drive through its apply completion.
+Changed in 2.9.0: Tag Field Updater closes wave 3's grid pair, so the table is
+eighteen and the updater gains a run-report drive through its scan completion.
 """
 
 from __future__ import annotations
@@ -133,6 +135,9 @@ from stem_separator.core.models import DEFAULT_MODEL
 from tag_editor.ui import app as tag_editor_app
 from tag_editor.ui.app import TagEditorApp
 from tag_editor.utils.cli_args import TagEditorArgs
+from tag_field_updater.ui import app as tag_field_updater_app
+from tag_field_updater.ui.app import TagFieldUpdaterApp
+from tag_field_updater.utils.cli_args import TagFieldUpdaterArgs
 from tempo_analyzer import app as tempo_analyzer_app
 from tempo_analyzer.app import TempoAnalyzerApp
 
@@ -155,6 +160,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     FingerprinterApp,
     DuplicateFinderApp,
     TagEditorApp,
+    TagFieldUpdaterApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -365,6 +371,13 @@ def _stub_tag_editor_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tag_editor_app.cli_args, "parse", lambda: TagEditorArgs())
 
 
+def _stub_tag_field_updater_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the updater's launcher parse (it runs inside the constructor)."""
+    monkeypatch.setattr(
+        tag_field_updater_app.cli_args, "parse", lambda: TagFieldUpdaterArgs()
+    )
+
+
 def _stub_mood_analysis_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub the tagger's launcher parse (it runs inside the constructor)."""
     monkeypatch.setattr(
@@ -390,6 +403,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     FingerprinterApp: _stub_fingerprinter_edges,
     DuplicateFinderApp: _stub_duplicate_finder_edges,
     TagEditorApp: _stub_tag_editor_edges,
+    TagFieldUpdaterApp: _stub_tag_field_updater_edges,
 }
 
 
@@ -702,6 +716,33 @@ def _complete_tag_editor_run(app: TagEditorApp, tmp_path: Path) -> None:
     app._poll_ui_updates()
 
 
+def _complete_tag_field_updater_run(app: TagFieldUpdaterApp, tmp_path: Path) -> None:
+    """Drive the updater's completion: the window writes the scan report.
+
+    ``_finish_run`` is the handler the scan is bound to and the report writer
+    itself, so the drive hands it the payload the processor publishes and reads
+    the report back.  The run's mode and folder are the snapshots
+    ``start_processing`` takes on the Tk thread.
+    """
+    app._run_mode = tag_field_updater_app.DRY_RUN
+    app._run_folder = str(tmp_path)
+    app._log_path = str(tmp_path / tag_field_updater_app.RUN_REPORT_DRY_RUN)
+    app._ui_updates = SimpleQueue()
+    app._finish_run(
+        header=["TAG FIELD UPDATE REPORT\n"],
+        total=1,
+        processed=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[DRY RUN] a.mp3: TIT1 'A / B' -> 'A; B'\n"],
+        updated=1,
+        audio_files=1,
+    )
+    # The completion is queued for the Tk poller; drain it now.
+    app._poll_ui_updates()
+
+
 def _complete_mood_analysis_run(
     app: MoodAnalysisBatchTaggerApp, tmp_path: Path
 ) -> None:
@@ -751,6 +792,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     FingerprinterApp: _complete_fingerprinter_run,
     DuplicateFinderApp: _complete_duplicate_finder_run,
     TagEditorApp: _complete_tag_editor_run,
+    TagFieldUpdaterApp: _complete_tag_field_updater_run,
 }
 
 
@@ -976,6 +1018,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "FingerprinterApp",
         "DuplicateFinderApp",
         "TagEditorApp",
+        "TagFieldUpdaterApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

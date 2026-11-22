@@ -248,6 +248,29 @@ used once, and every bullet belongs to exactly one of them.
   with a drive through its apply completion, and the window's suite gains
   `TestQueuedUiUpdates`.
 
+- **Tag Field Updater closes wave 3's grid pair (C1 stage 2).**
+  `TagFieldUpdaterApp` composes `SuiteApp`: the shell owns the Help bar and the
+  Processing and Results tabs, and the tool keeps its Setup panel — the
+  filename-source box, the field pointer and the Run Controls strip — which
+  already came from `BaseSetupFrame`. The scan report and the Results summary
+  are written in the window again now that it no longer inherits
+  `AnalysisTagToolApp`, with the `SUMMARY:` footer every peer writes and a
+  log-write failure logged rather than raised off-thread. `start_processing`
+  reads the mode and the only-fill-blanks choice once, so the report header, the
+  processor and the worker's snapshot cannot disagree, and the worker no longer
+  calls `.get()` on either variable — the completion's "would update"/"updated"
+  verb reads the snapshotted mode too. Every callback the scan publishes rides
+  one `SimpleQueue` the Tk poller drains (the progress tick, the run error and
+  the completion), with a final drain after the thread ends; `_start_worker`
+  builds the queue, starts the thread and starts the poller. The window keeps
+  its `Files read` summary wording, its `Scan Complete!`/`Tag Update Complete!`
+  captions and its `Ready` starting status; View Log and Open Folder are the
+  shell's, and `ui/processing_tab.py`/`ui/results_tab.py` are deleted. The guide
+  is unchanged because the Setup tab and both shared tabs are.
+  `tests/test_suite_app_contract.py` gains the updater as its eighteenth adopter
+  with a drive through its scan completion, and the window's suite gains
+  `TestQueuedUiUpdates`.
+
 ### Fixed
 
 - **The Duplicate Finder's scan thread no longer touches Tk.** `_run_scan` is

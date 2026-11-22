@@ -24,14 +24,27 @@ Controls strip supplies the source row, the Mode combobox and the driver's
 orchestration display, and the start button is the suite's full-width one.  The
 strip's Mode is the only write path for dry/live, and `_on_filename_mode_toggled`
 remains the only place that forces Dry Run.
-Changed in 2.2.1: the window is a peer in every other respect too (U4).  The app
-is an `AnalysisTagToolApp`, so the run drives the shared progress/completion
-handlers, the browse dialog is the shared one (initial directory, last-directory
-memory), the argv handshake is the positional one every folder tool reads, and
-the edition writes the run report into the scanned folder
-(`tag_field_updater_dry_run_log.txt` / `tag_field_updater_sync_log.txt`) that
-View Log opens — the per-file detail the tool used to keep only in
-`logs/tag_field_updater.log`.
+Changed in 2.2.1: the window is a peer in every other respect too (U4).  At the
+time the app was an `AnalysisTagToolApp`, so the run drove the shared
+progress/completion handlers, the browse dialog was the shared one (initial
+directory, last-directory memory), the argv handshake was the positional one
+every folder tool reads, and the edition wrote the run report into the scanned
+folder (`tag_field_updater_dry_run_log.txt` /
+`tag_field_updater_sync_log.txt`) that View Log opens — the per-file detail the
+tool used to keep only in `logs/tag_field_updater.log`.
+
+Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2, D8's wave 3), so the
+shell owns the Help bar and the Processing and Results tabs and this tool keeps
+its Setup panel.  The run report and the Results summary are written here again
+now that the window no longer inherits ``AnalysisTagToolApp``, with the
+``SUMMARY:`` footer every peer writes, and ``start_processing`` snapshots the
+run's mode, folder and only-fill-blanks choice on the Tk thread — the worker and
+the completion used to call ``.get()`` on those variables from the scan's
+thread.  Every callback the scan publishes — the progress tick, the run error
+and the completion — is a message on a ``SimpleQueue`` a poller the Tk thread
+starts drains, because ``_run_scan`` is a raw ``threading.Thread`` and may not
+call ``root.after`` or a widget at all.  View Log and Open Folder are the
+shell's.
 """
 
 from __future__ import annotations
@@ -41,22 +54,23 @@ import os
 import sys
 import threading
 import tkinter as tk
+from collections.abc import Callable
+from queue import Empty, SimpleQueue
 from tkinter import messagebox, simpledialog, ttk
 from typing import Any
 
-from audio_suite_shared import styles
 from audio_suite_shared import suite_config as _suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
-from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.exceptions import handle_audio_errors, map_to_audio_error
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
-from audio_suite_shared.tool_app_base import AnalysisTagToolApp
+from audio_suite_shared.suite_app import SuiteApp
 
 from ..core.filename_patterns import PatternError
 from ..core.processor import TagProcessor, run_scan
 from ..utils import cli_args
 from ..utils import config as action_config
-from . import processing_tab, results_tab, setup_tab
+from . import setup_tab
 
 logger = logging.getLogger(__name__)
 
@@ -84,26 +98,53 @@ DRY_RUN = "Dry Run"
 LIVE_UPDATE = "Live Update"
 RUN_MODES = (DRY_RUN, LIVE_UPDATE)
 
+#: How often the Tk thread drains the messages the scan's thread queues.
+_UI_POLL_MS = 100
 
-class TagFieldUpdaterApp(AnalysisTagToolApp):
+
+class TagFieldUpdaterApp(SuiteApp):
     """Tkinter GUI application for Tag Field Updater."""
 
-    #: Manifest id, used by the shared preset/scaffold hooks.
-    TOOL_ID: str = DRIVER_TOOL_ID
-
+    title = "Tag Field Updater"
+    window_key = "tag_field_updater_window"
+    program_name = DRIVER_TOOL_ID
     #: Shipped guide the Help button opens.  Registered in
     #: ``audio_suite_shared.platform_utils.guide_to_program``; an empty value
-    #: would make the inherited ``_open_help`` a silent no-op.
+    #: would make the shell's Help button a silent no-op.
     HELP_GUIDE = "Tag_Field_Updater_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    # The labels this window has always shown; the shell does not renumber.
+    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
 
+    #: Nothing is tagged or analysed here beyond the fields the rule touches, so
+    #: the shared "processed" count is "files read".
     TAGGED_LABEL: str = "Files read"
     DRY_COMPLETE_LABEL: str = "Scan Complete!"
     LIVE_COMPLETE_LABEL: str = "Tag Update Complete!"
+    #: The heading the tab shows before a run; a finished run replaces it with
+    #: the wording for its mode, which starts here.
+    completion_text: str = DRY_COMPLETE_LABEL
 
-    #: Rows the finished run adds to the summary in the report and the Results
-    #: tab.  A tuple replaced per completion, never mutated in place, so a
-    #: finished run's row cannot survive into the next one.
-    _summary_rows: tuple[tuple[str, str], ...] = ()
+    #: The manifest id the window has always declared (tests and the driver read
+    #: it); ``program_name`` above is the shell's copy of the same value.
+    TOOL_ID: str = DRIVER_TOOL_ID
+
+    #: Messages the scan's thread queues for the Tk poller; built per run.
+    _ui_updates: SimpleQueue[tuple[Any, ...]]
+    #: The scan's thread; the poller stops when it ends.
+    _run_thread: threading.Thread | None = None
+
+    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
+    #: test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
+    #: Read by the completion, which closes the window when it is set.
+    auto_end: bool = False
+    #: Built by the shell from the Setup panel.
+    _setup_frame: Any = None
+    #: The run's mode and folder, snapshotted on the Tk thread by
+    #: ``start_processing`` so the completion reads no Tk variable.
+    _run_mode: str = ""
+    _run_folder: str = ""
 
     def __init__(self, root: tk.Tk, *, apply_argv: bool = True) -> None:
         """Initialize the application window, variables, and processor.
@@ -115,14 +156,6 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
                 the source itself, and its own flag is not part of the
                 handshake, so it opts out.
         """
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Tag Field Updater",
-            "tag_field_updater_window",
-            "tag_field_updater",
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path: tk.StringVar = tk.StringVar()
         #: The strip's Mode value.  The only writer of "Dry Run" on behalf of
@@ -133,17 +166,12 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
         self.action_group: tk.StringVar = tk.StringVar()
 
         #: Mirrors of the driver's orchestration strip.  Auto Start/Auto End
-        #: are honoured (the shared handshake and ``_update_ui_on_complete``);
-        #: Clear Logs and Parallel are display-only because the driver
-        #: executes them.
+        #: are honoured (the handshake and the completion); Clear Logs and
+        #: Parallel are display-only because the driver executes them.
         self.auto_start_var = tk.BooleanVar(value=False)
         self.auto_end_var = tk.BooleanVar(value=False)
         self.clear_logs_var = tk.BooleanVar(value=False)
         self.parallel_var = tk.BooleanVar(value=False)
-
-        #: Read by ``UniversalCLIHandler`` from the parsed handshake and by the
-        #: shared completion handler, which closes the window when it is set.
-        self.auto_end: bool = False
 
         #: Master Driver handshake: the panel is locked when it launched this
         #: process, so the args it passed cannot be edited mid-batch.  A
@@ -160,9 +188,12 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
         #: opening the suite log.
         self._log_path: str = ""
 
-        self._build_ui()
+        super().__init__(root)
+        # The shared Processing tab starts at "Waiting..."; this window has
+        # always said "Ready" until a run begins.
+        self.overall_status.set("Ready")
         if apply_argv:
-            self._apply_cli_args()
+            self._apply_cli_args(cli_args.parse())
 
         # Force UI refresh so Entry widgets display current variable values.
         self.root.update_idletasks()
@@ -173,41 +204,12 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
             if last:
                 self.folder_path.set(last)
 
-    # ── Window construction ───────────────────────────────────────────────────
+    # ── Shell tabs ───────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        """Build the window: Help bar, three standard tabs, shared Setup strip.
-
-        Everything is packed rather than gridded, so the notebook, the source
-        entry and the pattern box all grow with the window — the shape every
-        peer window has (maintenance items U1 and U3).
-        """
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup_frame = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing_frame = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results_frame = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup_frame, text=" 1. Setup ")
-        self.notebook.add(tab_processing_frame, text=" 2. Processing ")
-        self.notebook.add(tab_results_frame, text=" 3. Results ")
-
-        setup_widgets: dict[str, Any] = setup_tab.build(
-            tab_setup_frame,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the filename source, the field pointer and the run controls."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             auto_start_var=self.auto_start_var,
@@ -227,39 +229,53 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
             driver_locked=self._launched_from_driver,
             modes=RUN_MODES,
         )
-        self.setup_frame = setup_widgets["setup_frame"]
-        self.start_btn: tk.Button = setup_widgets["start_btn"]
-        self.stop_btn: tk.Button = setup_widgets["stop_btn"]
-        self.patterns_text: tk.Text = setup_widgets["patterns_text"]
-        self.group_combo: ttk.Combobox = setup_widgets["group_combo"]
-        self.controls_panel = setup_widgets["controls_panel"]
+        self._setup_frame = widgets["setup_frame"]
+        self.start_btn = widgets["start_btn"]
+        self.stop_btn = widgets["stop_btn"]
+        self.patterns_text: tk.Text = widgets["patterns_text"]
+        self.group_combo: ttk.Combobox = widgets["group_combo"]
+        self.controls_panel = widgets["controls_panel"]
 
-        # Single-threaded scan: the shared tab's slot grid is not requested.
-        proc_widgets: dict[str, Any] = processing_tab.build(tab_processing_frame)
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        #: The shared status line, driven exactly like every peer's.
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.overall_status.set("Ready")
+    # ── User actions ──────────────────────────────────────────────────
 
-        res_widgets: dict[str, Any] = results_tab.build(
-            tab_results_frame,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
+    def _browse_folder(self) -> None:
+        """Browse for a music directory, remembering the choice."""
+        self._browse_folder_standard(
+            title="Select Music Directory",
+            path_variable=self.folder_path,
+            save_last_dir=True,
         )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-
-        self._tab_processing = tab_processing_frame
-        self._tab_results = tab_results_frame
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 
-    def _apply_cli_args(self) -> None:
-        """Parse and apply the Master Driver's argv onto the controls."""
-        self._apply_driver_cli_args(cli_args.parse())
+    def _apply_cli_args(self, parsed: cli_args.TagFieldUpdaterArgs) -> None:
+        """Apply a parsed Master-Driver handshake onto the controls.
+
+        Every route that writes a control has to reach the same widget the
+        user's own edit would, and the auto-start has to be scheduled rather
+        than run inside ``__init__``, so the window is drawn first.
+
+        Args:
+            parsed: The per-tool ``cli_args.parse()`` dataclass.
+        """
+        self.run_mode.set(LIVE_UPDATE if parsed.live_mode else DRY_RUN)
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
+        self.auto_end = bool(parsed.auto_end)
+
+        if not parsed.folder_path:
+            return
+
+        cli_handler = UniversalCLIHandler(self)
+        should_auto_start = cli_handler.apply_cli_args(
+            parsed,
+            folder_var=self.folder_path,
+            auto_start_func=self.start_processing,
+        )
+        if should_auto_start:
+            self.root.after(1500, self.start_processing)
 
     # ── Filename source (F-01) ────────────────────────────────────────────────
 
@@ -358,8 +374,12 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
             return
 
         # Resolve the source before the thread starts: a bad pattern is a
-        # dialog here, not a half-tagged library later.
-        dry_run = self.run_mode.get() == DRY_RUN
+        # dialog here, not a half-tagged library later.  The mode and the write
+        # choice are read once, so the report header, the processor and the
+        # worker's snapshot cannot disagree about what this run will do.
+        run_mode = self.run_mode.get()
+        dry_run = run_mode == DRY_RUN
+        only_fill_blanks = self.only_fill_blanks.get()
         patterns: tuple[str, ...] = ()
         if self.filename_mode.get():
             patterns = self._patterns_from_box()
@@ -371,7 +391,7 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
                 return
             try:
                 self.processor.use_filename_patterns(
-                    patterns, only_fill_blanks=self.only_fill_blanks.get()
+                    patterns, only_fill_blanks=only_fill_blanks
                 )
             except PatternError as exc:
                 messagebox.showerror("Filename Pattern", str(exc))
@@ -379,9 +399,7 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
         else:
             self.processor.use_filename_patterns(())
 
-        fill_mode = (
-            "only fill blanks" if self.only_fill_blanks.get() else "overwrite existing"
-        )
+        fill_mode = "only fill blanks" if only_fill_blanks else "overwrite existing"
         source_line = (
             "Source: filenames\n"
             f"Patterns: {' | '.join(patterns)}\n"
@@ -397,9 +415,17 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
             "=" * 60 + "\n",
         ]
 
+        # Snapshot what the worker and the completion render from, on the Tk
+        # thread: neither may call .get().
+        self._run_mode = run_mode
+        self._run_folder = folder
+        self._log_path = os.path.join(
+            folder, RUN_REPORT_DRY_RUN if dry_run else RUN_REPORT_LIVE
+        )
+
         self.start_btn.config(state="disabled")
         self.stop_btn.config(state=tk.NORMAL)
-        self.notebook.select(self._tab_processing)
+        self.notebook.select(self.processing_frame)
         self.file_listbox.delete(0, tk.END)
         self._reset_progress_ui()
         self.overall_status.set("Scanning...")
@@ -410,11 +436,9 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
             "filenames" if patterns else "slash-rule",
         )
 
-        threading.Thread(
-            target=self._run_scan,
-            args=(folder, dry_run, patterns, header),
-            daemon=True,
-        ).start()
+        self._start_worker(
+            self._run_scan, (folder, dry_run, patterns, header, only_fill_blanks)
+        )
 
     @handle_audio_errors(reraise=False, context="tag_field_updater_app_run")
     def _run_scan(
@@ -423,27 +447,22 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
         is_dry_run: bool,
         patterns: tuple[str, ...],
         header: list[str],
+        only_fill_blanks: bool,
     ) -> None:
         """Background thread: delegate to :func:`processor.run_scan`.
-
-        The report path is set here, before completion, because the shared
-        completion handler writes the report it is handed to ``_log_path``.
 
         Args:
             folder: Root directory to walk.
             is_dry_run: Whether the run may write.
             patterns: Filename patterns for this run; empty for the slash rule.
             header: Report header lines for this run.
+            only_fill_blanks: The run's write mode, snapshotted on the Tk thread.
         """
-        self._out_dir = folder
-        self._log_path = os.path.join(
-            folder, RUN_REPORT_DRY_RUN if is_dry_run else RUN_REPORT_LIVE
-        )
         run_scan(
             folder,
             is_dry_run=is_dry_run,
             patterns=patterns,
-            only_fill_blanks=self.only_fill_blanks.get(),
+            only_fill_blanks=only_fill_blanks,
             on_progress=self._on_progress,
             on_complete=lambda **kw: self._finish_run(header=header, **kw),
             on_error=self._on_error,
@@ -470,18 +489,17 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
         audio_files: int,
         **_extra: Any,
     ) -> None:
-        """Record the run's summary rows and note, then finish as usual.
+        """Write this run's report, then queue the Results update.
 
-        Bound by the wiring lambda rather than overriding ``_on_complete``:
-        this tool's payload carries two counts the shared base never learns
-        (``updated``, ``audio_files``), and a required field an override adds
-        to the supertype's signature is a type error.  Declaring them required
-        is the point — a default is how a dropped field becomes a plausible
-        zero in the summary.
+        Bound by the wiring lambda rather than overriding a shell handler: this
+        tool's payload carries two counts the shell never learns (``updated``,
+        ``audio_files``), and a required field an override adds to the
+        supertype's signature is a type error.  Declaring them required is the
+        point — a default is how a dropped field becomes a plausible zero in the
+        summary.
 
-        Runs on the worker thread before the shared base writes the report and
-        schedules the Results update, so neither a damaged Tk nor an unwritable
-        report can suppress the note the Master Driver reads.
+        Runs on the scan's own thread: the report is written here, and every
+        widget write is queued for the Tk poller.
 
         Args:
             header: Report header lines for this run.
@@ -499,37 +517,125 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
                 they are ignored here.  A handler that rejected one would abort
                 the completion, so the report would never be written.
         """
-        rows: list[tuple[str, str]] = []
+        rows: tuple[tuple[str, str], ...] = ()
         if audio_files:
-            verb = "would update" if self.run_mode.get() == DRY_RUN else "updated"
-            rows.append(("Audio files", f"{audio_files} of {total} files"))
-            rows.append(("Files " + verb, f"{updated} of {audio_files}"))
-        self._summary_rows = tuple(rows)
+            verb = "would update" if self._run_mode == DRY_RUN else "updated"
+            rows = (
+                ("Audio files", f"{audio_files} of {total} files"),
+                ("Files " + verb, f"{updated} of {audio_files}"),
+            )
         self._record_run_note(total=total, skipped=skipped, errors=errors)
-        self.root.after(0, self._disable_stop)
-        super()._on_complete(
+        tagged = processed - skipped - errors
+        self._write_run_report(
             header=header,
+            log_entries=log_entries,
+            rows=rows,
             total=total,
-            processed=processed,
+            tagged=tagged,
             skipped=skipped,
             errors=errors,
             duration_secs=duration_secs,
-            log_entries=log_entries,
-            **_extra,
+        )
+        self._ui_updates.put(
+            ("complete", total, tagged, skipped, errors, duration_secs, rows)
         )
 
-    def _summary_extras(self) -> list[tuple[str, str]]:
-        """Return this run's rows for the report and the Results panel."""
-        return list(self._summary_rows)
+    def _write_run_report(
+        self,
+        *,
+        header: list[str],
+        log_entries: list[str],
+        rows: tuple[tuple[str, str], ...],
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+    ) -> None:
+        """Serialise the run's report into ``_log_path``.
 
-    def _disable_stop(self) -> None:
-        """Disable the Stop button (main thread; after a finished run)."""
+        The footer is the one every peer writes, so the run-report lock can read
+        this tool's report the way it reads an adopter's.
+
+        Args:
+            header: Report header lines for this run.
+            log_entries: The per-file report lines.
+            rows: This run's extra summary rows.
+            total: Files the run visited.
+            tagged: Files read without being skipped or erroring.
+            skipped: Files left alone.
+            errors: Files that could not be updated.
+            duration_secs: Wall-clock run time.
+        """
+        minutes = int(duration_secs // 60)
+        seconds = int(duration_secs % 60)
+        summary: list[str] = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {total}\n",
+            f"{self.TAGGED_LABEL}: {tagged}\n",
+            f"Skipped: {skipped}\n",
+            f"Errors: {errors}\n",
+        ]
+        summary.extend(f"{label}: {value}\n" for label, value in rows)
+        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(header + log_entries + summary)
+            logger.info("Log written to '%s'", self._log_path)
+        except Exception as exc:
+            # The audio work is already done by the time the report is
+            # serialised, so a failed write is logged, never raised (AGENTS.md).
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error(
+                "[%s] Could not write log '%s': %s",
+                type(mapped).__name__,
+                self._log_path,
+                mapped,
+                exc_info=True,
+            )
+
+    def _render_finish(
+        self,
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        rows: tuple[tuple[str, str], ...],
+    ) -> None:
+        """Render the finished run (must run on the main thread).
+
+        Args:
+            total: Files the walk visited.
+            tagged: Files read without being skipped or erroring.
+            skipped: Files left alone.
+            errors: Files that could not be updated.
+            duration_secs: Wall-clock run time.
+            rows: This run's extra summary rows, as the completion message
+                carries them.
+        """
+        text: str = (
+            f"Total: {total} files\n"
+            f"{self.TAGGED_LABEL}: {tagged}\n"
+            f"Skipped: {skipped}\n"
+            f"Errors: {errors}"
+        )
+        for label, value in rows:
+            text += f"\n{label}: {value}"
+        self.summary_label.config(text=text)
         self.stop_btn.config(state=tk.DISABLED)
-
-    def _show_error_dialog(self, message: str) -> None:
-        """Report a fatal error and hand the controls back."""
-        super()._show_error_dialog(message)
-        self._disable_stop()
+        # This window has always labelled a finished run by its mode; the shell
+        # renders ``completion_text``, so point it at this run's wording first.
+        self.completion_text = (
+            self.DRY_COMPLETE_LABEL
+            if self._run_mode == DRY_RUN
+            else self.LIVE_COMPLETE_LABEL
+        )
+        self.render_completion(duration_secs=duration_secs, output_dir=self._run_folder)
+        if self.auto_end:
+            self.root.after(2000, self.root.destroy)
 
     def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
         """Record the files this scan skipped or could not update.
@@ -555,6 +661,106 @@ class TagFieldUpdaterApp(AnalysisTagToolApp):
             if skipped
             else "",
         )
+
+    # ── Callbacks (queued from the scan's thread — no widget writes) ──
+
+    def _on_progress(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
+    ) -> None:
+        """Queue one progress tick for the Tk thread's poller.
+
+        Called from the scan's own thread, so it only queues; the tick is
+        written by ``_drain_ui_updates`` (AGENTS.md).
+
+        Args:
+            processed: Files finished so far.
+            total: Files the run will attempt.
+            skipped: Files left alone so far.
+            errors: Files that could not be updated so far.
+            display_text: The per-file line the processor published.
+            **_extra: The other progress fields the processor publishes.
+        """
+        self._ui_updates.put(
+            ("progress", processed, total, skipped, errors, display_text)
+        )
+
+    def _on_error(self, message: str) -> None:
+        """Queue a fatal run error for the Tk thread's poller.
+
+        The processor publishes this from the scan's thread and the shell's
+        handler raises a dialog, so it must run on the Tk thread only.
+
+        Args:
+            message: The user-facing message the processor published.
+        """
+        self._ui_updates.put(("error", message))
+
+    def _poll_ui_updates(self) -> None:
+        """Apply the run's queued messages while its thread is alive.
+
+        Runs on the Tk thread and re-schedules itself; the drain after the last
+        tick delivers whatever was queued as the run finished — its completion,
+        or the error that ended it.
+        """
+        self._drain_ui_updates()
+        worker = self._run_thread
+        if worker is not None and worker.is_alive():
+            self.root.after(_UI_POLL_MS, self._poll_ui_updates)
+            return
+        self._drain_ui_updates()
+
+    def _drain_ui_updates(self) -> None:
+        """Write every queued message to its widget (Tk thread)."""
+        while True:
+            try:
+                message = self._ui_updates.get_nowait()
+            except Empty:
+                return
+            kind = message[0]
+            if kind == "progress":
+                _, processed, total, skipped, errors, display_text = message
+                self._render_progress_standard(processed, total, display_text)
+                self.stats_label.config(
+                    text=(
+                        f"Processed: {processed} | Skipped: {skipped} "
+                        f"| Errors: {errors}"
+                    )
+                )
+            elif kind == "error":
+                _, text = message
+                super()._on_error(text)
+                self.stop_btn.config(state=tk.DISABLED)
+            elif kind == "complete":
+                _, total, tagged, skipped, errors, duration_secs, rows = message
+                self._render_finish(total, tagged, skipped, errors, duration_secs, rows)
+
+    # ── Shared run plumbing ───────────────────────────────────────────────────
+
+    def _reset_progress_ui(self) -> None:
+        """Reset the bar and the counters (must be called on the Tk thread)."""
+        self.progress["value"] = 0
+        self.stats_label.config(text=self.processing_stats_text)
+
+    def _start_worker(self, target: Callable[..., None], args: tuple[Any, ...]) -> None:
+        """Launch *target* on a daemon thread and start the UI poller.
+
+        A fresh queue per run: the poller drains it and stops with the run's
+        thread, so no message from an earlier run can reach a widget.
+
+        Args:
+            target: The window's thread entry point.
+            args: Its arguments, in order.
+        """
+        self._ui_updates = SimpleQueue()
+        self._run_thread = threading.Thread(target=target, args=args, daemon=True)
+        self._run_thread.start()
+        self._poll_ui_updates()
 
 
 def main(directory: str | None = None) -> None:
