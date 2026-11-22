@@ -400,7 +400,11 @@ Rules:
   (`root.after(_POLL_MS, self._poll)`, re-scheduled on every empty read) collect
   it and do the widget writes. Evidence: `plugins/example_plugin/window.py`,
   `PLAN_feature_expansion.md` D136 — the first version of that window marshalled
-  from the worker and hung on a real launch.
+  from the worker and hung on a real launch. The poller is
+  `audio_suite_shared.event_pump.pump_events`, which owns the drain, the re-arm
+  and the finished-run drain, so a window keeps only its `_dispatch_ui_message`;
+  `tests/test_tk_event_pump.py` fails when a module that imports Tk reads a
+  queue itself.
 
 `tests/test_callback_payload_contract.py` enforces the rules. It parses (never
 imports) every first-party module, resolves each `on_complete=` /

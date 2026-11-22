@@ -292,6 +292,26 @@ used once, and every bullet belongs to exactly one of them.
   `audio_suite_shared/tests/test_event_pump.py` covers that race along with the
   drain order, the re-arm, the inactive window and the poll interval.
 
+- **The four migrated windows keep no poll id nothing could cancel.** The eight
+  windows that adopted the shared pump cancel a pending tick from `_on_close`,
+  so they store the id `pump_events` returns. The four migrated in `51ae243`
+  copied that line without the close handler: none of `audio_fingerprinter`,
+  `duplicate_finder`, `tag_editor` or `tag_field_updater` has a
+  `WM_DELETE_WINDOW` protocol, so `_poll_id` was written on every tick and never
+  read. They now drop it, and the docstring says why - a destroyed root discards
+  its pending `after` callbacks itself, so there is nothing to cancel.
+
+- **A lock keeps the Tk drain loop in one place.** `tests/test_tk_event_pump.py`
+  parses every first-party `.py`/`.pyw` and fails when a module that imports Tk
+  takes a message off a queue itself - the `get_nowait` the four hand-written
+  loops were built on. `audio_suite_shared/event_pump.py` is the excluded
+  implementation, and the exclusion is proved live: the pump must still trip the
+  rule. The two remaining copies are frozen in the lock's allowlist with their
+  reasons (the mood tagger's engine-driven run ends on its own `done` message and
+  keeps no thread handle for `is_running` to read; the example plugin delivers
+  one result per run and is not part of the suite build), every entry must still
+  trip the rule, and two controls prove the detector can fail.
+
 ### Fixed
 
 - **The Duplicate Finder's scan thread no longer touches Tk.** `_run_scan` is

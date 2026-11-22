@@ -33,6 +33,10 @@ variable.  The presets keep their existing keys through the shared
 
 Changed in 2.9.0: that poller is the shared ``event_pump.pump_events``, so the
 drain loop and its finished-run drain are the suite's one implementation (B2).
+
+Changed in 2.9.0: the window keeps no tick id.  It has no close handler, so
+nothing could ever cancel the pending tick, and a destroyed root drops its
+``after`` callbacks itself (D30).
 """
 
 from __future__ import annotations
@@ -125,7 +129,6 @@ class DuplicateFinderApp(SuiteApp):
     _ui_updates: SimpleQueue[tuple[Any, ...]]
     #: The scan's thread; the poller stops when it ends.
     _run_thread: threading.Thread | None = None
-    _poll_id: str = ""
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -471,9 +474,10 @@ class DuplicateFinderApp(SuiteApp):
 
         The loop is the suite's ``event_pump.pump_events``: it drains in order,
         re-arms while the run's thread lives, and drains once more after it
-        ends, so the completion queued as the worker exited still renders.
+        ends, so the completion queued as the worker exited still renders.  The
+        tick id is dropped: with no close handler there is nothing to cancel.
         """
-        self._poll_id = pump_events(
+        pump_events(
             self.root,
             self._ui_updates,
             self._dispatch_ui_message,
