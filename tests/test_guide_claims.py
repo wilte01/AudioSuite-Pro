@@ -40,6 +40,11 @@ stage lines carry a prefix built from the stage name (``f"[{stage}]"`` in
 ``file_processor.run_pipeline``).  That prefix is printed, but no literal
 ``[EQ]`` exists in the code, so :data:`DYNAMIC_STAGE_PREFIXES` exempts it; the
 report line itself is held by ``audio_refinery/tests/test_app.py``.
+
+Changed in 2.9.0: the normaliser's nine-format and the Album Genre
+Tagger's fourteen-format claims join SUBSET_FORMAT_CLAIMS. The embedded-art
+dispatcher maps nine containers and the tag layer has no .wma/.aac handler,
+so both counts are deliberate subsets of SUPPORTED_EXTENSIONS, not drift.
 """
 
 from __future__ import annotations
@@ -105,6 +110,19 @@ ARTIFACT = re.compile(r"`([\w./\\-]+\.(?:txt|log|json|csv|m3u8?|db))`")
 
 #: guide file name -> {number word: why that format count is a deliberate subset}.
 SUBSET_FORMAT_CLAIMS: dict[str, dict[str, str]] = {
+    "Album_Art_Normalizer_User_Guide.md": {
+        "nine": (
+            "the embedded-art dispatcher maps nine containers; the rest of "
+            "the suite's formats are skipped, so its count is a deliberate "
+            "subset of the shared set"
+        )
+    },
+    "AlbumGenre_Tagger_User_Guide.md": {
+        "fourteen": (
+            "the tag layer has no .wma or .aac handler, so the tagger can "
+            "read two fewer containers than the suite supports"
+        )
+    },
     # The normaliser guide's "seven" entry went with that tool's standalone
     # window: the guide is deleted, so the exemption asserted a claim no guide
     # makes any more.

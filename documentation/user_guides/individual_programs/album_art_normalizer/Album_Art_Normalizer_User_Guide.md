@@ -5,14 +5,14 @@ subtitle: Based on the current Album Art Normalizer implementation
 
 ## Overview
 
-Album Art Normalizer standardizes embedded artwork in every supported audio format. It reads the first embedded image, centre-crops non-square artwork, resizes it to a selected square resolution, encodes it as an optimized JPEG, and writes the updated artwork while preserving the other audio metadata.
+Album Art Normalizer standardizes embedded artwork in the nine formats its embedded-art pipeline maps. It reads the first embedded image, centre-crops non-square artwork, resizes it to a selected square resolution, encodes it as an optimized JPEG, and writes the updated artwork while preserving the other audio metadata.
 
 The GUI also checks for folder.jpg directly inside the selected directory. When present, it is independently normalised to exactly 1000 x 1000 pixels.
 
 ## Supported Input
 
-- **Embedded artwork: **Read and written format-aware: ID3 APIC frames for MP3/WAV/AIFF/AIF/DSF, Vorbis Picture blocks for FLAC/OGG/Opus/Speex, APEv2 Cover Art (Front) items for WavPack/Monkey's Audio/Musepack, and MP4 covr atoms for M4A/MP4. A DSF file with no ID3 chunk gets one created.
-- **Audio files: **All sixteen suite audio formats are processed by the embedded-art pipeline: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, .dsf, .wma, and .aac.
+- **Embedded artwork: **Read and written format-aware: ID3 APIC frames for MP3, WAV, AIFF and AIF, Vorbis Picture blocks for FLAC, OGG and Opus, and MP4 covr atoms for M4A and MP4.
+- **Audio files: **The nine formats the embedded-art pipeline maps are processed: .mp3, .flac, .ogg, .opus, .m4a, .mp4, .wav, .aiff, and .aif. Other suite formats in the folder are reported as `[SKIPPED]` with an unsupported-format reason.
 - **Images: **Embedded data and folder.jpg must be readable by Pillow.
 
 ## Quick Start

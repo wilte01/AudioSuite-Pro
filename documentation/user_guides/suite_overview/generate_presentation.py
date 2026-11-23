@@ -10,7 +10,10 @@ Usage:
     python documentation/user_guides/suite_overview/generate_presentation.py
 
 Changed in 2.9.0: the Refinery slide names its seven stages, and Best Audio is
-described there instead of the retired five-stage flow.
+described there instead of the retired five-stage flow; the format claims the
+2.1.7 expansion left behind ("nine suite formats", the converter's "16
+total", WMA for the Tag Field Updater) are corrected, and the launcher count
+is 29 more beside the three named.
 
 Changed in 2.1.0: the closing slide points at the pages that now own the
 content it used to name (the Suite Overview,
@@ -498,7 +501,7 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         YES,
-        "Plus WAV, AIFF/AIF, WMA",
+        "Plus WAV, AIFF/AIF",
     ],
     [
         "Music Format Converter",
@@ -507,7 +510,8 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         YES,
-        "Plus WMA, MP4, ALAC, APE, AIFF/AIF, WavPack - 16 total",
+        "Plus MP4, WMA, AAC, WavPack, Speex, ALAC, WAV, AIFF/AIF - "
+        "14 output formats; APE, MPC and DSF are input-only",
     ],
     [
         "CD Ripper",
@@ -1189,8 +1193,8 @@ def slide_refinery(prs: Presentation, number: int) -> None:
                 accent=REFINE,
             ),
             Line(
-                "Supports MP3, FLAC, OGG, M4A, WAV, AIFF/AIF, Opus - "
-                "output stays in the source format.",
+                "Reads every shared suite format - output stays in "
+                "the source container where the suite can encode it.",
                 size=14,
                 space_after=9,
                 marker="\u2022",
@@ -1629,8 +1633,9 @@ def slide_genre_chain(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "All nine suite formats - MP3, FLAC, OGG, M4A, MP4, "
-                "Opus, WAV, AIFF, AIF",
+                "Every taggable suite format - MP3, FLAC, OGG, M4A, "
+                "MP4, Opus, WAV, AIFF/AIF, WavPack, APE, Musepack, "
+                "Speex, DSF",
                 marker="\u2022",
             ),
         ],
@@ -1657,7 +1662,7 @@ def slide_genre_chain(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "Supports MP3, FLAC, MP4/M4A, OGG, Opus, WAV, AIFF/AIF, and WMA",
+                "Supports MP3, FLAC, MP4/M4A, OGG, Opus, WAV, and AIFF/AIF",
                 marker="\u2022",
             ),
         ],
@@ -1853,8 +1858,8 @@ def slide_conversion(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "Fallback format detection across all nine supported "
-                "audio extensions if the referenced file is not at "
+                "Fallback format detection across every supported "
+                "audio extension if the referenced file is not at "
                 "the exact path",
                 marker="\u2022",
             ),
@@ -1931,7 +1936,7 @@ def slide_maintenance(prs: Presentation, number: int) -> None:
         "Album Art Normalizer",
         [
             Line(
-                "Standardises embedded artwork across all nine supported audio formats",
+                "Standardises embedded artwork across every supported suite format",
                 marker="\u2022",
             ),
             Line(
@@ -2192,7 +2197,7 @@ def slide_getting_started(prs: Presentation, number: int) -> None:
         [
             Line(
                 "Every tool has its own launcher - Audio_Refinery.pyw, "
-                "BPM_Analyzer.pyw, Library_Stats.pyw, and 23 more",
+                "BPM_Analyzer.pyw, Library_Stats.pyw, and 29 more",
                 marker="\u2022",
             ),
             Line(

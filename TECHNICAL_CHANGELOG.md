@@ -564,6 +564,23 @@ used once, and every bullet belongs to exactly one of them.
   in a child session: an undeclared leak errors, a declared one does not, and
   the next test still sees an empty root.
 
+- **A container the tag layer cannot read costs one file, not the album.**
+  `TagHandlerFactory` raises `AudioFormatError` for `.wma` and `.aac`, which
+  have no handler, and that error escaped `read_titlegenre` into
+  `run_analysis`'s `handle_audio_errors` decorator, whose bare `return` ended
+  the run with no completion report — one stray `.aac` in a folder discarded
+  the whole album's work. `read_titlegenre` now reports it as an unreadable
+  file (`"… (no tag handler for this container)"`) and logs `[SKIP]`, so it
+  counts as one read error in the report and the rest of the album continues
+  (`album_genre_tagger/tests/test_consolidator.py::TestUnreadableContainers`
+  covers `.wma` and `.aac`). The guides and the overview presentation follow
+  the code: the Album Genre Tagger reads fourteen taggable formats, not sixteen;
+  the Album Art Normalizer's embedded-art pipeline maps nine, with the folder's
+  other formats reported `[SKIPPED]`; the converter's row states fourteen output
+  formats with APE, MPC and DSF input-only; and the tag field updater no longer
+  claims WMA. `tests/test_guide_claims.py` pins the two subset counts as
+  deliberate with their reasons.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

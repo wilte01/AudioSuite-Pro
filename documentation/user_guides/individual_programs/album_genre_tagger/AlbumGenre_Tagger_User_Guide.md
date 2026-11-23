@@ -5,17 +5,17 @@ subtitle: Based on the current Album Genre Tagger implementation
 
 ## Overview
 
-Album Genre Tagger consolidates per-track TITLEGENRE metadata into one album-level genre value. It reads every supported audio file in a selected directory, checks how many files contain TITLEGENRE, builds a sorted list of unique genre values, and writes that result to ALBUMGENRE on every file when the coverage requirement is met. It also marks the result with ALBUMDERIVED = Y.
+Album Genre Tagger consolidates per-track TITLEGENRE metadata into one album-level genre value. It reads the supported audio files whose tags it can read in a selected directory, checks how many files contain TITLEGENRE, builds a sorted list of unique genre values, and writes that result to ALBUMGENRE on every file when the coverage requirement is met. It also marks the result with ALBUMDERIVED = Y.
 
 The tool is intentionally guarded by a coverage check. If too few files have TITLEGENRE, it stops before Phase 2 so an incomplete track-level sample does not produce an album-level tag.
 
 ## Supported Input and Output
 
-- **Input files: **Any of the sixteen suite audio formats in the selected directory are scanned: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, .dsf, .wma, and .aac.
+- **Input files: **Any of the fourteen suite audio formats whose tags the shared tag layer can read are scanned: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, and .dsf. `.wma` and `.aac` have no tag handler, so their tags cannot be read.
 - **Input tag: **TITLEGENRE is read from each file through the shared, format-aware tag handler (TXXX for ID3 files, Vorbis comments for FLAC/OGG/Opus/Speex, APEv2 items for WavPack/Monkey's Audio/Musepack, and MP4 freeform tags for M4A/MP4).
 - **Output tag: **ALBUMGENRE receives the sorted unique genres joined with semicolons and spaces, stored through the same format-aware handler as the input.
 - **Derived flag: **ALBUMDERIVED is written as Y when the consolidation write runs.
-- **Other files: **Files outside the sixteen supported audio extensions and subdirectory contents are not part of this operation.
+- **Other files: **Files outside those fourteen extensions and subdirectory contents are not part of this operation.
 
 ## How Consolidation Works
 
@@ -98,7 +98,7 @@ From the Master Driver, open ENRICH and select Album Genre Tagger. The driver pa
 
 ## Troubleshooting
 
-- **No supported audio files found: **Select a directory containing files in one of the sixteen supported audio formats. Other file types and subdirectories are not scanned by this tool.
+- **No supported audio files found: **Select a directory containing files in one of the fourteen audio formats whose tags it can read. Other file types and subdirectories are not scanned by this tool.
 - **Coverage check failed: **Add or repair TITLEGENRE tags, choose a directory with the intended album files, or lower the minimum only when the available metadata is sufficient for your workflow.
 - **Genres are missing: **The source file may have no tags, no TITLEGENRE field, or an unreadable tag. Review Phase 1 entries and the log.
 - **The result contains several genres: **That is expected when multiple unique TITLEGENRE values exist; the tool sorts them and joins them in one ALBUMGENRE string.

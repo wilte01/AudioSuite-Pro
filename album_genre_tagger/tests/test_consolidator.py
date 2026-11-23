@@ -2,8 +2,13 @@
 Tests for album_genre_tagger.core.consolidator
 Gap G-28: run_analysis() — two-phase consolidation, coverage gate,
           majority-vote, tie-break, all-unknown, dry-run.
+
+Changed in 2.9.0: locks TestUnreadableContainers - a .wma or .aac file, which
+has no tag handler, is skipped as one unreadable file instead of aborting the
+whole album run.
 """
 
+import pytest
 from mutagen.id3 import ID3, TXXX
 from mutagen.mp3 import MP3
 from pydub import AudioSegment
@@ -371,6 +376,35 @@ class TestDirectoryScanErrors:
 # current behavior so it's a known/intentional trade-off rather than a
 # silent surprise. (Confirmed independently against real mutagen read/write
 # round-tripping — this is not a mocked assumption.)
+
+
+class TestUnreadableContainers:
+    """A file the tag layer has no handler for is one skipped read.
+
+    ``TagHandlerFactory`` raises ``AudioFormatError`` for ``.wma`` and
+    ``.aac``. Before 2.9.0 that escaped ``read_titlegenre`` into
+    ``run_analysis``'s ``handle_audio_errors`` decorator, which swallowed
+    it and returned, so one such file ended the whole album run with no
+    completion report.
+    """
+
+    @pytest.mark.parametrize("ext", [".wma", ".aac"])
+    def test_container_without_a_handler_is_skipped_not_fatal(self, tmp_path, ext):
+        _make_mp3(tmp_path, "a.mp3", "Rock")
+        _make_mp3(tmp_path, "b.mp3", "Jazz")
+        (tmp_path / f"c{ext}").write_bytes(b"not a real audio file")
+
+        p1, _, _, complete, errors = _run(tmp_path)
+
+        assert errors == []
+        assert len(complete) == 1
+        assert complete[0]["total"] == 3
+        assert complete[0]["files_with_genre"] == 2
+        assert complete[0]["read_errors"] == 1
+        assert p1[-1]["processed"] == 3
+        log_text = "".join(complete[0]["log_entries"])
+        assert f"c{ext}" in log_text
+        assert "no tag handler" in log_text
 
 
 class TestGenreValueNormalization:
