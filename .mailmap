@@ -1,13 +1,13 @@
 # AudioSuite-Pro .mailmap — one canonical identity for the whole history.
 # Changed in 2.7.0: added as the pre-sale diligence record that reconciles the
 # two author identities below; see TECHNICAL_CHANGELOG.md.
-# Changed in 2.8.0: the noreply identity's share moved from 313 to 370,
-# measured 2026-11-18 (551 commits, 370 + 181); `git shortlog` has the live split.
+# Changed in 2.9.0: the noreply identity's share is 384 of 565 commits,
+# measured 2026-11-20 (384 + 181); `git shortlog` has the live split.
 #
 # Added 2026-11-11 as part of the pre-sale diligence pack. The history contains
 # two identities for the same author: the GitHub noreply address used from one
-# machine (`33846991+wilte01@users.noreply.github.com`, 370 commits) and the
-# account email (`wilte01@gmail.com`, 181 commits) - both from 2026-11-18. Left alone, a two-name git
+# machine (`33846991+wilte01@users.noreply.github.com`, 384 commits) and the
+# account email (`wilte01@gmail.com`, 181 commits) - both measured 2026-11-20. Left alone, a two-name git
 # log reads to a buyer's counsel as two copyright owners, and the IP warranty
 # becomes a question instead of a statement.
 #
