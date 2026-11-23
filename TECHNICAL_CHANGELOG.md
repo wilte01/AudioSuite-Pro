@@ -447,6 +447,25 @@ used once, and every bullet belongs to exactly one of them.
   green because the fixture that records a declaration never ran — and
   `AGENTS.md` states the rule beside the others.
 
+- **Five suites destroy what they build instead of declaring the root.**
+  `tests/test_suite_app_contract.py`,
+  `audio_suite_shared/tests/test_ui_driver_controls.py`,
+  `audio_suite_shared/tests/test_undo_gui.py`,
+  `master_driver/tests/test_refinery_tab.py` and
+  `lyrics_manager/tests/test_setup_tab.py` drop
+  `pytestmark = pytest.mark.usefixtures("clean_shared_root")` and own every
+  widget they parent on the session root. The contract's teardown used to
+  destroy the three tab frames — children of the notebook — and leave the two
+  widgets actually on the root, the Help bar and the notebook itself; it now
+  destroys both (`SuiteApp` keeps the bar's frame as `help_frame`), so each
+  parametrised window leaves the root empty. The driver-controls `panel`
+  fixture destroys its panel and the five direct builds destroy theirs, the
+  undo GUI test destroys `build()`'s new `_container` handle, and the REFINE
+  tab and Lyrics Manager build into a `parent`/`tab_parent` fixture that
+  destroys its own frame — the pattern `metadata_scrubber` already uses. The
+  declaration now covers the suites that build on the root inline, which is
+  what it is for.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no

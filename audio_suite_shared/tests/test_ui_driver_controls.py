@@ -6,9 +6,9 @@ a ``set_driven(True)`` panel used to paint the source entry with Tk's symbolic
 ``SystemDisabledText`` on the accent (1.13:1) (PLAN_restoration_2026-10-31.md
 T-03).
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: every panel this module builds is destroyed by the test that
+built it - ``panel`` in its fixture, the five direct builds in their own body -
+so the declaration the module used to need is gone.
 """
 
 import tkinter as tk
@@ -21,8 +21,6 @@ import pytest
 
 from audio_suite_shared import styles
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
-
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 @pytest.fixture
@@ -59,9 +57,13 @@ def _build_panel(
 
 
 @pytest.fixture
-def panel(tk_root: tk.Tk, control_vars: dict[str, tk.Variable]) -> DriverControlsPanel:
-    """A DriverControlsPanel with a Browse callback."""
-    return _build_panel(tk_root, control_vars, on_browse=MagicMock())
+def panel(
+    tk_root: tk.Tk, control_vars: dict[str, tk.Variable]
+) -> Iterator[DriverControlsPanel]:
+    """A DriverControlsPanel with a Browse callback, destroyed after the test."""
+    built = _build_panel(tk_root, control_vars, on_browse=MagicMock())
+    yield built
+    built.destroy()
 
 
 class TestWidgetCreation:
@@ -95,12 +97,14 @@ class TestWidgetCreation:
         assert isinstance(source_var, tk.StringVar)
         source_var.set("D:/Music")
         assert p.source_entry.get() == "D:/Music"
+        p.destroy()
 
     def test_browse_button_hidden_without_callback(
         self, tk_root: tk.Tk, control_vars: dict[str, tk.Variable]
     ) -> None:
         p = _build_panel(tk_root, control_vars)
         assert p.browse_btn is None
+        p.destroy()
 
     def test_entry_lives_in_expanding_row_with_browse(
         self, panel: DriverControlsPanel
@@ -194,6 +198,7 @@ class TestDrivenState:
         assert p.source_entry.get() == "D:/Library"
         assert p.mode_combo.get() == "Live Update"
         assert auto_end_var.get() is True
+        p.destroy()
 
 
 class TestBrowseButton:
@@ -208,6 +213,7 @@ class TestBrowseButton:
         assert p.browse_btn is not None
         p.browse_btn.invoke()
         callback.assert_called_once()
+        p.destroy()
 
 
 class TestDriverOnlyVarBinding:
@@ -247,6 +253,7 @@ class TestDriverOnlyVarBinding:
         # Mirrored state is visible but the controls remain driver-owned.
         assert str(p.clear_logs_btn.cget("state")) == "disabled"
         assert str(p.parallel_btn.cget("state")) == "disabled"
+        p.destroy()
 
 
 # ── Theme-conformance: the locked strip (T-03) ──────────────────────────────

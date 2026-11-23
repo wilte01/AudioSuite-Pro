@@ -79,9 +79,10 @@ nineteen, the declipper gains a report drive, and its report's label is
 locked (C1 stage 2, D34).
 
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: the module destroys the window it builds. ``SuiteApp``
+parents exactly two widgets on the root - the Help bar and the notebook that
+owns the three tab frames - so ``_destroy_window`` tears those down and the
+declaration a leftover used to need is gone.
 """
 
 from __future__ import annotations
@@ -155,8 +156,6 @@ from tag_field_updater.ui.app import TagFieldUpdaterApp
 from tag_field_updater.utils.cli_args import TagFieldUpdaterArgs
 from tempo_analyzer import app as tempo_analyzer_app
 from tempo_analyzer.app import TempoAnalyzerApp
-
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 #: The tools that have adopted the shared shell, in migration order.
 MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
@@ -865,6 +864,22 @@ def _walk(widget: tk.Misc) -> Iterator[tk.Misc]:
         yield from _walk(child)
 
 
+def _destroy_window(app: suite_app.SuiteApp) -> None:
+    """Destroy every widget the shell built on the shared root.
+
+    ``SuiteApp._build_ui`` parents the Help bar and the notebook on the root;
+    the three tab frames live inside the notebook, so those two are the whole
+    of what this test owns once the run's poller is stopped.
+    """
+    app._closing = True
+    poll_id = getattr(app, "_poll_id", "")
+    if poll_id:
+        app.root.after_cancel(poll_id)
+        app._poll_id = ""
+    app.help_frame.destroy()
+    app.notebook.destroy()
+
+
 @pytest.fixture
 def window(
     request: pytest.FixtureRequest,
@@ -916,13 +931,7 @@ def window(
     try:
         yield SimpleNamespace(app=app, cls=cls, calls=calls, bootstrapped=bootstrapped)
     finally:
-        app._closing = True
-        poll_id = getattr(app, "_poll_id", "")
-        if poll_id:
-            app.root.after_cancel(poll_id)
-            app._poll_id = ""
-        for frame in (app.setup_frame, app.processing_frame, app.results_frame):
-            frame.destroy()
+        _destroy_window(app)
 
 
 @pytest.mark.parametrize("window", MIGRATED, ids=MIGRATED_NAMES, indirect=True)
@@ -1051,8 +1060,7 @@ def test_the_album_art_sync_cancel_button_rides_the_shell_panel(
         assert app.cancel_btn.master is app.processing_panel
         assert app.cancel_btn.winfo_manager() == "pack"
     finally:
-        for frame in (app.setup_frame, app.processing_frame, app.results_frame):
-            frame.destroy()
+        _destroy_window(app)
 
 
 def test_every_migrated_tool_has_a_run_report_drive() -> None:

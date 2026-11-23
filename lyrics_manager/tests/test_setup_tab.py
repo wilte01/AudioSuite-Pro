@@ -1,26 +1,24 @@
 """tests/test_setup_tab.py — Lyrics Manager Setup tab wiring under a hidden Tk root.
 
-Changed in 2.9.0: the module declares the shared root with
-``clean_shared_root``, so every build's container is destroyed after the test
-and a leftover tab cannot leave a second title label on the session root for
-the shell contract to count.
+Changed in 2.9.0: ``tab_parent`` is the test's own container on the shared root
+and the fixture destroys it, so a build cannot leave a second title label on the
+session root for the shell contract to count and the module no longer declares
+``clean_shared_root``.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
 
 from lyrics_manager.ui.setup_tab import build
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
-
-def _build_tab(root: tk.Tk, **override: object) -> dict[str, object]:
-    """Construct the Setup tab with real Tk variables and return its widgets."""
-    parent = tk.Frame(root)
+def _build_tab(parent: tk.Frame, **override: object) -> dict[str, object]:
+    """Construct the Setup tab in *parent* and return its widgets."""
     kwargs: dict[str, object] = dict(
         folder_path=tk.StringVar(),
         run_mode=tk.StringVar(value="Dry Run"),
@@ -43,30 +41,33 @@ def _build_tab(root: tk.Tk, **override: object) -> dict[str, object]:
     return build(parent, **kwargs)  # type: ignore[arg-type]
 
 
+@pytest.fixture
+def tab_parent(root: tk.Tk) -> Iterator[tk.Frame]:
+    """A fresh container for one Setup tab, destroyed after the test."""
+    frame = tk.Frame(root)
+    yield frame
+    frame.destroy()
+
+
 class TestPresetRow:
     """The zero-argument preset callbacks must survive the base constructor
     and render the preset row (regression: the base __init__ used to clobber
     the subclass-set callbacks with its own None defaults, so the row was
     never created in the real window)."""
 
-    @staticmethod
-    @pytest.fixture(autouse=True)
-    def setup_tk(tk_root: tk.Tk) -> tk.Tk:
-        return tk_root
-
-    def test_row_renders_with_zero_arg_handlers(self, setup_tk: tk.Tk) -> None:
-        widgets = _build_tab(setup_tk)
+    def test_row_renders_with_zero_arg_handlers(self, tab_parent: tk.Frame) -> None:
+        widgets = _build_tab(tab_parent)
         assert widgets["preset_combo"] is not None
         assert "refresh_preset_list" in widgets
 
-    def test_row_hidden_without_save_handler(self, setup_tk: tk.Tk) -> None:
-        widgets = _build_tab(setup_tk, on_save_preset=None)
+    def test_row_hidden_without_save_handler(self, tab_parent: tk.Frame) -> None:
+        widgets = _build_tab(tab_parent, on_save_preset=None)
         assert "preset_combo" not in widgets
         assert "refresh_preset_list" not in widgets
 
-    def test_save_button_is_wired(self, setup_tk: tk.Tk) -> None:
+    def test_save_button_is_wired(self, tab_parent: tk.Frame) -> None:
         save = MagicMock()
-        widgets = _build_tab(setup_tk, on_save_preset=save)
+        widgets = _build_tab(tab_parent, on_save_preset=save)
         combo = widgets["preset_combo"]
         assert combo is not None
         buttons = [
@@ -79,9 +80,9 @@ class TestPresetRow:
         )
         assert save_button is not None
 
-    def test_delete_button_is_wired(self, setup_tk: tk.Tk) -> None:
+    def test_delete_button_is_wired(self, tab_parent: tk.Frame) -> None:
         delete = MagicMock()
-        widgets = _build_tab(setup_tk, on_delete_preset=delete)
+        widgets = _build_tab(tab_parent, on_delete_preset=delete)
         combo = widgets["preset_combo"]
         assert combo is not None
         buttons = [
@@ -94,8 +95,8 @@ class TestPresetRow:
         )
         assert delete_button is not None
 
-    def test_refresh_seeds_preset_values(self, setup_tk: tk.Tk) -> None:
-        widgets = _build_tab(setup_tk)
+    def test_refresh_seeds_preset_values(self, tab_parent: tk.Frame) -> None:
+        widgets = _build_tab(tab_parent)
         refresh = widgets["refresh_preset_list"]
         assert callable(refresh)
         refresh(["A", "B"])

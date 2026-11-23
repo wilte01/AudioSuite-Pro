@@ -58,6 +58,9 @@ Changed in 2.9.0: ``window_size`` and ``apply_ttk_styles`` carry the two
 ``bootstrap_tool_app`` arguments an adopter set for itself (ASX Playlist
 Extractor opens at 700 px and styles its own ttk widgets), so joining the shell
 does not resize or restyle its window (C1 stage 2).
+Changed in 2.9.0: the shell keeps the Help bar's frame as ``help_frame``, so a
+test that builds a real window can destroy the two widgets ``_build_ui`` puts on
+the root (the bar and the notebook) and leave the shared root empty.
 Changed in 2.9.0: ``result_extra_labels`` lets an adopter keep a label of its
 own on the Results tab (the fingerprinter's ISRC submission line), built by the
 shared builder and published on the instance under its name (C1 stage 2).
@@ -206,10 +209,10 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
 
     def _build_ui(self) -> None:
         """Build the Help header, the notebook and every declared tab."""
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
+        self.help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
+        self.help_frame.pack(fill="x", padx=10, pady=(10, 0))
         tk.Button(
-            help_frame,
+            self.help_frame,
             text="Help",
             bg=styles.get_main(),
             fg="white",

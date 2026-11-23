@@ -12,15 +12,15 @@ tab's Audio Enhancer stage to the standalone tool's behaviour — selecting
 Custom shows the summary row and opens the shared non-modal DSP editor window
 instead of expanding all 19 controls inline (745 px) inside the stage panel.
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: ``parent`` is the test's own container on the shared root and
+the fixture destroys it, so the tab, its state and the guard tests' widgets go
+with it and the module no longer declares ``clean_shared_root``.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -33,13 +33,20 @@ from master_driver.state.app_state import AppState
 from master_driver.ui import refinery_tab
 from master_driver.ui.refinery_tab import _inject_select_all
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
+
+@pytest.fixture
+def parent(root: tk.Tk) -> Iterator[tk.Frame]:
+    """A fresh container on the shared root, destroyed after the test."""
+    frame = tk.Frame(root)
+    yield frame
+    frame.destroy()
 
 
-def _build(root: tk.Tk) -> tuple[tk.Frame, AppState, tuple[Any, Any, dict[str, Any]]]:
-    """Build the REFINE tab into a fresh frame; returns (parent, state, result)."""
-    parent = tk.Frame(root)
-    state = AppState(master=root)
+def _build(
+    parent: tk.Frame,
+) -> tuple[tk.Frame, AppState, tuple[Any, Any, dict[str, Any]]]:
+    """Build the REFINE tab into *parent*; returns (parent, state, result)."""
+    state = AppState(master=parent)
     result = refinery_tab.build(
         parent,
         state,
@@ -115,23 +122,23 @@ def _find_button(widget: tk.Widget, text: str) -> tk.Button | None:
 class TestSingleControlStrip:
     """Exactly one control bar — SELECT ALL merged into the Run Controls strip."""
 
-    def test_select_all_lives_inside_controls_panel(self, root: tk.Tk) -> None:
-        parent, _state, result = _build(root)
+    def test_select_all_lives_inside_controls_panel(self, parent: tk.Frame) -> None:
+        parent, _state, result = _build(parent)
         setup_state = result[2]
         panel = setup_state["controls_panel"]
         checkboxes = _select_all_checkbuttons(parent)
         assert len(checkboxes) == 1
         assert checkboxes[0].master is panel.control_strip
 
-    def test_mode_combo_shares_same_strip(self, root: tk.Tk) -> None:
-        _parent, _state, result = _build(root)
+    def test_mode_combo_shares_same_strip(self, parent: tk.Frame) -> None:
+        _parent, _state, result = _build(parent)
         panel = result[2]["controls_panel"]
         assert panel.mode_combo.master is panel.control_strip
         assert panel.auto_start_btn.master is panel.control_strip
         assert panel.auto_end_btn.master is panel.control_strip
 
-    def test_select_all_leads_the_strip(self, root: tk.Tk) -> None:
-        _parent, _state, result = _build(root)
+    def test_select_all_leads_the_strip(self, parent: tk.Frame) -> None:
+        _parent, _state, result = _build(parent)
         panel = result[2]["controls_panel"]
         checkbox = _select_all_checkbox(panel)
         assert checkbox.grid_info()["column"] == 0
@@ -140,8 +147,8 @@ class TestSingleControlStrip:
         assert mode_label is not None
         assert mode_label.grid_info()["column"] == 1
 
-    def test_no_duplicate_control_options(self, root: tk.Tk) -> None:
-        parent, _state, _result = _build(root)
+    def test_no_duplicate_control_options(self, parent: tk.Frame) -> None:
+        parent, _state, _result = _build(parent)
         texts = _descendant_texts(parent)
         assert texts.count("SELECT ALL") == 1
         assert texts.count("Mode:") == 1
@@ -149,8 +156,8 @@ class TestSingleControlStrip:
         assert texts.count("Auto End") == 1
         assert texts.count("Clear Logs") == 1
 
-    def test_output_folder_kept(self, root: tk.Tk) -> None:
-        parent, _state, _result = _build(root)
+    def test_output_folder_kept(self, parent: tk.Frame) -> None:
+        parent, _state, _result = _build(parent)
         assert "Output folder (blank = in-place):" in _descendant_texts(parent)
 
 
@@ -164,8 +171,8 @@ class TestSelectAllBehaviour:
     directly exercises the real command deterministically).
     """
 
-    def test_selects_and_deselects_stages(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_selects_and_deselects_stages(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         setup_state = result[2]
         panel = setup_state["controls_panel"]
         stage_vars = setup_state["stage_vars"]
@@ -181,10 +188,10 @@ class TestSelectAllBehaviour:
         toggle()  # reads var True -> all stages True
         assert all(var.get() for var in stage_vars.values())
 
-    def test_write_guard_skips_unchanged_vars(self, root: tk.Tk) -> None:
+    def test_write_guard_skips_unchanged_vars(self, parent: tk.Frame) -> None:
         """Regression/guard rail: a stage var is only written when its value
         actually differs, so a repeat click cannot spin an update loop."""
-        _parent, state, result = _build(root)
+        _parent, state, result = _build(parent)
         setup_state = result[2]
         panel = setup_state["controls_panel"]
         stage_vars = setup_state["stage_vars"]
@@ -221,16 +228,16 @@ class TestSelectAllBehaviour:
 class TestInjectionGuards:
     """_inject_select_all must be idempotent and safe for other tools."""
 
-    def test_second_call_adds_no_duplicate(self, root: tk.Tk) -> None:
-        parent, state, result = _build(root)
+    def test_second_call_adds_no_duplicate(self, parent: tk.Frame) -> None:
+        parent, state, result = _build(parent)
         _inject_select_all(result[2], state, result[1])
         assert len(_select_all_checkbuttons(parent)) == 1
         assert state.refinery_select_all_var.get() is False
 
-    def test_missing_controls_panel_is_noop(self, root: tk.Tk) -> None:
+    def test_missing_controls_panel_is_noop(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
-        state = AppState(master=root)
+        state = AppState(master=parent)
         _inject_select_all({}, state, StageConfig())  # must not raise
         assert state.refinery_select_all_var.get() is False
 
@@ -244,35 +251,35 @@ class TestDefensiveStageDefaults:
     run source-of-truth (``config``) to the unchecked default in lockstep.
     """
 
-    def test_all_stage_cards_unchecked_at_startup(self, root: tk.Tk) -> None:
-        _parent, _state, result = _build(root)
+    def test_all_stage_cards_unchecked_at_startup(self, parent: tk.Frame) -> None:
+        _parent, _state, result = _build(parent)
         stage_vars = result[2]["stage_vars"]
-        root.update_idletasks()
+        parent.update_idletasks()
         assert not any(var.get() for var in stage_vars.values())
 
-    def test_config_matches_unchecked_ui(self, root: tk.Tk) -> None:
-        _parent, _state, result = _build(root)
+    def test_config_matches_unchecked_ui(self, parent: tk.Frame) -> None:
+        _parent, _state, result = _build(parent)
         config = result[1]
         stage_vars = result[2]["stage_vars"]
         for name, var in stage_vars.items():
             assert getattr(config, name) is False
             assert var.get() is False
 
-    def test_select_all_can_turn_stages_on_with_config(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_select_all_can_turn_stages_on_with_config(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         stage_vars = result[2]["stage_vars"]
         config = result[1]
         panel = result[2]["controls_panel"]
         state.refinery_select_all_var.set(True)
         panel.refine_toggle_all()
-        root.update_idletasks()
+        parent.update_idletasks()
         assert all(var.get() for var in stage_vars.values())
         assert all(getattr(config, name) for name in stage_vars)
         assert config.declick is True and config.normalise is True
 
 
-def test_build_returns_launch_button_config_and_state(root: tk.Tk) -> None:
-    launch_btn, config, setup_state = _build(root)[2]
+def test_build_returns_launch_button_config_and_state(parent: tk.Frame) -> None:
+    launch_btn, config, setup_state = _build(parent)[2]
     assert isinstance(launch_btn, tk.Button)
     assert str(launch_btn.cget("text")) == "LAUNCH REFINERY"
     assert hasattr(config, "declick")
@@ -289,18 +296,18 @@ class TestRefineModeCombo:
     so the value always renders and stays in sync with the execution mode.
     """
 
-    def test_mode_combo_displays_global_mode(self, root: tk.Tk) -> None:
-        parent, state, result = _build(root)
+    def test_mode_combo_displays_global_mode(self, parent: tk.Frame) -> None:
+        parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
-        root.update_idletasks()
+        parent.update_idletasks()
         assert panel.mode_combo.get() == "Dry Run"
         assert panel.mode_combo.cget("textvariable") == str(state.global_mode)
 
-    def test_mode_combo_tracks_global_mode_changes(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_mode_combo_tracks_global_mode_changes(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         state.global_mode.set("Live Update")
-        root.update_idletasks()
+        parent.update_idletasks()
         assert panel.mode_combo.get() == "Live Update"
 
 
@@ -314,28 +321,28 @@ class TestDriverOwnedControlsEnabled:
     otherwise the toggles can never reach launch_refinery / arg_builder.
     """
 
-    def test_auto_start_enabled_and_bound(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_auto_start_enabled_and_bound(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         assert panel.auto_start_btn.cget("state") == "normal"
         assert str(panel.auto_start_btn.cget("variable")) == str(
             state.refinery_auto_start
         )
 
-    def test_clear_logs_enabled_and_bound(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_clear_logs_enabled_and_bound(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         assert panel.clear_logs_btn.cget("state") == "normal"
         assert str(panel.clear_logs_btn.cget("variable")) == str(state.clear_logs_var)
 
-    def test_auto_end_enabled_and_bound(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_auto_end_enabled_and_bound(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         assert panel.auto_end_btn.cget("state") == "normal"
         assert str(panel.auto_end_btn.cget("variable")) == str(state.refinery_auto_end)
 
-    def test_toggle_reaches_driver_state(self, root: tk.Tk) -> None:
-        _parent, state, result = _build(root)
+    def test_toggle_reaches_driver_state(self, parent: tk.Frame) -> None:
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         state.refinery_auto_start.set(False)
         panel.auto_start_btn.invoke()
@@ -344,17 +351,17 @@ class TestDriverOwnedControlsEnabled:
         panel.clear_logs_btn.invoke()
         assert state.clear_logs_var.get() is True
 
-    def test_parallel_stays_inert(self, root: tk.Tk) -> None:
+    def test_parallel_stays_inert(self, parent: tk.Frame) -> None:
         """The refinery runner path never exercises Parallel, so it stays
         greyed out rather than presenting a no-op control."""
-        _parent, _state, result = _build(root)
+        _parent, _state, result = _build(parent)
         panel = result[2]["controls_panel"]
         assert panel.parallel_btn.cget("state") == "disabled"
 
-    def test_missing_controls_panel_is_noop(self, root: tk.Tk) -> None:
+    def test_missing_controls_panel_is_noop(self, parent: tk.Frame) -> None:
         from master_driver.ui.refinery_tab import _activate_driver_run_controls
 
-        state = AppState(master=root)
+        state = AppState(master=parent)
         _activate_driver_run_controls({}, state)  # must not raise
         assert state.refinery_auto_start.get() is False
 
@@ -368,11 +375,11 @@ class TestRefineBrowseActions:
 
     def test_browse_src_sets_valid_path(
         self,
-        root: tk.Tk,
+        parent: tk.Frame,
         monkeypatch: Any,
         tmp_path: Path,
     ) -> None:
-        _parent, state, result = _build(root)
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         monkeypatch.setattr(
             refinery_tab.filedialog,
@@ -383,9 +390,9 @@ class TestRefineBrowseActions:
         assert state.refinery_source.get() == str(tmp_path)
 
     def test_browse_src_warns_on_invalid_path(
-        self, root: tk.Tk, monkeypatch: Any
+        self, parent: tk.Frame, monkeypatch: Any
     ) -> None:
-        _parent, state, result = _build(root)
+        _parent, state, result = _build(parent)
         panel = result[2]["controls_panel"]
         warned: list[str] = []
         monkeypatch.setattr(
@@ -404,11 +411,11 @@ class TestRefineBrowseActions:
 
     def test_browse_output_sets_valid_path(
         self,
-        root: tk.Tk,
+        parent: tk.Frame,
         monkeypatch: Any,
         tmp_path: Path,
     ) -> None:
-        parent, state, result = _build(root)
+        parent, state, result = _build(parent)
         # The injected output picker's button is the bare "Browse"; the
         # Run Controls panel's source picker is "Browse...".
         output_btn = _find_button(parent, "Browse")
@@ -426,8 +433,10 @@ class TestRefineBrowseActions:
 class TestResetProgress:
     """Reset Progress must gate on a source folder and confirmation."""
 
-    def test_no_source_folder_shows_info(self, root: tk.Tk, monkeypatch: Any) -> None:
-        _parent, _state, result = _build(root)
+    def test_no_source_folder_shows_info(
+        self, parent: tk.Frame, monkeypatch: Any
+    ) -> None:
+        _parent, _state, result = _build(parent)
         infos: list[str] = []
         monkeypatch.setattr(
             refinery_tab.messagebox,
@@ -439,11 +448,11 @@ class TestResetProgress:
 
     def test_confirmed_reset_clears_completion_record(
         self,
-        root: tk.Tk,
+        parent: tk.Frame,
         monkeypatch: Any,
         tmp_path: Path,
     ) -> None:
-        _parent, state, result = _build(root)
+        _parent, state, result = _build(parent)
         state.refinery_source.set(str(tmp_path))
         calls: list[object] = []
 
@@ -462,11 +471,11 @@ class TestResetProgress:
 
     def test_declined_reset_never_touches_registry(
         self,
-        root: tk.Tk,
+        parent: tk.Frame,
         monkeypatch: Any,
         tmp_path: Path,
     ) -> None:
-        _parent, state, result = _build(root)
+        _parent, state, result = _build(parent)
         state.refinery_source.set(str(tmp_path))
         created: list[Path] = []
 
@@ -488,21 +497,21 @@ class TestResetProgress:
 class TestSelectAllGridGuard:
     """A non-gridded strip child must not block the SELECT ALL merge."""
 
-    def test_packed_child_is_skipped(self, root: tk.Tk) -> None:
+    def test_packed_child_is_skipped(self, parent: tk.Frame) -> None:
         panel = DriverControlsPanel(
-            tk.Frame(root),
-            source_var=tk.StringVar(root),
-            mode_var=tk.StringVar(root, value="Dry Run"),
-            auto_start_var=tk.BooleanVar(root),
-            auto_end_var=tk.BooleanVar(root),
-            clear_logs_var=tk.BooleanVar(root),
-            parallel_var=tk.BooleanVar(root),
+            tk.Frame(parent),
+            source_var=tk.StringVar(parent),
+            mode_var=tk.StringVar(parent, value="Dry Run"),
+            auto_start_var=tk.BooleanVar(parent),
+            auto_end_var=tk.BooleanVar(parent),
+            clear_logs_var=tk.BooleanVar(parent),
+            parallel_var=tk.BooleanVar(parent),
             on_browse=lambda: None,
         )
         hidden = tk.Label(panel.control_strip, text="hidden")
         hidden.grid(row=0, column=99)
         hidden.grid_remove()  # no longer grid-managed -> grid_info() empty
-        state = AppState(master=root)
+        state = AppState(master=parent)
         _inject_select_all({"controls_panel": panel}, state, StageConfig())
         assert getattr(panel, "refine_select_all_cb", None) is not None
 
@@ -510,15 +519,15 @@ class TestSelectAllGridGuard:
 class TestRunControlsGuardRails:
     """_activate_driver_run_controls must skip non-Checkbutton attributes."""
 
-    def test_non_checkbutton_attrs_are_skipped(self, root: tk.Tk) -> None:
+    def test_non_checkbutton_attrs_are_skipped(self, parent: tk.Frame) -> None:
         from master_driver.ui.refinery_tab import _activate_driver_run_controls
 
         panel = SimpleNamespace(
-            auto_start_btn=tk.Label(root),
-            auto_end_btn=tk.Label(root),
-            clear_logs_btn=tk.Label(root),
+            auto_start_btn=tk.Label(parent),
+            auto_end_btn=tk.Label(parent),
+            clear_logs_btn=tk.Label(parent),
         )
-        state = AppState(master=root)
+        state = AppState(master=parent)
         _activate_driver_run_controls({"controls_panel": panel}, state)
         assert state.refinery_auto_start.get() is False
 
@@ -542,21 +551,21 @@ class TestEnhancerCustomEditor:
     a non-modal editor. Both entry points must now behave the same way.
     """
 
-    def test_custom_adds_only_the_summary_row(self, root: tk.Tk) -> None:
-        parent, _state, result = _build(root)
+    def test_custom_adds_only_the_summary_row(self, parent: tk.Frame) -> None:
+        parent, _state, result = _build(parent)
         setup_state = result[2]
         row = setup_state["dsp_row"]
-        root.update_idletasks()
+        parent.update_idletasks()
         before = parent.winfo_reqheight()
 
         setup_state["preset_var"].set("Custom")
-        root.update_idletasks()
+        parent.update_idletasks()
 
         assert row.winfo_manager() == "pack"
         assert parent.winfo_reqheight() - before < 150
 
-    def test_custom_pick_opens_the_editor_window(self, root: tk.Tk) -> None:
-        _parent, _state, result = _build(root)
+    def test_custom_pick_opens_the_editor_window(self, parent: tk.Frame) -> None:
+        _parent, _state, result = _build(parent)
         setup_state = result[2]
         combo = setup_state["enhance_preset_combo"]
         combo.set("Custom")
@@ -568,9 +577,9 @@ class TestEnhancerCustomEditor:
         finally:
             setup_state["dsp_panel"].close()
 
-    def test_builtin_pick_never_opens_the_editor(self, root: tk.Tk) -> None:
+    def test_builtin_pick_never_opens_the_editor(self, parent: tk.Frame) -> None:
         """Only Custom owns the editor — same rule as the standalone tool."""
-        _parent, _state, result = _build(root)
+        _parent, _state, result = _build(parent)
         setup_state = result[2]
         combo = setup_state["enhance_preset_combo"]
         panel = setup_state["dsp_panel"]
@@ -584,16 +593,16 @@ class TestEnhancerCustomEditor:
         finally:
             panel.close()
 
-    def test_stage_body_embeds_no_dsp_sliders(self, root: tk.Tk) -> None:
-        _parent, _state, result = _build(root)
+    def test_stage_body_embeds_no_dsp_sliders(self, parent: tk.Frame) -> None:
+        _parent, _state, result = _build(parent)
         setup_state = result[2]
         body = setup_state["dsp_row"].master
         assert _scales(body) == []
         assert _find_button(body, "Configure Custom DSP\u2026") is not None
 
-    def test_editor_edits_reach_the_run_config(self, root: tk.Tk) -> None:
+    def test_editor_edits_reach_the_run_config(self, parent: tk.Frame) -> None:
         """The panel mirrors into the StageConfig the pipeline reads."""
-        _parent, _state, result = _build(root)
+        _parent, _state, result = _build(parent)
         setup_state = result[2]
         config = result[1]
         panel = setup_state["dsp_panel"]
@@ -620,11 +629,11 @@ class TestSaveSettings:
         assert saved == [config]
 
 
-def test_select_all_reads_the_model_stage_list(root: tk.Tk) -> None:
+def test_select_all_reads_the_model_stage_list(parent: tk.Frame) -> None:
     """F-S1 follow-up: select-all iterates the model's one stage list."""
     from audio_refinery.core.models import REFINERY_STAGES
 
-    _parent, _state, result = _build(root)
+    _parent, _state, result = _build(parent)
     stage_vars = result[2]["stage_vars"]
 
     assert set(stage_vars) == {name for _field, name in REFINERY_STAGES}

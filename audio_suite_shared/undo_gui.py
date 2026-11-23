@@ -34,6 +34,9 @@ Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 
 Changed in 2.8.0: the denoiser's undo label and note go with the tool.
+Changed in 2.9.0: ``build`` keeps the window's content frame as ``_container``,
+so a test that builds the real widget tree can destroy it and leave the shared
+root empty.
 """
 
 from __future__ import annotations
@@ -374,6 +377,7 @@ class UndoTagEditsApp:
         """Construct the window's widget tree."""
         container = tk.Frame(self.root, bg=styles.BG_APP, padx=16, pady=12)
         container.pack(fill="both", expand=True)
+        self._container = container
 
         title = tk.Label(
             container,

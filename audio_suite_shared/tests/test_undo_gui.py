@@ -10,9 +10,9 @@ construction is exercised.
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: ``TestWidgetBuild`` destroys the window it builds on the
+shared root (``build`` keeps its content frame as ``_container``), so the
+declaration the module used to need is gone.
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from audio_suite_shared.batch_undo import (
     BatchInfo,
@@ -39,8 +37,6 @@ from audio_suite_shared.undo_gui import (
     friendly_tool_name,
     record_preview_line,
 )
-
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _batch(**kwargs: object) -> BatchInfo:
@@ -507,11 +503,14 @@ class TestWidgetBuild:
         app.refresh = MagicMock()
         app._on_close = MagicMock()
         app.build()
-        assert app._undo_btn is not None
-        assert app._undo_btn.cget("state") == "disabled"
-        assert app._batch_list is not None
-        assert app._preview_text is not None
-        assert app._status_label is not None
+        try:
+            assert app._undo_btn is not None
+            assert app._undo_btn.cget("state") == "disabled"
+            assert app._batch_list is not None
+            assert app._preview_text is not None
+            assert app._status_label is not None
+        finally:
+            app._container.destroy()
 
 
 # ── Real-engine integration (temp SQLite DB) ────────────────────────────────
