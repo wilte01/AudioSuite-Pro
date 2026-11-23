@@ -60,7 +60,10 @@ the session's last act compares every saved window geometry it can find -
 selected by its ``WxH+X+Y`` shape, so no list of keys has to keep up with the
 labels the tests name their windows - with the values it started from, so a
 run that ever saves a hidden window's geometry fails instead of reporting
-green.
+green.  ``clean_shared_root``'s declaration is load-bearing too: the lock
+records the modules it sees building on the root, and the session fails every
+module that declared it and built nothing - an unused declaration
+pre-approves the next leak.
 """
 
 from __future__ import annotations
@@ -103,6 +106,11 @@ _GUI_FIXTURES = frozenset({"root", "tk_root", "clean_shared_root"})
 #: Node attribute ``clean_shared_root`` sets: this module builds on the shared
 #: root deliberately and leaves the teardown to the session's lock.
 _SHARED_ROOT_ADOPTED = "_audiosuite_shared_root_adopted"
+
+#: Modules whose declared tests left a widget on the shared root this session.
+#: A declaration is load-bearing only when the module it names really builds
+#: there, so the session fails on a declaration that built nothing.
+_SHARED_ROOT_BUILDERS: set[str] = set()
 
 #: Env var that restores the pre-B4 session-wide skip (safety net only).
 GUI_SKIP_ENV = "AUDIOSUITE_GUI_SKIP"
@@ -490,13 +498,12 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Fail the session on a skip the committed budget does not permit.
+    """Judge the session on the two greens a run cannot see for itself.
 
-    A skip reports green, so a run's own total cannot distinguish "this host
-    verified everything it could" from "a prerequisite went missing and six
-    tests stopped checking anything" - the shape the 2.6.0 floor leg had.  The
-    rule lives in :mod:`tests.skip_budget` and is tested against fixtures there;
-    this hook only feeds it the session's skips.
+    A skip and an unused root declaration both report green: the first because
+    a prerequisite went missing, the second because a module was pre-approved
+    for a leak it never makes.  Each rule lives in its own helper, so each
+    verdict is read in one place.
 
     Args:
         session: The finished session, whose exit status is raised on a
@@ -505,6 +512,23 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             ``session.exitstatus`` after this hook.
     """
     del exitstatus
+    _fail_on_skip_budget(session)
+    _fail_on_unused_root_declarations(session)
+
+
+def _fail_on_skip_budget(session: pytest.Session) -> None:
+    """Fail the session on a skip the committed budget does not permit.
+
+    A skip reports green, so a run's own total cannot distinguish "this host
+    verified everything it could" from "a prerequisite went missing and six
+    tests stopped checking anything" - the shape the 2.6.0 floor leg had.  The
+    rule lives in :mod:`tests.skip_budget` and is tested against fixtures there;
+    this helper only feeds it the session's skips.
+
+    Args:
+        session: The finished session, whose exit status is raised on a
+            violation.
+    """
     if not _skip_records:
         return
     try:
@@ -545,6 +569,60 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             reporter.write_line(line)
     if session.exitstatus == 0:
         session.exitstatus = 1
+
+
+def _fail_on_unused_root_declarations(session: pytest.Session) -> None:
+    """Fail the session on a module that declared the root and never built there.
+
+    ``clean_shared_root`` pre-approves whatever a module leaves on the
+    session-scoped root, so a declaration whose module never leaves anything is
+    dead weight that pre-approves the next leak - the rule
+    ``tests/test_shared_code_reuse.py`` applies to its allowlists, where an
+    entry that excuses nothing is a bug rather than a licence.  Only the modules
+    whose tests actually ran can be judged: a module skipped down to nothing
+    never got as far as building.  ``tests/test_conftest.py`` drives both
+    verdicts in a child session.
+
+    Args:
+        session: The finished session, whose declaring modules are compared
+            against the ones the lock saw building on the root.
+    """
+    unused = sorted(
+        {
+            str(item.path)
+            for item in session.items
+            if getattr(item, _SHARED_ROOT_ADOPTED, False)
+        }
+        - _SHARED_ROOT_BUILDERS
+    )
+    if not unused:
+        return
+    reporter = session.config.pluginmanager.getplugin("terminalreporter")
+    lines = [
+        "Root declarations that build nothing (clean_shared_root):",
+        *(
+            f"  {_relative_to_root(path, session)} declares clean_shared_root "
+            "but left no widget on the shared root"
+            for path in unused
+        ),
+        "  A declaration that cleans nothing pre-approves the next leak: remove "
+        "it, or destroy what the module builds.",
+    ]
+    if reporter is None:  # pragma: no cover - a session with no terminal
+        print("\n".join(lines))
+    else:
+        for line in lines:
+            reporter.write_line(line)
+    if session.exitstatus == 0:
+        session.exitstatus = 1
+
+
+def _relative_to_root(path: str, session: pytest.Session) -> str:
+    """Name *path* relative to the session's root, for the message."""
+    try:
+        return os.path.relpath(path, session.config.rootpath)
+    except ValueError:  # pragma: no cover - a path on another Windows drive
+        return path
 
 
 @pytest.fixture(scope="session")
@@ -618,6 +696,8 @@ def _shared_root_keeps_nothing(
     # before the module's own, so a flag read first would always be False.
     adopted = getattr(request.node, _SHARED_ROOT_ADOPTED, False)
     leftovers = [widget for widget in _root.winfo_children() if widget not in before]
+    if leftovers and adopted:
+        _SHARED_ROOT_BUILDERS.add(str(request.path))
     # Describe before destroying: a destroyed widget has no Tcl path to name.
     names = ", ".join(_leftover_widget(widget) for widget in leftovers)
     for widget in leftovers:

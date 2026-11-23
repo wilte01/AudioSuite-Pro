@@ -349,6 +349,13 @@ Rules:
   test, so one leak costs one test instead of poisoning every later walk of the
   root, and no collection order can hide it. Never silence it by cleaning the
   root from a later test, and never point it at a different seam.
+- **A declaration is checked, not trusted.** A module that declares
+  `clean_shared_root` and leaves no widget on the root for the whole session
+  fails the run at its end, so the declaration cannot become a blanket approval
+  for a leak the module never makes — the rule the allowlists in
+  `tests/test_shared_code_reuse.py` follow, where an entry that excuses nothing
+  is a bug rather than a licence. If the module stops building there, delete
+  the declaration.
 - It reads the declaration at **teardown**, not at setup: autouse fixtures are
   set up first, so a flag read before `yield` is always `False`. It also names
   the leftovers before destroying them, because a destroyed widget has no Tcl

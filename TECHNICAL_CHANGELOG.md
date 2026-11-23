@@ -433,6 +433,19 @@ used once, and every bullet belongs to exactly one of them.
   they are destroyed (a destroyed widget has no Tcl path to name). The arbiter is
   named rather than restated: `tests/test_conftest.py::TestSharedRootCleanliness`.
 
+- **A root declaration has to build something.** `clean_shared_root`
+  pre-approves whatever a module leaves on the session-scoped root, so a module
+  that declared it and never left a widget was dead weight that pre-approved
+  the next leak — the stale-entry rule `tests/test_shared_code_reuse.py` applies
+  to its allowlists. `conftest.py` now records the modules the lock sees
+  building on the root and, at session end, fails the run naming every
+  declaring module that built nothing; only modules whose tests actually ran
+  are judged, so a suite skipped down to nothing on a host is not accused.
+  `tests/test_conftest.py` drives both verdicts in a child session — a
+  declaration that builds nothing fails the run while its test passes, and one
+  that leaves a frame keeps the run clean — and `AGENTS.md` states the rule
+  beside the others.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no

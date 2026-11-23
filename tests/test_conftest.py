@@ -15,7 +15,9 @@ Changed in 2.9.0: ``TestSuiteConfigWriteGuard`` holds the session's guard on
 ``audio_suite_shared.suite_config._save``, so a test can no longer rewrite the
 developer's real ``audio_suite_config.json`` (the last directory included) -
 nor save a hidden window's ``1x1+X+Y`` geometry into it, which the session's
-last act now compares and refuses.
+last act now compares and refuses.  ``TestSharedRootCleanliness`` also pins the
+load-bearing half of the root declaration: a module that declares
+``clean_shared_root`` and builds nothing fails the run.
 """
 
 from __future__ import annotations
@@ -140,6 +142,19 @@ pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 def test_declared_module_leaves_a_frame(root):
     tk.Frame(root).pack()
+"""
+
+#: A module that declares the root and never builds on it: the declaration
+#: pre-approves a leak it never makes, so the run must fail even though its
+#: single test passes.
+SHARED_ROOT_DEAD_DECLARATION = """\
+import pytest
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
+
+
+def test_declared_module_builds_nothing():
+    assert True
 """
 
 #: Mirrors the real ``[tool.pytest.ini_options]`` closely enough to prove the
@@ -691,6 +706,29 @@ def shared_root_run(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch):
     yield outcomes
 
 
+@pytest.fixture()
+def dead_declaration_run(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch):
+    """Run a child session whose only module declares the root and builds nothing.
+
+    Args:
+        pytester: The pytester fixture (a tmp dir + subprocess runner).
+        monkeypatch: Used to expose the copy of the conftest on ``PYTHONPATH``.
+
+    Yields:
+        The recorded run outcomes of the one-test child session.
+    """
+    shutil.copyfile(REPO_ROOT / "conftest.py", pytester.path / "conftest.py")
+    (pytester.path / "pytest.ini").write_text(PYTEST_INI, encoding="utf-8")
+    (pytester.path / "test_dead_declaration.py").write_text(
+        SHARED_ROOT_DEAD_DECLARATION, encoding="utf-8"
+    )
+    monkeypatch.setenv("PYTHONPATH", str(pytester.path))
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    outcomes = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-v")
+    yield outcomes
+
+
 class TestSharedRootCleanliness:
     """A test that leaves widgets on the shared root fails where it leaks.
 
@@ -752,6 +790,19 @@ class TestSharedRootCleanliness:
         outcomes = shared_root_run
         line = _outcome_line(outcomes, "test_declared_module_leaves_a_frame")
         assert _outcome(line) == "PASSED"
+        # It did build there, so the load-bearing sweep has nothing to report.
+        assert "declares clean_shared_root but left no widget" not in (
+            outcomes.stdout.str()
+        )
+
+    def test_a_declaration_that_builds_nothing_fails_the_run(
+        self, dead_declaration_run
+    ) -> None:
+        """An unused declaration pre-approves the next leak, so it fails."""
+        outcomes = dead_declaration_run
+        assert outcomes.ret != 0
+        outcomes.assert_outcomes(passed=1, errors=0, failed=0)
+        assert "declares clean_shared_root but left no widget" in outcomes.stdout.str()
 
     def test_the_leftovers_are_destroyed_before_the_failure(
         self, shared_root_run
