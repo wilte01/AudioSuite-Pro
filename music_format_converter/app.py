@@ -539,7 +539,6 @@ class MusicFormatConverterApp(SuiteApp):
         format_counts: dict[str, int] | None = None,
         **_extra: Any,
     ) -> None:
-
         rows: list[tuple[str, str]] = []
         if delete:
             rows.append(("Originals deleted", f"{converted} (successful conversions)"))

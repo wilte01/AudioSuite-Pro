@@ -36,7 +36,7 @@ used once, and every bullet belongs to exactly one of them.
   counters, Library Statistics, Genre Sync's log builder, the album-art
   trio and the core `log_entries` builders) are unchanged.
   `tests/test_run_report.py` pins the skipped-label rules and fails if
-  any of the ten writers spells `SUMMARY:` by hand.
+  any of the nine writers spells `SUMMARY:` by hand.
 
 - **Restoration adopts the shared window shell, and the shell gains the
   audition row.** `RestorationApp` is a `SuiteApp` now: its two one-line tab
@@ -398,6 +398,16 @@ used once, and every bullet belongs to exactly one of them.
   fallback stays, because the label is interpolated outside the writer's `try`:
   requiring it by omission would raise off the worker thread and abort the
   completion (D112/D113), not fail the report.
+
+### Removed
+
+- **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no
+  subclass left once BPM Analyzer, Lyrics Manager and the tag windows moved
+  to `SuiteApp`, and the module exported nothing else, so
+  `audio_suite_shared/tool_app_base.py` and its suite are gone.
+  `documentation/docs/api.md` drops its entry, `test_run_report.py` lists
+  nine footer writers instead of ten, and `test_logging_namespacing.py`
+  keeps its audit-trail list to the modules that still ship.
 
 ### Fixed
 

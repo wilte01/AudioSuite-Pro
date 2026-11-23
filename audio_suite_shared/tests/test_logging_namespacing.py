@@ -26,6 +26,9 @@ Two locks live here:
   namespace - the defect cannot come back through a new module;
 * a live capture test proving a converted module's record actually *arrives*
   at an ``audio_suite`` handler. The positive contract, not the absence of one.
+
+Changed in 2.9.0: ``audio_suite_shared.tool_app_base`` is deleted, so it
+leaves the audit-trail module list (D37).
 """
 
 from __future__ import annotations
@@ -232,7 +235,6 @@ class TestRecordsReachTheSuiteHandler:
         [
             "audio_suite_shared.batch_undo",
             "audio_suite_shared.suite_config",
-            "audio_suite_shared.tool_app_base",
         ],
     )
     def test_audit_trail_modules_are_below_the_namespace(

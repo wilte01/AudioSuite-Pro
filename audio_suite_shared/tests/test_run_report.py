@@ -6,6 +6,9 @@ function and both writers are locked to it (D35).
 
 Changed in 2.9.0: locks the skipped-label rules and every window that
 writes the footer (D36).
+
+Changed in 2.9.0: ``tool_app_base`` is deleted, so the writer list drops
+the scaffold's file (D37).
 """
 
 from __future__ import annotations
@@ -144,7 +147,6 @@ class TestEveryWriterUsesIt:
     WRITERS = (
         "audio_suite_shared/analysis_app_base.py",
         "audio_suite_shared/suite_app.py",
-        "audio_suite_shared/tool_app_base.py",
         "bpm_analyzer/app.py",
         "file_reorganizer/app.py",
         "lyrics_manager/app.py",
