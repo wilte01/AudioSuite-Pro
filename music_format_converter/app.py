@@ -20,6 +20,10 @@ Changed in 2.4.3: the window is built by ``audio_suite_shared.suite_app.SuiteApp
 report it writes; the Help bar, notebook, Processing and Results tabs and the
 help/log/folder handlers come from the shell.  No control, tab name or report
 line changed.
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation
+every window writes with (D36).
 """
 
 import logging
@@ -40,6 +44,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
@@ -534,19 +539,10 @@ class MusicFormatConverterApp(SuiteApp):
         format_counts: dict[str, int] | None = None,
         **_extra: Any,
     ) -> None:
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
 
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"Converted: {converted}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-        ]
+        rows: list[tuple[str, str]] = []
         if delete:
-            summary.append(f"Originals deleted: {converted} (successful conversions)\n")
+            rows.append(("Originals deleted", f"{converted} (successful conversions)"))
         if format_counts:
             breakdown = ", ".join(
                 f"{name.upper()}: {count}"
@@ -554,8 +550,16 @@ class MusicFormatConverterApp(SuiteApp):
                     format_counts.items(), key=lambda kv: (-kv[1], kv[0])
                 )
             )
-            summary.append(f"Input files: {total} ({breakdown})\n")
-        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+            rows.append(("Input files", f"{total} ({breakdown})"))
+        summary: list[str] = summary_lines(
+            total=total,
+            tagged=converted,
+            tagged_label="Converted",
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            rows=rows,
+        )
 
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:

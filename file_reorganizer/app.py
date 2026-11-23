@@ -45,6 +45,10 @@ shared Results tab.  The driver handshake's ``--live``/``--start``/``--end``
 flags, parsed but previously dropped, now reach the panel they belong to.
 
 Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation
+every window writes with (D36).
 """
 
 from __future__ import annotations
@@ -70,6 +74,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.launcher import parse_cli_args
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
@@ -762,8 +767,6 @@ class FileReorganizerApp(SuiteApp):
             return
         specific, various = self._sync_patterns()
         elapsed = max(0.0, time.monotonic() - self._run_started)
-        minutes = int(elapsed // 60)
-        seconds = int(elapsed % 60)
         lines = [
             "FILE REORGANIZER REPORT\n",
             f"Mode: {'DRY RUN' if dry_run else 'LIVE UPDATE'}\n",
@@ -774,13 +777,14 @@ class FileReorganizerApp(SuiteApp):
             f"Various Pattern: {' '.join(various.split())}\n",
             "=" * 60 + "\n",
             *self._log_entries,
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {self.stats.files_scanned}\n",
-            f"Processed: {self.stats.files_processed}\n",
-            f"Skipped: {self.stats.files_skipped}\n",
-            f"Errors: {self.stats.errors}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
+            *summary_lines(
+                total=self.stats.files_scanned,
+                tagged=self.stats.files_processed,
+                tagged_label="Processed",
+                skipped=self.stats.files_skipped,
+                errors=self.stats.errors,
+                duration_secs=elapsed,
+            ),
         ]
         try:
             with open(self._log_path, "w", encoding="utf-8") as report:

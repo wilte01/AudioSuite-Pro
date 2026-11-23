@@ -23,6 +23,10 @@ one line per file carrying the same LUFS, track gain, album gain and status.
 The run's folder, mode, target and lossless-gain choice are snapshotted on the
 main thread in ``start_processing``, so the worker and the completion never read
 a Tk variable off the Tk thread.
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation
+every window writes with (D36).
 """
 
 import argparse
@@ -45,6 +49,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
@@ -376,20 +381,18 @@ class ReplayGainAnalyzerApp(SuiteApp):
         ``run_analysis`` sends it unconditionally: a count the handler would
         accept a stand-in for is a count the summary can print wrong.
         """
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
         # ``processed`` counts successes already; errors are counted apart from it.
         succeeded = processed
 
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"Successfully processed: {succeeded}\n",
-            f"Errors: {errors}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
-        ]
-
+        summary: list[str] = summary_lines(
+            total=total,
+            tagged=succeeded,
+            tagged_label="Successfully processed",
+            skipped=skipped,
+            skipped_label=None,
+            errors=errors,
+            duration_secs=duration_secs,
+        )
         all_entries = header + log_entries + summary
         if self.auto_end:
             all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")

@@ -23,6 +23,10 @@ that the window no longer inherits ``AnalysisTagToolApp``, and the presets keep
 their existing keys through the shared ``ui_presets`` store. The run's mode is
 snapshotted on the main thread in ``start_processing``, so the completion never
 reads a Tk variable off the Tk thread.
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation
+every window writes with (D36).
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_common import cap_typed_workers
@@ -521,20 +526,17 @@ class BPMAnalyzerApp(SuiteApp):
         rows = self._outside_summary(total=total, outside=outside)
         self._record_run_note(total=total, errors=errors, outside=outside)
 
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
         tagged = processed - skipped - errors
 
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"{self.TAGGED_LABEL}: {tagged}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-        ]
-        summary.extend(f"{label}: {value}\n" for label, value in rows)
-        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
+        summary: list[str] = summary_lines(
+            total=total,
+            tagged=tagged,
+            tagged_label=self.TAGGED_LABEL,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            rows=rows,
+        )
         all_entries: list[str] = header + log_entries + summary
 
         try:

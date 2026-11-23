@@ -38,6 +38,9 @@ requires its ``unattended=`` argument so unattended launches never block (D70).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.9.0: ``NoisePopToolApp`` is deleted, so its table row left
+with the base (D36).
 """
 
 from __future__ import annotations
@@ -69,16 +72,6 @@ _SHARED_BASES: dict[str, tuple[str, str]] = {
     "AnalysisAppBase": (
         "audio_suite_shared/analysis_app_base.py",
         "WORKER_SLOT_COUNT",
-    ),
-    "AnalysisTagToolApp": (
-        "audio_suite_shared/tool_app_base.py",
-        "DEFAULT_MAX_WORKERS",
-    ),
-    # Inherits its grid from AnalysisTagToolApp; listed so the two in-place
-    # repair tools' entry modules resolve to a grid-owning base.
-    "NoisePopToolApp": (
-        "audio_suite_shared/tool_app_base.py",
-        "DEFAULT_MAX_WORKERS",
     ),
 }
 
@@ -621,8 +614,3 @@ class TestGridMatchesProcessorDefault:
 
         assert base.WORKER_SLOT_COUNT == base.DEFAULT_MAX_WORKERS
         assert base.WORKER_SLOT_COUNT == default_max_workers()
-
-    def test_shared_tag_tool_grid_tracks_the_default(self) -> None:
-        import audio_suite_shared.tool_app_base as base
-
-        assert base.DEFAULT_MAX_WORKERS == default_max_workers()

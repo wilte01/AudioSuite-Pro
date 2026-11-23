@@ -3,6 +3,9 @@
 Changed in 2.9.0: new file.  The ``SUMMARY:`` footer was built twice, by the
 analysis scaffold's completion and the shared shell's writer, so it lives in one
 function and both writers are locked to it (D35).
+
+Changed in 2.9.0: locks the skipped-label rules and every window that
+writes the footer (D36).
 """
 
 from __future__ import annotations
@@ -92,6 +95,34 @@ class TestSummaryLines:
         assert "Files read: 4\n" in lines
         assert "Tagged: 4\n" not in lines
 
+    def test_the_skipped_label_is_printed_verbatim(self) -> None:
+        lines = summary_lines(
+            total=3,
+            tagged=2,
+            tagged_label="Tagged",
+            skipped=1,
+            skipped_label="Skipped (no BPM)",
+            errors=0,
+            duration_secs=0.0,
+        )
+
+        assert "Skipped (no BPM): 1" + chr(10) in lines
+        assert "Skipped: 1" + chr(10) not in lines
+
+    def test_a_missing_skipped_label_omits_the_line(self) -> None:
+        lines = summary_lines(
+            total=3,
+            tagged=3,
+            tagged_label="Successfully processed",
+            skipped=1,
+            skipped_label=None,
+            errors=0,
+            duration_secs=0.0,
+        )
+
+        assert not any(line.startswith("Skipped") for line in lines)
+        assert "Successfully processed: 3" + chr(10) in lines
+
     def test_the_time_pads_each_field_to_two_digits(self) -> None:
         def time_line(seconds: float) -> str:
             return summary_lines(
@@ -107,12 +138,20 @@ class TestSummaryLines:
         assert time_line(3661.0) == "Time: 61:01\n"
 
 
-class TestBothWritersUseIt:
-    """The two writers this was extracted from must not rebuild the block."""
+class TestEveryWriterUsesIt:
+    """Every report writer must call the helper, not rebuild the block."""
 
     WRITERS = (
+        "audio_suite_shared/analysis_app_base.py",
         "audio_suite_shared/suite_app.py",
         "audio_suite_shared/tool_app_base.py",
+        "bpm_analyzer/app.py",
+        "file_reorganizer/app.py",
+        "lyrics_manager/app.py",
+        "metadata_scrubber/app.py",
+        "music_format_converter/app.py",
+        "replaygain_analyzer/app.py",
+        "tempo_analyzer/app.py",
     )
 
     def test_each_writer_calls_the_helper(self) -> None:
@@ -120,7 +159,7 @@ class TestBothWritersUseIt:
             source = (REPO_ROOT / relative).read_text(encoding="utf-8")
             assert "summary_lines(" in source, relative
 
-    def test_neither_writer_builds_the_footer_by_hand(self) -> None:
+    def test_no_writer_builds_the_footer_by_hand(self) -> None:
         for relative in self.WRITERS:
             source = (REPO_ROOT / relative).read_text(encoding="utf-8")
             assert f'"SUMMARY:{_NL}"' not in source, relative

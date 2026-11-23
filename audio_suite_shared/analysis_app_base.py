@@ -33,6 +33,10 @@ dataclass and Master Driver value are one number (D140).
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 Changed in 2.9.0: the progress-tick writes are the shared mixin helper (C1).
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation
+every window writes with (D36).
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ from .constants import (
     default_max_workers,
 )
 from .exceptions import map_to_audio_error
+from .run_report import summary_lines
 from .thread_safe_slot_var import ThreadSafeSlotVar
 from .ui_common import cap_typed_workers
 from .ui_helpers import UIHelperMixin
@@ -504,15 +509,15 @@ class AnalysisAppBase(UIHelperMixin):
         seconds = int(duration_secs % 60)
         analysed = processed - skipped - errors
 
-        summary = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"Tagged/Analyzed: {analysed}\n",
-            f"{self.SKIPPED_SUMMARY_LABEL}: {skipped}\n",
-            f"Errors: {errors}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
-        ]
+        summary = summary_lines(
+            total=total,
+            tagged=analysed,
+            tagged_label="Tagged/Analyzed",
+            skipped=skipped,
+            skipped_label=self.SKIPPED_SUMMARY_LABEL,
+            errors=errors,
+            duration_secs=duration_secs,
+        )
         all_entries = header + log_entries + summary
 
         try:

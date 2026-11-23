@@ -54,8 +54,8 @@ every apply run through ``run_scan`` / ``run_apply`` (maintenance item U5).
 Changed in 2.3.0: registers ``DuplicateFinderApp``, whose scan starts through
 ``core.file_processor.run_duplicate_scan`` with the three shared callbacks
 (F-02).  ``RestorationApp`` wires its completion and error callbacks through
-local closures -- the ``NoisePopToolApp`` peer shape ``pop_click_remover`` and
-``noise_reduction`` use, which this AST pass cannot resolve to a handler -- so it
+local closures -- the shape ``pop_click_remover`` and
+``noise_reduction`` still use, which this AST pass cannot resolve to a handler -- so it
 is locked by its own ``TestCompletionSeam`` in ``restoration/tests/test_app.py``
 rather than by a row here.
 
@@ -68,6 +68,9 @@ Changed in 2.8.0: the denoiser's payload tuple leaves with the window.
 Changed in 2.9.0: ``RestorationApp`` adopts the shared shell and binds its
 batch through the three callback keywords, so the declipper joins
 ``EXPECTED_TOOLS`` instead of hiding behind local closures (C1 stage 2, D34).
+
+Changed in 2.9.0: the docstring no longer cites the deleted
+``NoisePopToolApp`` (D36).
 """
 
 from __future__ import annotations

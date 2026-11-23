@@ -24,6 +24,10 @@ Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell owns
 the Help bar and the Processing and Results tabs; the worker pool is built
 before the shell renders its grid, and the finished run renders through the
 shell after ``_on_complete`` has written the report on the worker thread.
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation
+every window writes with (D36).
 """
 
 import logging
@@ -44,6 +48,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
@@ -397,19 +402,16 @@ class MetadataScrubberApp(SuiteApp):
         log_entries: list[Any],
     ) -> None:
         """Serialise the run report View Log opens; a failed write is shown."""
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
         succeeded = processed - skipped - errors
 
-        summary = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"Successfully processed: {succeeded}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
-        ]
+        summary = summary_lines(
+            total=total,
+            tagged=succeeded,
+            tagged_label="Successfully processed",
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+        )
         self._log_entries = [*header, *log_entries, *summary]
 
         try:

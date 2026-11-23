@@ -18,19 +18,25 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
-- **The run report's SUMMARY footer is one function.** `SuiteApp`'s writer and
-  the analysis scaffold's `_on_complete` built the same block -- the rule, the
-  five counter lines, the tool's extra rows and `Time: MM:SS` -- in two places,
-  so it is `audio_suite_shared.run_report.summary_lines`. Both writers still
-  supply their own header, per-file lines and rows (`TAGGED_LABEL`,
-  `_summary_extras()`), so both reports are byte-identical;
-  `tests/test_run_report.py` pins the footer's shape and fails if either writer
-  builds it by hand again, and `tests/test_tool_app_base.py` covers the
-  scaffold's completion, which had no report test before. The module is listed
-  in `documentation/docs/api.md`, as every shared module must be. The other call sites
-  that still build the block for themselves (`AnalysisAppBase`, the individual
-  analysis windows and the core log builders) are unchanged and are the next
-  extraction.
+- **The run report's SUMMARY footer is one function, and the dead scaffold
+  is gone.** `SuiteApp`'s writer, the analysis scaffold's `_on_complete`
+  and the eight windows that still built the block themselves
+  (`AnalysisAppBase`, BPM Analyzer, Lyrics Manager, Tempo Analyzer,
+  ReplayGain Analyzer, Music Format Converter, Metadata Scrubber and the
+  File Reorganizer) now call
+  `audio_suite_shared.run_report.summary_lines`; the helper gained an
+  optional `skipped_label` (Tempo Analyzer and the analysis bases word
+  that line themselves) and accepts `None` for the one report that never
+  prints a skip line (ReplayGain), so every report is byte-identical.
+  `NoisePopToolApp` is deleted: Restoration was its last subclass, so the
+  base, its slot pool and its `AuditionMixin` import leave
+  `tool_app_base.py` along with the imports only it used, and
+  `tests/test_slot_grid_consistency.py` drops its table row. The footer
+  builders that print a different block (the Fingerprinter's outcome
+  counters, Library Statistics, Genre Sync's log builder, the album-art
+  trio and the core `log_entries` builders) are unchanged.
+  `tests/test_run_report.py` pins the skipped-label rules and fails if
+  any of the ten writers spells `SUMMARY:` by hand.
 
 - **Restoration adopts the shared window shell, and the shell gains the
   audition row.** `RestorationApp` is a `SuiteApp` now: its two one-line tab

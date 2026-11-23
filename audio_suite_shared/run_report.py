@@ -7,6 +7,9 @@ that footer — the analysis scaffold's completion and the shared shell's
 ``_write_run_report_standard`` — so its shape lives here once.
 
 Changed in 2.9.0: new module, extracted from the two writers (D35).
+
+Changed in 2.9.0: gains ``skipped_label`` -- a verbatim word, or ``None``
+to omit the line -- and serves every window's report, not two (D36).
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ def summary_lines(
     tagged: int,
     tagged_label: str,
     skipped: int,
+    skipped_label: str | None = "Skipped",
     errors: int,
     duration_secs: float,
     rows: Iterable[tuple[str, str]] = (),
@@ -37,6 +41,8 @@ def summary_lines(
         tagged_label: The tool's own word for that count ("Tagged",
             "Repaired", "Files read"); the footer prints it verbatim.
         skipped: Files left alone.
+        skipped_label: The tool's own word for the skipped count, or
+            ``None`` for a report that never prints that line.
         errors: Files that failed.
         duration_secs: Wall-clock run time.
         rows: The run's extra ``(label, value)`` summary rows, in display
@@ -53,9 +59,10 @@ def summary_lines(
         "SUMMARY:\n",
         f"Total files: {total}\n",
         f"{tagged_label}: {tagged}\n",
-        f"Skipped: {skipped}\n",
-        f"Errors: {errors}\n",
     ]
+    if skipped_label is not None:
+        lines.append(f"{skipped_label}: {skipped}\n")
+    lines.append(f"Errors: {errors}\n")
     lines.extend(f"{label}: {value}\n" for label, value in rows)
     lines.append(f"Time: {minutes:02d}:{seconds:02d}\n")
     return lines
