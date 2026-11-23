@@ -157,6 +157,21 @@ def test_declared_module_builds_nothing():
     assert True
 """
 
+#: A module that declares the root and whose only test is skipped: nothing ran,
+#: so nothing was declared, and the run must stay green.
+SHARED_ROOT_SKIPPED_DECLARATION = """\
+import pytest
+
+pytestmark = [
+    pytest.mark.skip(reason="nothing in this module runs on this host"),
+    pytest.mark.usefixtures("clean_shared_root"),
+]
+
+
+def test_declared_module_is_skipped():
+    raise AssertionError("a skipped test must not run")
+"""
+
 #: Mirrors the real ``[tool.pytest.ini_options]`` closely enough to prove the
 #: ``gui`` marker is registered and that ``--strict-markers`` accepts it.
 PYTEST_INI = """\
@@ -729,6 +744,33 @@ def dead_declaration_run(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPa
     yield outcomes
 
 
+@pytest.fixture()
+def skipped_declaration_run(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch):
+    """Run a child session whose only module declares the root and skips its test.
+
+    A test that never runs never sets the declaration's fixture up, so the module
+    is not judged and the session stays green: a skip must not become an
+    accusation against a declaration that was never in force.
+
+    Args:
+        pytester: The pytester fixture (a tmp dir + subprocess runner).
+        monkeypatch: Used to expose the copy of the conftest on ``PYTHONPATH``.
+
+    Yields:
+        The recorded run outcomes of the one-skipped-test child session.
+    """
+    shutil.copyfile(REPO_ROOT / "conftest.py", pytester.path / "conftest.py")
+    (pytester.path / "pytest.ini").write_text(PYTEST_INI, encoding="utf-8")
+    (pytester.path / "test_skipped_declaration.py").write_text(
+        SHARED_ROOT_SKIPPED_DECLARATION, encoding="utf-8"
+    )
+    monkeypatch.setenv("PYTHONPATH", str(pytester.path))
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    outcomes = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-v")
+    yield outcomes
+
+
 class TestSharedRootCleanliness:
     """A test that leaves widgets on the shared root fails where it leaks.
 
@@ -803,6 +845,17 @@ class TestSharedRootCleanliness:
         assert outcomes.ret != 0
         outcomes.assert_outcomes(passed=1, errors=0, failed=0)
         assert "declares clean_shared_root but left no widget" in outcomes.stdout.str()
+
+    def test_a_declaration_whose_only_test_skips_does_not_fail(
+        self, skipped_declaration_run
+    ) -> None:
+        """A module nothing ran in is not accused of a declaration it never used."""
+        outcomes = skipped_declaration_run
+        assert outcomes.ret == 0
+        outcomes.assert_outcomes(passed=0, skipped=1, errors=0, failed=0)
+        assert "declares clean_shared_root but left no widget" not in (
+            outcomes.stdout.str()
+        )
 
     def test_the_leftovers_are_destroyed_before_the_failure(
         self, shared_root_run

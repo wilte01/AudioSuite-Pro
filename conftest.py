@@ -103,14 +103,15 @@ _live_window_snapshot: tuple[Path, dict[str, str]] | None = None
 #: The session-scoped fixtures whose presence means "this test needs a display".
 _GUI_FIXTURES = frozenset({"root", "tk_root", "clean_shared_root"})
 
-#: Node attribute ``clean_shared_root`` sets: this module builds on the shared
-#: root deliberately and leaves the teardown to the session's lock.
-_SHARED_ROOT_ADOPTED = "_audiosuite_shared_root_adopted"
-
 #: Modules whose declared tests left a widget on the shared root this session.
 #: A declaration is load-bearing only when the module it names really builds
 #: there, so the session fails on a declaration that built nothing.
 _SHARED_ROOT_BUILDERS: set[str] = set()
+
+#: Modules that declared the root this session.  Filled by ``clean_shared_root``
+#: itself, so a module whose tests never ran - skipped, or never selected -
+#: cannot enter it, and cannot be accused of a declaration it did not use.
+_SHARED_ROOT_DECLARERS: set[str] = set()
 
 #: Env var that restores the pre-B4 session-wide skip (safety net only).
 GUI_SKIP_ENV = "AUDIOSUITE_GUI_SKIP"
@@ -578,31 +579,26 @@ def _fail_on_unused_root_declarations(session: pytest.Session) -> None:
     session-scoped root, so a declaration whose module never leaves anything is
     dead weight that pre-approves the next leak - the rule
     ``tests/test_shared_code_reuse.py`` applies to its allowlists, where an
-    entry that excuses nothing is a bug rather than a licence.  Only the modules
-    whose tests actually ran can be judged: a module skipped down to nothing
-    never got as far as building.  ``tests/test_conftest.py`` drives both
-    verdicts in a child session.
+    entry that excuses nothing is a bug rather than a licence.  The two sets are
+    filled at the same seam: the fixture records the declaration, the lock
+    records the build, so neither needs to be reconstructed from the collected
+    items.  A test that never ran never set the fixture up, so a module skipped
+    down to nothing cannot be accused.  ``tests/test_conftest.py`` drives all
+    three verdicts in a child session.
 
     Args:
         session: The finished session, whose declaring modules are compared
             against the ones the lock saw building on the root.
     """
-    unused = sorted(
-        {
-            str(item.path)
-            for item in session.items
-            if getattr(item, _SHARED_ROOT_ADOPTED, False)
-        }
-        - _SHARED_ROOT_BUILDERS
-    )
+    unused = sorted(_SHARED_ROOT_DECLARERS - _SHARED_ROOT_BUILDERS)
     if not unused:
         return
     reporter = session.config.pluginmanager.getplugin("terminalreporter")
     lines = [
         "Root declarations that build nothing (clean_shared_root):",
         *(
-            f"  {_relative_to_root(path, session)} declares clean_shared_root "
-            "but left no widget on the shared root"
+            f"  {os.path.relpath(path, session.config.rootpath)} declares "
+            "clean_shared_root but left no widget on the shared root"
             for path in unused
         ),
         "  A declaration that cleans nothing pre-approves the next leak: remove "
@@ -615,14 +611,6 @@ def _fail_on_unused_root_declarations(session: pytest.Session) -> None:
             reporter.write_line(line)
     if session.exitstatus == 0:
         session.exitstatus = 1
-
-
-def _relative_to_root(path: str, session: pytest.Session) -> str:
-    """Name *path* relative to the session's root, for the message."""
-    try:
-        return os.path.relpath(path, session.config.rootpath)
-    except ValueError:  # pragma: no cover - a path on another Windows drive
-        return path
 
 
 @pytest.fixture(scope="session")
@@ -654,7 +642,7 @@ def clean_shared_root(request: pytest.FixtureRequest) -> None:
     of failing the test.  A module that builds on the root *without* declaring
     it fails at the leaking test, so collection order cannot hide the leak.
     """
-    setattr(request.node, _SHARED_ROOT_ADOPTED, True)
+    _SHARED_ROOT_DECLARERS.add(str(request.path))
 
 
 def _leftover_widget(widget: tk.Misc) -> str:
@@ -693,8 +681,9 @@ def _shared_root_keeps_nothing(
     before = set(_root.winfo_children())
     yield
     # Read the declaration here, not at setup: autouse fixtures are set up
-    # before the module's own, so a flag read first would always be False.
-    adopted = getattr(request.node, _SHARED_ROOT_ADOPTED, False)
+    # before the module's own, so the registry has not seen it yet when this
+    # fixture starts.
+    adopted = str(request.path) in _SHARED_ROOT_DECLARERS
     leftovers = [widget for widget in _root.winfo_children() if widget not in before]
     if leftovers and adopted:
         _SHARED_ROOT_BUILDERS.add(str(request.path))

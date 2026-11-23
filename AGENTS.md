@@ -354,12 +354,13 @@ Rules:
   fails the run at its end, so the declaration cannot become a blanket approval
   for a leak the module never makes — the rule the allowlists in
   `tests/test_shared_code_reuse.py` follow, where an entry that excuses nothing
-  is a bug rather than a licence. If the module stops building there, delete
-  the declaration.
+  is a bug rather than a licence. Only modules whose tests actually ran are
+  judged — a skipped test never sets the declaration's fixture up, so it is not
+  accused. If the module stops building there, delete the declaration.
 - It reads the declaration at **teardown**, not at setup: autouse fixtures are
-  set up first, so a flag read before `yield` is always `False`. It also names
-  the leftovers before destroying them, because a destroyed widget has no Tcl
-  path left to report.
+  set up first, so the registry has not seen the declaration yet when the lock
+  starts. It also names the leftovers before destroying them, because a
+  destroyed widget has no Tcl path left to report.
 - Locked by `tests/test_conftest.py::TestSharedRootCleanliness`, which drives a
   child session both ways: an undeclared leak errors at its own teardown, a
   declared module passes, and the next test still sees an empty root.

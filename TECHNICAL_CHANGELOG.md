@@ -441,10 +441,11 @@ used once, and every bullet belongs to exactly one of them.
   building on the root and, at session end, fails the run naming every
   declaring module that built nothing; only modules whose tests actually ran
   are judged, so a suite skipped down to nothing on a host is not accused.
-  `tests/test_conftest.py` drives both verdicts in a child session — a
-  declaration that builds nothing fails the run while its test passes, and one
-  that leaves a frame keeps the run clean — and `AGENTS.md` states the rule
-  beside the others.
+  `tests/test_conftest.py` drives all three verdicts in a child session — a
+  declaration that builds nothing fails the run while its test passes, one that
+  leaves a frame keeps the run clean, and one whose only test is skipped stays
+  green because the fixture that records a declaration never ran — and
+  `AGENTS.md` states the rule beside the others.
 
 ### Removed
 
