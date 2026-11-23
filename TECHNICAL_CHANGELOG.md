@@ -406,6 +406,21 @@ used once, and every bullet belongs to exactly one of them.
   loop, and the Duplicate Finder's queued completion has the blank line above
   it that its report write was missing. No behaviour changes.
 
+- **Three more reports share the SUMMARY footer, and eight keep their own.**
+  `summary_lines` gained `total_label`, because the remaining tools that print
+  the same block word their first counter `Files` or `Files examined`. With it,
+  Channel Tools, Pitch / Time and the Album Art Normalizer call the helper and
+  their reports are byte-identical. The rest stay as they are for structural
+  reasons, decided site by site: the Fingerprinter counts four outcomes
+  (identified, no match, tags written, lookup skipped) around a free-text ISRC
+  line, Library Statistics prints no tagged, skipped or error counter at all,
+  Genre Sync and the Track Splitter put an extra row between the counters (and
+  Genre Sync's rule has no leading blank line), the Stem Separator prints
+  `Stem files written` between its handled and skipped counts, Audio Joiner and
+  Album Art Sync print no counter pair, and the Album Genre Tagger's footer is
+  `SUMMARY` with a `-` rule. `tests/test_run_report.py` lists twelve writers and
+  pins the total-label wording.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no

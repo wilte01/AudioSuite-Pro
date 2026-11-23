@@ -10,6 +10,10 @@ Changed in 2.9.0: new module, extracted from the two writers (D35).
 
 Changed in 2.9.0: gains ``skipped_label`` -- a verbatim word, or ``None``
 to omit the line -- and serves every window's report, not two (D36).
+
+Changed in 2.9.0: gains ``total_label`` too, because the tools that word
+their first counter ``Files`` or ``Files examined`` print the same block
+otherwise (D39).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ RULE_WIDTH = 60
 def summary_lines(
     *,
     total: int,
+    total_label: str = "Total files",
     tagged: int,
     tagged_label: str,
     skipped: int,
@@ -37,6 +42,8 @@ def summary_lines(
 
     Args:
         total: Files the run visited.
+        total_label: The tool's own word for that count ("Files",
+            "Files examined"); the footer prints it verbatim.
         tagged: Files handled without being skipped or erroring.
         tagged_label: The tool's own word for that count ("Tagged",
             "Repaired", "Files read"); the footer prints it verbatim.
@@ -57,7 +64,7 @@ def summary_lines(
     lines: list[str] = [
         "\n" + "=" * RULE_WIDTH + "\n",
         "SUMMARY:\n",
-        f"Total files: {total}\n",
+        f"{total_label}: {total}\n",
         f"{tagged_label}: {tagged}\n",
     ]
     if skipped_label is not None:

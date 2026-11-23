@@ -7,6 +7,8 @@ Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell
 owns the Processing and Results frames and the stubs carry those names.
 """
 
+# Changed in 2.9.0: the report's SUMMARY footer is the shared
+# ``run_report.summary_lines``, and this suite pins its labels (D39).
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -308,6 +310,8 @@ class TestCompletionSeam:
             text=("Files examined: 3\nImages updated: 1\nSkipped: 1\nErrors: 1")
         )
         report = (tmp_path / "art_normalize_log.txt").read_text(encoding="utf-8")
+        assert "Files examined: 3\nImages updated: 1\nSkipped: 1\nErrors: 1\n" in report
+        assert f"Output: {tmp_path}\n" in report
         for name in ("a.wav", "b.wav", "c.wav"):
             assert f"[OK] {name}" in report
 

@@ -18,6 +18,11 @@ Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the shell
 owns the Help bar and the Processing and Results tabs; ``_on_complete`` now
 writes the report (with the SUMMARY block the shell's contract reads) on
 the worker thread, before it renders.
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines`` -- this report words its
+first counter ``Files examined`` through ``total_label`` -- the one
+implementation every window writes with (D39).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -38,6 +43,7 @@ from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
 )
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 
 from .core import file_processor
@@ -356,19 +362,16 @@ class ArtNormalizerApp(SuiteApp):
         log_path = os.path.join(self._dir_path, "art_normalize_log.txt")
         self._log_path = log_path
         updated = processed - skipped - errors
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
-        summary = [
-            "",
-            "=" * 60,
-            "SUMMARY:",
-            f"Files examined: {total}",
-            f"Images updated: {updated}",
-            f"Skipped: {skipped}",
-            f"Errors: {errors}",
-            f"Output: {self._dir_path}",
-            f"Time: {minutes:02d}:{seconds:02d}",
-        ]
+        summary = summary_lines(
+            total=total,
+            total_label="Files examined",
+            tagged=updated,
+            tagged_label="Images updated",
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            rows=(("Output", self._dir_path),),
+        )
         try:
             with open(log_path, "w", encoding="utf-8") as handle:
                 for line in [*self._log_entries, *summary]:

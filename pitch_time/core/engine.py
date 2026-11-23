@@ -10,6 +10,10 @@ through ``audio_suite_shared.tag_copy``.
 Changed in 2.7.0: new module (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
 
 Changed in 2.9.0: the segment write is the shared export_segment (B2).
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation every
+window writes with (D39).
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from audio_suite_shared.dsp_time_pitch import (
     time_stretch,
 )
 from audio_suite_shared.exceptions import AudioSuiteError
+from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.tag_copy import copy_easy_tags
 
 from .models import MODE_PITCH, PitchTimeSettings, output_name
@@ -220,15 +225,15 @@ def _report_lines(
         f"Setting: {settings.description}\n",
         "=" * 60 + "\n",
     ]
-    summary = [
-        "\n" + "=" * 60 + "\n",
-        "SUMMARY:\n",
-        f"Files: {written + skipped + errors}\n",
-        f"Written: {written}\n",
-        f"Skipped: {skipped}\n",
-        f"Errors: {errors}\n",
-        f"Time: {int(elapsed // 60):02d}:{int(elapsed % 60):02d}\n",
-    ]
+    summary = summary_lines(
+        total=written + skipped + errors,
+        total_label="Files",
+        tagged=written,
+        tagged_label="Written",
+        skipped=skipped,
+        errors=errors,
+        duration_secs=elapsed,
+    )
     return [*header, *body, *summary]
 
 

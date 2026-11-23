@@ -9,6 +9,9 @@ writes the footer (D36).
 
 Changed in 2.9.0: ``tool_app_base`` is deleted, so the writer list drops
 the scaffold's file (D37).
+
+Changed in 2.9.0: pins the total-label wording and lists the three reports
+that word their first counter differently (D39).
 """
 
 from __future__ import annotations
@@ -98,6 +101,23 @@ class TestSummaryLines:
         assert "Files read: 4\n" in lines
         assert "Tagged: 4\n" not in lines
 
+    def test_the_total_label_is_printed_verbatim(self) -> None:
+        lines = summary_lines(
+            total=3,
+            total_label="Files examined",
+            tagged=2,
+            tagged_label="Images updated",
+            skipped=1,
+            errors=0,
+            duration_secs=0.0,
+        )
+
+        assert "Files examined: 3" + chr(10) in lines
+        assert "Total files: 3" + chr(10) not in lines
+
+    def test_the_default_total_label_is_total_files(self) -> None:
+        assert "Total files: 0" + chr(10) in empty_summary()
+
     def test_the_skipped_label_is_printed_verbatim(self) -> None:
         lines = summary_lines(
             total=3,
@@ -147,11 +167,14 @@ class TestEveryWriterUsesIt:
     WRITERS = (
         "audio_suite_shared/analysis_app_base.py",
         "audio_suite_shared/suite_app.py",
+        "album_art_normalizer/app.py",
         "bpm_analyzer/app.py",
+        "channel_tools/core/processor.py",
         "file_reorganizer/app.py",
         "lyrics_manager/app.py",
         "metadata_scrubber/app.py",
         "music_format_converter/app.py",
+        "pitch_time/core/engine.py",
         "replaygain_analyzer/app.py",
         "tempo_analyzer/app.py",
     )

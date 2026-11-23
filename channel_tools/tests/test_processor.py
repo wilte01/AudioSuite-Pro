@@ -7,6 +7,8 @@ rule promises, and a rule that changes nothing must not rewrite the file.
 Changed in 2.5.0: new file (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E6).
 """
 
+# Changed in 2.9.0: the report's SUMMARY footer is the shared
+# ``run_report.summary_lines``, and this suite pins its labels (D39).
 from __future__ import annotations
 
 import wave
@@ -120,6 +122,7 @@ class TestDryRun:
         assert "Mode: DRY RUN" in text
         assert "Mono, arithmetic mean (0.5 x (L + R))" in text
         assert "SUMMARY:" in text
+        assert "Files: 1\nChanged: 1\nUnchanged: 0\nErrors: 0\n" in text
         assert payload["report"] == str(report)
 
 

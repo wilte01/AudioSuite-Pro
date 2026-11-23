@@ -10,6 +10,10 @@ containers are skipped rather than half-written, and an operation that changes
 nothing leaves the file's bytes untouched.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E6).
+
+Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
+``audio_suite_shared.run_report.summary_lines``, the one implementation every
+window writes with (D39).
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.channel_ops import apply_operation
 from audio_suite_shared.cli_base import _make_slot_queue, _make_slot_vars
 from audio_suite_shared.file_processor_base import BaseFileProcessor, InplaceDspResult
+from audio_suite_shared.run_report import summary_lines
 
 from .models import ChannelSettings
 
@@ -103,15 +108,16 @@ def _report_lines(
         "=" * 60 + "\n",
     ]
     body = [str(line) for line in payload.get("log_entries", [])]
-    summary = [
-        "\n" + "=" * 60 + "\n",
-        "SUMMARY:\n",
-        f"Files: {payload.get('total', 0)}\n",
-        f"Changed: {payload.get('succeeded', 0)}\n",
-        f"Unchanged: {payload.get('skipped', 0)}\n",
-        f"Errors: {payload.get('errors', 0)}\n",
-        f"Time: {int(elapsed // 60):02d}:{int(elapsed % 60):02d}\n",
-    ]
+    summary = summary_lines(
+        total=payload.get("total", 0),
+        total_label="Files",
+        tagged=payload.get("succeeded", 0),
+        tagged_label="Changed",
+        skipped=payload.get("skipped", 0),
+        skipped_label="Unchanged",
+        errors=payload.get("errors", 0),
+        duration_secs=elapsed,
+    )
     return [*header, *body, *summary]
 
 

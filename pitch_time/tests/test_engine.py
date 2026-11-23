@@ -7,6 +7,8 @@ nothing about the audio.
 Changed in 2.7.0: new module (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
 """
 
+# Changed in 2.9.0: the report's SUMMARY footer is the shared
+# ``run_report.summary_lines``, and this suite pins its labels (D39).
 from __future__ import annotations
 
 import hashlib
@@ -233,6 +235,7 @@ class TestBatchRun:
         assert "Tempo rate 1.25x" in text
         assert "one.wav" in text and "two.wav" in text
         assert "SUMMARY:" in text
+        assert "Files: 2\nWritten: 2\nSkipped: 0\nErrors: 0\n" in text
         assert payloads and payloads[0]["written"] == 2
         assert (tmp_path / "one_tempo_1.25.wav").is_file()
         assert (tmp_path / "two_tempo_1.25.wav").is_file()
