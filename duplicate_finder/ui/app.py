@@ -44,6 +44,9 @@ window supplies only ``_dispatch_ui_message`` (D31).
 
 Changed in 2.9.0: the run report is the shell's ``_write_run_report_standard``,
 so this window supplies only the run's rows (D32).
+
+Changed in 2.9.0: a blank line separates the report write from the queued
+completion (D38).
 """
 
 from __future__ import annotations
@@ -559,6 +562,7 @@ class DuplicateFinderApp(SuiteApp):
             errors=errors,
             duration_secs=duration_secs,
         )
+
         self._ui_updates.put(
             ("complete", total, tagged, skipped, errors, duration_secs, rows)
         )

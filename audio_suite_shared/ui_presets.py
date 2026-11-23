@@ -6,9 +6,10 @@ re-exports each name, so existing importers are unchanged.
 Changed in 2.4.3: split out of ``audio_suite_shared.ui_common``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
 Changed in 2.9.0: the older per-tool preset store (``<prefix>_preset_<name>``
-plus the JSON name list at ``<prefix>_presets_list``) moves here from
-``tool_app_base``, so a window that leaves that base keeps reading the presets
-the user already saved (C1 stage 2).
+plus the JSON name list at ``<prefix>_presets_list``) moved here, so every
+window migrating to ``SuiteApp`` keeps reading the presets the user already
+saved (C1 stage 2).  The base it moved out of is deleted, so this store is the
+suite's only preset path (D38).
 """
 
 import json

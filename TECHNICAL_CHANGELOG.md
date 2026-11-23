@@ -399,6 +399,13 @@ used once, and every bullet belongs to exactly one of them.
   requiring it by omission would raise off the worker thread and abort the
   completion (D112/D113), not fail the report.
 
+- **Three review leftovers are cleaned up.** `ui_presets.py`'s note names
+  the store's own history instead of pointing at the deleted `tool_app_base`,
+  `tests/test_tk_event_pump.py`'s title names all three homes it locks (the
+  drain, the worker hand-off and the run report) rather than only the drain
+  loop, and the Duplicate Finder's queued completion has the blank line above
+  it that its report write was missing. No behaviour changes.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no

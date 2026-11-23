@@ -1,4 +1,4 @@
-"""Lock: the Tk-thread drain loop has one implementation.
+"""Lock: the Tk-thread drain, the worker hand-off and the report have one home.
 
 ``audio_suite_shared.event_pump.pump_events`` owns the loop that takes every
 message a worker queued, renders it on the Tk thread and re-arms while the run
@@ -33,6 +33,8 @@ Changed in 2.9.0: new lock, after the four SuiteApp windows' drain loops became
 ``pump_events`` calls and their dead ``_poll_id`` was cut (D29, D30).
 Changed in 2.9.0: the second rule, for the wrapper the shell now owns (D31).
 Changed in 2.9.0: the rule also covers the shell's run-report writer (D32).
+Changed in 2.9.0: the title names all three homes, not only the drain loop
+(D38).
 """
 
 from __future__ import annotations
