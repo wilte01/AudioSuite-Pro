@@ -325,6 +325,38 @@ app.some_var.get.return_value = "expected"
 Never instantiate `tk.Tk()` in tests except through the session-scoped hidden
 root in `conftest.py`.
 
+**The shared root outlives the test that built on it: leave it empty, or declare
+that you fill it.** `root`/`tk_root` are session-scoped, so a test that parents a
+widget on the root and never destroys it hands the leftovers to every later test,
+and only a test that walks the root can notice. The Album Art Normalizer's and
+Music Format Converter's Setup suites each left a whole Setup tab — title label
+included — so `pytest album_art_normalizer tests/test_suite_app_contract.py`
+failed `test_the_tool_title_is_shown_once` with twelve labels while the bare gate,
+whose collection order puts root `tests/` first, never looked.
+
+Rules:
+
+- **Destroy what you build.** A container a test makes on the root (`tk.Frame`,
+  a `Toplevel`) is that test's to destroy; a fixture that builds one destroys it
+  in its teardown.
+- **A module that builds on the root deliberately says so once**, in its body:
+  `pytestmark = pytest.mark.usefixtures("clean_shared_root")`. The lock then
+  destroys that module's leftovers without failing it. Declaring is for tests
+  that build on the root inline — it is not a way to keep a leak you could
+  destroy.
+- **The failure is the point.** `conftest.py`'s autouse
+  `_shared_root_keeps_nothing` destroys whatever a test left and fails *that*
+  test, so one leak costs one test instead of poisoning every later walk of the
+  root, and no collection order can hide it. Never silence it by cleaning the
+  root from a later test, and never point it at a different seam.
+- It reads the declaration at **teardown**, not at setup: autouse fixtures are
+  set up first, so a flag read before `yield` is always `False`. It also names
+  the leftovers before destroying them, because a destroyed widget has no Tcl
+  path left to report.
+- Locked by `tests/test_conftest.py::TestSharedRootCleanliness`, which drives a
+  child session both ways: an undeclared leak errors at its own teardown, a
+  declared module passes, and the next test still sees an empty root.
+
 **A widget's construction-time default is what the user sees whenever its update
 path never runs — and every programmatic pre-fill bypasses the widget events
 that would have run it.** A `readonly` Combobox seeded in `build()` with

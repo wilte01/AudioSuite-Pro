@@ -421,6 +421,18 @@ used once, and every bullet belongs to exactly one of them.
   `SUMMARY` with a `-` rule. `tests/test_run_report.py` lists twelve writers and
   pins the total-label wording.
 
+- **The shared-root rule is written where the next suite will read it.**
+  `AGENTS.md`'s *GUI (Tkinter) Testing* section now states that the
+  session-scoped root outlives the test that built on it: a test destroys what it
+  parents there, a module that deliberately builds there declares
+  `pytestmark = pytest.mark.usefixtures("clean_shared_root")` once, and
+  `conftest.py`'s lock fails the test that leaves anything — never a later one, so
+  collection order cannot decide whether the defect is visible. The rule records
+  the two details that cost a cycle each: the declaration is read at teardown
+  (autouse fixtures are set up first), and the leftovers are described before
+  they are destroyed (a destroyed widget has no Tcl path to name). The arbiter is
+  named rather than restated: `tests/test_conftest.py::TestSharedRootCleanliness`.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no
