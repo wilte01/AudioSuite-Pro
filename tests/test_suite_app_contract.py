@@ -78,6 +78,10 @@ Changed in 2.9.0: Restoration follows last in wave 3, so the table is
 nineteen, the declipper gains a report drive, and its report's label is
 locked (C1 stage 2, D34).
 
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -151,6 +155,8 @@ from tag_field_updater.ui.app import TagFieldUpdaterApp
 from tag_field_updater.utils.cli_args import TagFieldUpdaterArgs
 from tempo_analyzer import app as tempo_analyzer_app
 from tempo_analyzer.app import TempoAnalyzerApp
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 #: The tools that have adopted the shared shell, in migration order.
 MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (

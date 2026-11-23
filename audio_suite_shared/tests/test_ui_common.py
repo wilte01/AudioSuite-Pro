@@ -32,6 +32,10 @@ Changed in 2.4.3: three patch targets follow the code they patch —
 assertion changed.
 Changed in 2.9.0: covers the ``panel`` key ``build_processing_tab`` returns,
 the parent a tool adds its own Processing-tab control to (C1 stage 2).
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -48,6 +52,8 @@ import pytest
 from audio_suite_shared.exceptions import AudioConfigurationError
 from audio_suite_shared.ui_common import BaseSetupFrame
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 # ---------------------------------------------------------------------------
 # Display guard

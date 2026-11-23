@@ -1,38 +1,26 @@
 """tests/test_setup_tab.py — Lyrics Manager Setup tab wiring under a hidden Tk root.
 
-Changed in 2.9.0: every build lands on its own container, destroyed after the
-test, so a leftover tab cannot leave a second title label on the session root
-for the shell contract to count.
+Changed in 2.9.0: the module declares the shared root with
+``clean_shared_root``, so every build's container is destroyed after the test
+and a leftover tab cannot leave a second title label on the session root for
+the shell contract to count.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
-from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
 
 from lyrics_manager.ui.setup_tab import build
 
-#: Containers built by this module, destroyed by the autouse fixture below.
-_containers: list[tk.Frame] = []
-
-
-@pytest.fixture(autouse=True)
-def _destroy_built_tabs() -> Iterator[None]:
-    """Leave the session-scoped root as clean as the test found it."""
-    yield
-    while _containers:
-        container = _containers.pop()
-        if container.winfo_exists():
-            container.destroy()
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _build_tab(root: tk.Tk, **override: object) -> dict[str, object]:
     """Construct the Setup tab with real Tk variables and return its widgets."""
     parent = tk.Frame(root)
-    _containers.append(parent)
     kwargs: dict[str, object] = dict(
         folder_path=tk.StringVar(),
         run_mode=tk.StringVar(value="Dry Run"),

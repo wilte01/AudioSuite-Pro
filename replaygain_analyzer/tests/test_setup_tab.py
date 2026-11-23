@@ -8,9 +8,10 @@ Validates the Run Controls panel integration:
   - driver-launched build locks the whole panel to inherited values
   - legacy folder / mode rows are fully replaced by the shared panel
 
-Changed in 2.9.0: every build lands on its own container, destroyed after the
-test, so a leftover tab cannot leave a second title label on the session root
-for the shell contract to count.
+Changed in 2.9.0: the module declares the shared root with
+``clean_shared_root``, so every build's container is destroyed after the test
+and a leftover tab cannot leave a second title label on the session root for
+the shell contract to count.
 """
 
 import tkinter as tk
@@ -20,24 +21,12 @@ import pytest
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from replaygain_analyzer.ui import setup_tab
 
-#: Containers built by this module, destroyed by the autouse fixture below.
-_containers: list[tk.Frame] = []
-
-
-@pytest.fixture(autouse=True)
-def _destroy_built_tabs():
-    """Leave the session-scoped root as clean as the test found it."""
-    yield
-    while _containers:
-        container = _containers.pop()
-        if container.winfo_exists():
-            container.destroy()
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _container(parent: tk.Misc) -> tk.Frame:
     """A fresh frame to build into, registered for teardown."""
     frame = tk.Frame(parent)
-    _containers.append(frame)
     return frame
 
 

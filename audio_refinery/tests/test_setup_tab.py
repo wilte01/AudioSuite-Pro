@@ -12,6 +12,10 @@ edit writes the params back through the same update function.
 Changed in 2.9.0: the Best Audio row is locked - the bulk box, the per-stage
 Auto boxes and the read-only preview, all of which leave the stage toggles
 and the presets as the user left them.
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -26,6 +30,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 _MODE_VAR_IDS = itertools.count()
 

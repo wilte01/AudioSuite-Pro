@@ -10,6 +10,10 @@ Mock-based root window so no real Tk is needed.
 Changed in 2.7.0: ``TestMatchGains`` locks the attenuation-only arithmetic and
 ``TestMatchedAudition`` renders real tones and measures the previews it gets
 back, rather than trusting the gain the code reports (F-S9).
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -34,6 +38,8 @@ from audio_suite_shared.ui_audition import (
     match_gains,
     set_result_available,
 )
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 _EXTS: tuple[str, ...] = (".mp3", ".wav")
 

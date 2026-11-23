@@ -518,17 +518,26 @@ used once, and every bullet belongs to exactly one of them.
   driver note stay on the worker, and the error dialog is raised by the shell's
   handler on the Tk thread.
 
-- **The Album Art Normalizer's and Music Format Converter's Setup suites leave
-  the shared Tk root as they found it.** Each built its tab in a bare
-  `tk.Frame` on the session-scoped root and never destroyed it, so every test
-  left a whole Setup tab — including its title label — parented on the root
-  that the contract test walks. `pytest album_art_normalizer
+- **The shared Tk root is cleaned by one declaration and policed by one
+  lock.** The Album Art Normalizer's and Music Format Converter's Setup suites
+  each built their tab in a bare `tk.Frame` on the session-scoped root and never
+  destroyed it, so every test left a whole Setup tab — its title label included
+  — parented on the root the contract test walks. `pytest album_art_normalizer
   tests/test_suite_app_contract.py` therefore failed
-  `test_the_tool_title_is_shown_once[ArtNormalizerApp]` with twelve labels,
-  and the converter failed the same way; the bare gate's module order (root
-  `tests/` collect before the packages) hid both. Both suites now collect the
-  containers they build and destroy them in an autouse fixture, the pattern
-  the other Setup-tab suites already use.
+  `test_the_tool_title_is_shown_once[ArtNormalizerApp]` with twelve labels, and
+  the converter failed the same way, while the bare gate never looked: it
+  collects root `tests/` before the packages. The pair was the class rather than
+  the whole of it: turning the lock on found eleven more leaking modules, 390
+  tests in all, and nine suites each carried their own copy of the same
+  destroy-the-containers fixture.
+  `conftest.py` now owns both halves: `clean_shared_root`, declared once per
+  module with `pytestmark = pytest.mark.usefixtures("clean_shared_root")`, marks
+  a module that builds on the root, and `_shared_root_keeps_nothing` destroys
+  whatever a test leaves behind and fails the test that left it — so a leak
+  fails where it is made, whatever order pytest collects in. The nine
+  per-module fixtures are gone, and `tests/test_conftest.py` runs both outcomes
+  in a child session: an undeclared leak errors, a declared one does not, and
+  the next test still sees an empty root.
 
 ## [2.9.0] - 2026-11-20
 

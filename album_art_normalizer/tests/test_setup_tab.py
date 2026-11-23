@@ -4,19 +4,21 @@ Tests for album_art_normalizer.ui.setup_tab — Setup tab construction.
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
 
-Changed in 2.9.0: the containers this module builds are destroyed after
-each test, so the session-scoped root carries no leftover Setup frames into
-the next module's title-once check.
+Changed in 2.9.0: the module declares the shared root with
+``clean_shared_root``, so the containers its tests build are destroyed after
+each test and the root carries no leftover Setup frames into the next
+module's title-once check.
 """
 
 import tkinter as tk
-from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
 
 from album_art_normalizer.ui import setup_tab
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
@@ -29,20 +31,6 @@ def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
         "clear_logs": tk.BooleanVar(master=root, value=False),
         "parallel": tk.BooleanVar(master=root, value=False),
     }
-
-
-#: Containers built by this module, destroyed by the autouse fixture below.
-_containers: list[tk.Frame] = []
-
-
-@pytest.fixture(autouse=True)
-def _destroy_built_tabs() -> Iterator[None]:
-    """Leave the session-scoped root as clean as the test found it."""
-    yield
-    while _containers:
-        container = _containers.pop()
-        if container.winfo_exists():
-            container.destroy()
 
 
 def _build(root: tk.Tk, **overrides):
@@ -62,7 +50,6 @@ def _build(root: tk.Tk, **overrides):
     }
     kwargs.update(overrides)
     container = tk.Frame(root)
-    _containers.append(container)
     widgets = setup_tab.build(container, **kwargs)
     return kwargs, widgets, container
 

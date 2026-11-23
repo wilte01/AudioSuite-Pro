@@ -107,6 +107,41 @@ def test_b_collects_from_a_worker_thread():
     thread.join()
 """
 
+#: One leaking test among two clean neighbours.  The leaking one must fail at
+#: its own teardown, and the test after it must still see an empty root because
+#: the lock destroys what it refuses to forgive.
+SHARED_ROOT_TESTS = """\
+import tkinter as tk
+
+
+def test_zero_destroys_what_it_builds(root):
+    frame = tk.Frame(root)
+    frame.pack()
+    frame.destroy()
+
+
+def test_first_leaves_a_frame_on_the_root(root):
+    tk.Frame(root).pack()
+
+
+def test_second_still_sees_a_clean_root(root):
+    assert [w for w in root.winfo_children() if isinstance(w, tk.Frame)] == []
+"""
+
+#: A module that declares it builds on the shared root: its leftovers are the
+#: lock's to destroy, and they must not fail it.
+SHARED_ROOT_DECLARED = """\
+import tkinter as tk
+
+import pytest
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
+
+
+def test_declared_module_leaves_a_frame(root):
+    tk.Frame(root).pack()
+"""
+
 #: Mirrors the real ``[tool.pytest.ini_options]`` closely enough to prove the
 #: ``gui`` marker is registered and that ``--strict-markers`` accepts it.
 PYTEST_INI = """\
@@ -628,6 +663,103 @@ class TestTkGarbageCollection:
         combined = outcomes.stdout.str() + outcomes.stderr.str()
         assert "PytestUnraisableExceptionWarning" not in combined
         assert "main thread is not in main loop" not in combined
+
+
+@pytest.fixture()
+def shared_root_run(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch):
+    """Run a child session with one test leaking a frame on the shared root.
+
+    Args:
+        pytester:   The pytester fixture (a tmp dir + subprocess runner).
+        monkeypatch: Used to expose the copy of the conftest on ``PYTHONPATH``.
+
+    Yields:
+        The recorded run outcomes of the four-test child session.
+    """
+    shutil.copyfile(REPO_ROOT / "conftest.py", pytester.path / "conftest.py")
+    (pytester.path / "pytest.ini").write_text(PYTEST_INI, encoding="utf-8")
+    (pytester.path / "test_shared_root.py").write_text(
+        SHARED_ROOT_TESTS, encoding="utf-8"
+    )
+    (pytester.path / "test_shared_root_declared.py").write_text(
+        SHARED_ROOT_DECLARED, encoding="utf-8"
+    )
+    monkeypatch.setenv("PYTHONPATH", str(pytester.path))
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    outcomes = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-v")
+    yield outcomes
+
+
+class TestSharedRootCleanliness:
+    """A test that leaves widgets on the shared root fails where it leaks.
+
+    The Album Art Normalizer's and the Music Format Converter's Setup suites
+    shipped leaking because the bare gate collected root ``tests/`` before the
+    package directories: the contract test that counts a tool's title on the
+    root ran before the leaks existed, and ``pytest album_art_normalizer
+    tests/test_suite_app_contract.py`` — the other order — failed.  The lock
+    fails the leaking test itself, so no collection order can hide it.
+    """
+
+    @pytest.mark.skipif(
+        not _display_present(),
+        reason=(
+            "The simulation needs a real Tk root in the child process; the "
+            "shared-root fixture is display-dependent."
+        ),
+    )
+    def test_a_leaking_test_fails_at_its_own_teardown(self, shared_root_run) -> None:
+        """The leak is an error on the test that made it, not on a later one."""
+        outcomes = shared_root_run
+        assert outcomes.ret != 0
+        outcomes.assert_outcomes(passed=4, errors=1, failed=0)
+        # A teardown error prints its own line after the test's PASSED line.
+        lines = [
+            line
+            for line in outcomes.stdout.lines
+            if "::test_first_leaves_a_frame_on_the_root " in line
+        ]
+        assert any(_outcome(line) == "ERROR" for line in lines), lines
+        assert "left widgets on the session-scoped Tk root" in outcomes.stdout.str()
+
+    @pytest.mark.skipif(
+        not _display_present(),
+        reason=(
+            "The simulation needs a real Tk root in the child process; the "
+            "shared-root fixture is display-dependent."
+        ),
+    )
+    def test_a_test_that_destroys_what_it_builds_still_passes(
+        self, shared_root_run
+    ) -> None:
+        """The lock is about leftovers, not about using the root at all."""
+        outcomes = shared_root_run
+        line = _outcome_line(outcomes, "test_zero_destroys_what_it_builds")
+        assert _outcome(line) == "PASSED"
+
+    @pytest.mark.skipif(
+        not _display_present(),
+        reason=(
+            "The simulation needs a real Tk root in the child process; the "
+            "shared-root fixture is display-dependent."
+        ),
+    )
+    def test_a_declared_module_keeps_its_leftovers_without_failing(
+        self, shared_root_run
+    ) -> None:
+        """Declaring the root is allowed; the lock still cleans up after it."""
+        outcomes = shared_root_run
+        line = _outcome_line(outcomes, "test_declared_module_leaves_a_frame")
+        assert _outcome(line) == "PASSED"
+
+    def test_the_leftovers_are_destroyed_before_the_failure(
+        self, shared_root_run
+    ) -> None:
+        """One leak costs one test; it cannot poison every later walk."""
+        outcomes = shared_root_run
+        line = _outcome_line(outcomes, "test_second_still_sees_a_clean_root")
+        assert _outcome(line) == "PASSED"
 
 
 class TestSuiteConfigWriteGuard:

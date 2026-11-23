@@ -7,6 +7,10 @@ DriverControlsPanel builds genuine widgets.
 Behaviour-lock (iteration-7 B3): the tool-own labels/defaults must
 survive the shared-builder consolidation — if dedup removes a
 tool-specific string or default, these tests fail.
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 import tkinter as tk
@@ -17,6 +21,8 @@ import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from mood_analyzer.ui import setup_tab
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:

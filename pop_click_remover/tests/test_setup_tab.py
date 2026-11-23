@@ -2,6 +2,10 @@
 
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -10,8 +14,12 @@ import tkinter as tk
 from tkinter import ttk
 from unittest.mock import MagicMock
 
+import pytest
+
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from pop_click_remover.ui import setup_tab
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:

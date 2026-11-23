@@ -11,6 +11,10 @@ Changed in 1.1.0: added ``TestEnhancerCustomEditor``, which locks the REFINE
 tab's Audio Enhancer stage to the standalone tool's behaviour — selecting
 Custom shows the summary row and opens the shared non-modal DSP editor window
 instead of expanding all 19 controls inline (745 px) inside the stage panel.
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -21,11 +25,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from master_driver.state.app_state import AppState
 from master_driver.ui import refinery_tab
 from master_driver.ui.refinery_tab import _inject_select_all
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _build(root: tk.Tk) -> tuple[tk.Frame, AppState, tuple[Any, Any, dict[str, Any]]]:

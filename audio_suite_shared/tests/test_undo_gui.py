@@ -9,6 +9,10 @@ construction is exercised.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 from __future__ import annotations
@@ -16,6 +20,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from audio_suite_shared.batch_undo import (
     BatchInfo,
@@ -33,6 +39,8 @@ from audio_suite_shared.undo_gui import (
     friendly_tool_name,
     record_preview_line,
 )
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _batch(**kwargs: object) -> BatchInfo:

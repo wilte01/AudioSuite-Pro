@@ -5,6 +5,10 @@ a ``set_driven(True)`` panel used to paint the source entry with Tk's symbolic
 ``SystemButtonFace`` (2.04:1 under a dark theme) and the Browse button with
 ``SystemDisabledText`` on the accent (1.13:1) (PLAN_restoration_2026-10-31.md
 T-03).
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 import tkinter as tk
@@ -17,6 +21,8 @@ import pytest
 
 from audio_suite_shared import styles
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 @pytest.fixture

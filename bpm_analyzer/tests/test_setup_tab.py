@@ -4,9 +4,10 @@ Tests for bpm_analyzer.ui.setup_tab — Setup tab construction.
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
 
-Changed in 2.9.0: every build lands on its own container, destroyed after the
-test, so a leftover tab cannot leave a second title label on the session root
-for the shell contract to count.
+Changed in 2.9.0: the module declares the shared root with
+``clean_shared_root``, so every build's container is destroyed after the test
+and a leftover tab cannot leave a second title label on the session root for
+the shell contract to count.
 """
 
 import tkinter as tk
@@ -17,6 +18,8 @@ import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from bpm_analyzer.ui import setup_tab
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
@@ -33,20 +36,6 @@ def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
         "parallel_mode": tk.BooleanVar(master=root, value=True),
         "max_workers": tk.IntVar(master=root, value=4),
     }
-
-
-#: Containers built by this module, destroyed by the autouse fixture below.
-_containers: list[tk.Frame] = []
-
-
-@pytest.fixture(autouse=True)
-def _destroy_built_tabs():
-    """Leave the session-scoped root as clean as the test found it."""
-    yield
-    while _containers:
-        container = _containers.pop()
-        if container.winfo_exists():
-            container.destroy()
 
 
 def _build(root: tk.Tk, **overrides):
@@ -72,7 +61,6 @@ def _build(root: tk.Tk, **overrides):
     }
     kwargs.update(overrides)
     container = tk.Frame(root)
-    _containers.append(container)
     widgets = setup_tab.build(container, **kwargs)
     return kwargs, widgets, container
 

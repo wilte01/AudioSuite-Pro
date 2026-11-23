@@ -5,6 +5,10 @@ Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets. Note: this tool's live mode
 label is "Update Artwork" downstream, but the shared panel uses the
 suite-wide "Live Update" label (both map to live behaviour in app.py).
+
+Changed in 2.9.0: the module declares the session-scoped Tk root with
+``clean_shared_root``, so the widgets its tests build there are destroyed after
+each test and cannot reach another module's walk of the root.
 """
 
 import tkinter as tk
@@ -15,6 +19,8 @@ import pytest
 
 from album_art_sync.ui import main_tabs
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+
+pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 
 def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:

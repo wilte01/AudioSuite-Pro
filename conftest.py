@@ -98,7 +98,11 @@ _skip_records: list[tuple[str, str]] = []
 _live_window_snapshot: tuple[Path, dict[str, str]] | None = None
 
 #: The session-scoped fixtures whose presence means "this test needs a display".
-_GUI_FIXTURES = frozenset({"root", "tk_root"})
+_GUI_FIXTURES = frozenset({"root", "tk_root", "clean_shared_root"})
+
+#: Node attribute ``clean_shared_root`` sets: this module builds on the shared
+#: root deliberately and leaves the teardown to the session's lock.
+_SHARED_ROOT_ADOPTED = "_audiosuite_shared_root_adopted"
 
 #: Env var that restores the pre-B4 session-wide skip (safety net only).
 GUI_SKIP_ENV = "AUDIOSUITE_GUI_SKIP"
@@ -557,6 +561,75 @@ def tk_root() -> tk.Tk:
     tk_root = _root
     assert tk_root is not None, "No display available — Tk root was not created"
     return tk_root
+
+
+@pytest.fixture()
+def clean_shared_root(request: pytest.FixtureRequest) -> None:
+    """Declare that this module builds on the session-scoped root.
+
+    The root outlives every test, so a module whose tests parent widgets on it
+    says so once, in the module body::
+
+        pytestmark = pytest.mark.usefixtures("clean_shared_root")
+
+    and ``_shared_root_keeps_nothing`` destroys the leftovers silently instead
+    of failing the test.  A module that builds on the root *without* declaring
+    it fails at the leaking test, so collection order cannot hide the leak.
+    """
+    setattr(request.node, _SHARED_ROOT_ADOPTED, True)
+
+
+def _leftover_widget(widget: tk.Misc) -> str:
+    """Name one widget left on the shared root, closely enough to find its test."""
+    try:
+        text = str(widget.cget("text"))
+    except tk.TclError:
+        text = ""
+    label = f"{widget.winfo_class()} {widget!s}"
+    return f"{label} (text={text!r})" if text else label
+
+
+@pytest.fixture(autouse=True)
+def _shared_root_keeps_nothing(
+    request: pytest.FixtureRequest,
+) -> Generator[None, None, None]:
+    """Fail the test that leaves a widget on the session-scoped root.
+
+    ``root`` outlives every test, so a suite that parents a tab on it and never
+    destroys it hands the leftovers to whatever runs next — and only a test that
+    walks the root can notice.  That is how the Album Art Normalizer's and the
+    Music Format Converter's Setup suites shipped leaking: ``pytest
+    album_art_normalizer tests/test_suite_app_contract.py`` counts the tool's
+    title on the window it just built and saw twelve, while the bare gate
+    collected root ``tests/`` first and never looked.  Failing at the leak's own
+    teardown makes collection order irrelevant.  A module that builds on the root
+    on purpose declares ``clean_shared_root`` instead, and its leftovers are
+    destroyed without failing it.
+
+    The leftovers are destroyed before the failure is raised, so one leak costs
+    one test instead of poisoning every later walk of the root.
+    """
+    if _root is None or not requires_display(request.node):
+        yield
+        return
+    before = set(_root.winfo_children())
+    yield
+    # Read the declaration here, not at setup: autouse fixtures are set up
+    # before the module's own, so a flag read first would always be False.
+    adopted = getattr(request.node, _SHARED_ROOT_ADOPTED, False)
+    leftovers = [widget for widget in _root.winfo_children() if widget not in before]
+    # Describe before destroying: a destroyed widget has no Tcl path to name.
+    names = ", ".join(_leftover_widget(widget) for widget in leftovers)
+    for widget in leftovers:
+        if widget.winfo_exists():
+            widget.destroy()
+    if leftovers and not adopted:
+        raise AssertionError(
+            "this test left widgets on the session-scoped Tk root, so every "
+            f"later test that walks it sees them: {names}. Destroy what you "
+            "build, or declare the module's use of the root with "
+            '``pytestmark = pytest.mark.usefixtures("clean_shared_root")``.'
+        )
 
 
 @pytest.fixture(autouse=True)
