@@ -344,12 +344,15 @@ Rules:
   the test; a Setup tab, a panel or a dialog row parents its widgets there
   instead of on the root. It is self-locking - a frame the fixture failed to
   destroy fails `_shared_root_keeps_nothing` at that test - so a module that
-  uses it needs no declaration.
+  uses it needs no declaration. A helper that builds into the caller's frame
+  returns only what it made, never that frame - the caller already holds it.
 - **A module that builds on the root deliberately says so once**, in its body:
   `pytestmark = pytest.mark.usefixtures("clean_shared_root")`. The lock then
   destroys that module's leftovers without failing it. Declaring is for tests
   that build on the root inline — it is not a way to keep a leak you could
-  destroy.
+  destroy. No shipped suite needs it today; the lock's own child sessions
+  drive it, and a future test that must build on the root inline is the only
+  reason to declare.
 - **The failure is the point.** `conftest.py`'s autouse
   `_shared_root_keeps_nothing` destroys whatever a test left and fails *that*
   test, so one leak costs one test instead of poisoning every later walk of the

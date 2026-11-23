@@ -11,9 +11,9 @@ Changed in 2.7.0: ``TestMatchGains`` locks the attenuation-only arithmetic and
 ``TestMatchedAudition`` renders real tones and measures the previews it gets
 back, rather than trusting the gain the code reports (F-S9).
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: the audition row is built into the shared ``parent``
+fixture, which destroys the frame after each test, so the module no longer
+declares ``clean_shared_root``.
 """
 
 from __future__ import annotations
@@ -39,8 +39,6 @@ from audio_suite_shared.ui_audition import (
     set_result_available,
 )
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
-
 _EXTS: tuple[str, ...] = (".mp3", ".wav")
 
 
@@ -62,11 +60,11 @@ requires_display = pytest.mark.skipif(
 
 @requires_display
 class TestAddAuditionButtons:
-    def _build(self, tk_root: Any, **kwargs: Any) -> dict[str, Any]:
-        return add_audition_buttons(tk_root, lambda: None, lambda: None, **kwargs)
+    def _build(self, parent: tk.Frame, **kwargs: Any) -> dict[str, Any]:
+        return add_audition_buttons(parent, lambda: None, lambda: None, **kwargs)
 
-    def test_returns_expected_keys(self, tk_root: Any) -> None:
-        widgets = self._build(tk_root)
+    def test_returns_expected_keys(self, parent: tk.Frame) -> None:
+        widgets = self._build(parent)
         assert set(widgets) == {
             "play_original_btn",
             "play_result_btn",
@@ -75,33 +73,33 @@ class TestAddAuditionButtons:
             "blind_var",
         }
 
-    def test_the_match_switches_start_off(self, tk_root: Any) -> None:
-        widgets = self._build(tk_root, with_match_options=True)
+    def test_the_match_switches_start_off(self, parent: tk.Frame) -> None:
+        widgets = self._build(parent, with_match_options=True)
 
         assert widgets["level_match_var"].get() is False
         assert widgets["blind_var"].get() is False
 
-    def test_play_result_disabled_by_default(self, tk_root: Any) -> None:
-        widgets = self._build(tk_root)
+    def test_play_result_disabled_by_default(self, parent: tk.Frame) -> None:
+        widgets = self._build(parent)
         assert str(widgets["play_result_btn"]["state"]) == "disabled"
         assert str(widgets["play_original_btn"]["state"]) == "normal"
 
-    def test_play_result_enabled_when_available(self, tk_root: Any) -> None:
-        widgets = self._build(tk_root, result_available=True)
+    def test_play_result_enabled_when_available(self, parent: tk.Frame) -> None:
+        widgets = self._build(parent, result_available=True)
         assert str(widgets["play_result_btn"]["state"]) == "normal"
 
-    def test_default_caption_is_ready(self, tk_root: Any) -> None:
-        widgets = self._build(tk_root)
+    def test_default_caption_is_ready(self, parent: tk.Frame) -> None:
+        widgets = self._build(parent)
         assert widgets["caption_var"].get() == _READY_MSG
 
-    def test_caption_var_reused_when_provided(self, tk_root: Any) -> None:
+    def test_caption_var_reused_when_provided(self, parent: tk.Frame) -> None:
         caption_var = tk.StringVar(value="custom")
-        widgets = self._build(tk_root, caption_var=caption_var)
+        widgets = self._build(parent, caption_var=caption_var)
         assert widgets["caption_var"] is caption_var
         assert caption_var.get() == "custom"
 
-    def test_set_result_available_toggles(self, tk_root: Any) -> None:
-        widgets = self._build(tk_root)
+    def test_set_result_available_toggles(self, parent: tk.Frame) -> None:
+        widgets = self._build(parent)
         set_result_available(widgets["play_result_btn"], True)
         assert str(widgets["play_result_btn"]["state"]) == "normal"
         set_result_available(widgets["play_result_btn"], False)

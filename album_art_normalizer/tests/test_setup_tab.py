@@ -4,7 +4,7 @@ Tests for album_art_normalizer.ui.setup_tab — Setup tab construction.
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
 
-Changed in 2.9.0: ``parent`` is the test's own container on the shared root
+Changed in 2.9.0: ``parent`` is the test's own frame on the shared root
 and the fixture destroys it after each test, so the module no longer declares
 ``clean_shared_root``.
 """
@@ -29,7 +29,7 @@ def _make_vars(parent: tk.Frame) -> dict[str, tk.Variable]:
 
 
 def _build(parent: tk.Frame, **overrides):
-    """Build the tab into *parent*; returns (kwargs, widgets, parent)."""
+    """Build the tab into *parent*; returns (kwargs, widgets)."""
     vars_ = _make_vars(parent)
     kwargs = {
         "folder_path": vars_["folder_path"],
@@ -45,7 +45,7 @@ def _build(parent: tk.Frame, **overrides):
     }
     kwargs.update(overrides)
     widgets = setup_tab.build(parent, **kwargs)
-    return kwargs, widgets, parent
+    return kwargs, widgets
 
 
 def _descendant_texts(widget: tk.Widget) -> list[str]:
@@ -61,30 +61,30 @@ class TestWiredWidgets:
     """build() returns every callable/widget the app needs."""
 
     def test_returns_expected_keys(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         assert isinstance(widgets["start_btn"], tk.Button)
         assert isinstance(widgets["controls_panel"], DriverControlsPanel)
 
     def test_start_button_invokes_on_start(self, parent: tk.Frame) -> None:
-        kwargs, widgets, _ = _build(parent)
+        kwargs, widgets = _build(parent)
         widgets["start_btn"].invoke()
         kwargs["on_start"].assert_called_once()
 
     def test_browse_button_invokes_on_browse(self, parent: tk.Frame) -> None:
-        kwargs, widgets, _ = _build(parent)
+        kwargs, widgets = _build(parent)
         assert widgets["controls_panel"].browse_btn is not None
         widgets["controls_panel"].browse_btn.invoke()
         kwargs["on_browse"].assert_called_once()
 
     def test_standard_mode_values_offered(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         values = widgets["controls_panel"].mode_combo.cget("values")
         assert "Dry Run" in values
         assert "Live Update" in values
 
     def test_tool_controls_present(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        texts = _descendant_texts(container)
+        _, _ = _build(parent)
+        texts = _descendant_texts(parent)
         assert "BEGIN ARTWORK NORMALIZATION" in texts
         assert "Embedded Image Resolution:" in texts
 
@@ -93,19 +93,19 @@ class TestStandaloneMode:
     """Standalone launch: Source/Mode editable, Auto Start greyed."""
 
     def test_source_and_mode_editable(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=False)
+        _, widgets = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert str(panel.source_entry.cget("state")) == "normal"
         assert str(panel.mode_combo.cget("state")) == "readonly"
 
     def test_auto_start_disabled_auto_end_enabled(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=False)
+        _, widgets = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert panel.auto_start_btn.cget("state") == "disabled"
         assert panel.auto_end_btn.cget("state") == "normal"
 
     def test_display_checkbuttons_inert_standalone(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=False)
+        _, widgets = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert panel.clear_logs_btn.cget("state") == "disabled"
         assert panel.parallel_btn.cget("state") == "disabled"
@@ -115,7 +115,7 @@ class TestDrivenMode:
     """Driver launch: whole Run Controls panel locked to inherited values."""
 
     def test_all_controls_locked(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=True)
+        _, widgets = _build(parent, driver_locked=True)
         panel = widgets["controls_panel"]
         assert str(panel.source_entry.cget("state")) == "disabled"
         assert str(panel.mode_combo.cget("state")) == "disabled"
@@ -133,7 +133,7 @@ class TestDriverOnlyMirrorState:
             "clear_logs_var": vars_["clear_logs"],
             "parallel_var": vars_["parallel"],
         }
-        _, widgets, _ = _build(parent, driver_locked=True, **overrides)
+        _, widgets = _build(parent, driver_locked=True, **overrides)
         panel = widgets["controls_panel"]
         # Raw Tcl query — cget("variable") is version-specific on 3.14.
         assert parent.tk.eval(str(panel.clear_logs_btn) + " cget -variable") == str(
@@ -148,7 +148,7 @@ class TestLegacyRowsRemoved:
     """Old path_row is replaced by the panel."""
 
     def test_legacy_rows_gone_and_panel_label_unique(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        texts = _descendant_texts(container)
+        _, _ = _build(parent)
+        texts = _descendant_texts(parent)
         assert texts.count("Source Music Directory:") == 1
         assert "Music Directory:" not in texts or texts.count("Music Directory:") == 0

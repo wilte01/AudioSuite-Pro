@@ -33,9 +33,9 @@ assertion changed.
 Changed in 2.9.0: covers the ``panel`` key ``build_processing_tab`` returns,
 the parent a tool adds its own Processing-tab control to (C1 stage 2).
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: every tab, dialog and row is built into the shared
+``parent`` fixture, which destroys the frame after each test, so the module no
+longer declares ``clean_shared_root``.
 """
 
 from __future__ import annotations
@@ -52,8 +52,6 @@ import pytest
 from audio_suite_shared.exceptions import AudioConfigurationError
 from audio_suite_shared.ui_common import BaseSetupFrame
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
-
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
 # ---------------------------------------------------------------------------
 # Display guard
@@ -145,33 +143,25 @@ class TestDefaultOpenLog:
 class TestBuildResultsTab:
     """Tests for build_results_tab return value and widget wiring."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def _make_parent(self, root: tk.Tk) -> tk.Frame:
-        return tk.Frame(root)
-
-    def test_returns_dict_with_required_keys(self, setup_tk: tk.Tk) -> None:
+    def test_returns_dict_with_required_keys(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import build_results_tab
 
-        result = build_results_tab(self._make_parent(setup_tk), "Done!")
+        result = build_results_tab(parent, "Done!")
         assert "completion_label" in result
         assert "time_label" in result
         assert "summary_label" in result
 
-    def test_completion_text_applied_to_label(self, setup_tk: tk.Tk) -> None:
+    def test_completion_text_applied_to_label(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import build_results_tab
 
-        result = build_results_tab(self._make_parent(setup_tk), "Analysis Complete!")
+        result = build_results_tab(parent, "Analysis Complete!")
         assert result["completion_label"]["text"] == "Analysis Complete!"
 
-    def test_extra_labels_returned(self, setup_tk: tk.Tk) -> None:
+    def test_extra_labels_returned(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import build_results_tab
 
         result = build_results_tab(
-            self._make_parent(setup_tk),
+            parent,
             "Done",
             extra_labels=["genre_label", "mood_label"],
         )
@@ -179,7 +169,7 @@ class TestBuildResultsTab:
         assert "mood_label" in result
         assert isinstance(result["genre_label"], tk.Label)
 
-    def test_extra_labels_are_packed_and_visible(self, setup_tk: tk.Tk) -> None:
+    def test_extra_labels_are_packed_and_visible(self, parent: tk.Frame) -> None:
         """Regression test: extra_labels must be packed, not just created.
 
         A prior version of build_results_tab created extra labels without
@@ -189,17 +179,15 @@ class TestBuildResultsTab:
         """
         from audio_suite_shared.ui_common import build_results_tab
 
-        result = build_results_tab(
-            self._make_parent(setup_tk), "Done", extra_labels=["genre_label"]
-        )
+        result = build_results_tab(parent, "Done", extra_labels=["genre_label"])
         assert result["genre_label"].winfo_manager() == "pack"
 
-    def test_default_open_log_used_when_no_callback(self, setup_tk: tk.Tk) -> None:
+    def test_default_open_log_used_when_no_callback(self, parent: tk.Frame) -> None:
         """When on_open_log is None, _default_open_log must be wired in."""
         from audio_suite_shared import ui_common
 
         with patch.object(ui_common, "_default_open_log"):
-            ui_common.build_results_tab(self._make_parent(setup_tk), "Done")
+            ui_common.build_results_tab(parent, "Done")
         # We can't directly inspect button command, but no exception means wiring ok
 
 
@@ -207,64 +195,53 @@ class TestBuildResultsTab:
 class TestBuildProcessingTab:
     """Tests for build_processing_tab return value."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def _make_parent(self, root: tk.Tk) -> tk.Frame:
-        return tk.Frame(root)
-
-    def test_returns_dict_with_required_keys(self, setup_tk: tk.Tk) -> None:
+    def test_returns_dict_with_required_keys(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import build_processing_tab
 
-        result = build_processing_tab(self._make_parent(setup_tk))
+        result = build_processing_tab(parent)
         assert "overall_status" in result
         assert "progress" in result
         assert "stats_label" in result
         assert "file_listbox" in result
 
     def test_panel_is_the_parent_the_widgets_are_packed_into(
-        self, setup_tk: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         """The returned panel is what a tool parents its own control on."""
         from audio_suite_shared.ui_common import build_processing_tab
 
-        parent = self._make_parent(setup_tk)
         result = build_processing_tab(parent)
         assert isinstance(result["panel"], tk.Frame)
         assert result["panel"].master is parent
         assert result["progress"].master is result["panel"]
         assert result["file_listbox"].master is result["panel"]
 
-    def test_overall_status_is_string_var(self, setup_tk: tk.Tk) -> None:
+    def test_overall_status_is_string_var(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import build_processing_tab
 
-        result = build_processing_tab(self._make_parent(setup_tk))
+        result = build_processing_tab(parent)
         assert isinstance(result["overall_status"], tk.StringVar)
 
-    def test_initial_stats_text_applied(self, setup_tk: tk.Tk) -> None:
+    def test_initial_stats_text_applied(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import build_processing_tab
 
         custom_stats = "Processed: 5 | Skipped: 1 | Errors: 0"
-        result = build_processing_tab(
-            self._make_parent(setup_tk), stats_text=custom_stats
-        )
+        result = build_processing_tab(parent, stats_text=custom_stats)
         assert result["stats_label"]["text"] == custom_stats
 
-    def test_no_slot_vars_omits_worker_frame(self, setup_tk: tk.Tk) -> None:
+    def test_no_slot_vars_omits_worker_frame(self, parent: tk.Frame) -> None:
         """Passing slot_vars=None must not raise and must still return required keys."""
         from audio_suite_shared.ui_common import build_processing_tab
 
-        result = build_processing_tab(self._make_parent(setup_tk), slot_vars=None)
+        result = build_processing_tab(parent, slot_vars=None)
         assert "file_listbox" in result
 
-    def test_with_slot_vars(self, setup_tk: tk.Tk) -> None:
+    def test_with_slot_vars(self, parent: tk.Frame) -> None:
         """Passing slot_vars must not raise."""
         from audio_suite_shared.ui_common import build_processing_tab
 
         svars = [tk.StringVar(value="IDLE") for _ in range(4)]
-        result = build_processing_tab(self._make_parent(setup_tk), slot_vars=svars)
+        result = build_processing_tab(parent, slot_vars=svars)
         assert "file_listbox" in result
 
 
@@ -272,15 +249,10 @@ class TestBuildProcessingTab:
 class TestPathRow:
     """Tests for the path_row layout helper."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_does_not_raise_with_valid_args(self, setup_tk: tk.Tk) -> None:
+    def test_does_not_raise_with_valid_args(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import path_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar()
         path_row(parent, "Input Folder:", var, lambda: None)
 
@@ -289,15 +261,10 @@ class TestPathRow:
 class TestSliderRow:
     """Tests for the slider_row layout helper."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_does_not_raise_with_valid_args(self, setup_tk: tk.Tk) -> None:
+    def test_does_not_raise_with_valid_args(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.DoubleVar(value=0.5)
         slider_row(parent, "Gain", var, from_=0.0, to=1.0, resolution=0.01)
 
@@ -306,45 +273,40 @@ class TestSliderRow:
 class TestDiscreteSliderRow:
     """Tests for the discrete_slider_row layout helper."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_does_not_raise_with_valid_args(self, setup_tk: tk.Tk) -> None:
+    def test_does_not_raise_with_valid_args(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-16.0")
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
         )
 
-    def test_raises_on_empty_values(self, setup_tk: tk.Tk) -> None:
+    def test_raises_on_empty_values(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-16.0")
         with pytest.raises(AudioConfigurationError, match="values must not be empty"):
             discrete_slider_row(parent, "Target LUFS", var, values=[])
 
-    def test_matching_initial_value_is_preserved(self, setup_tk: tk.Tk) -> None:
+    def test_matching_initial_value_is_preserved(self, parent: tk.Frame) -> None:
         """An initial var value already present in values must be untouched."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-18.0")
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
         )
         assert var.get() == "-18.0"
 
-    def test_nonpreset_initial_value_snaps_to_nearest(self, setup_tk: tk.Tk) -> None:
+    def test_nonpreset_initial_value_snaps_to_nearest(self, parent: tk.Frame) -> None:
         """An out-of-list initial value must snap to the nearest preset,
         not silently fall back to the first stop."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-17.5")  # closest to -18.0 (diff 0.5)
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
@@ -352,22 +314,22 @@ class TestDiscreteSliderRow:
         assert var.get() == "-18.0"
 
     def test_unparseable_initial_value_falls_back_to_first_stop(
-        self, setup_tk: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="")
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
         )
         assert var.get() == "-12.0"
 
-    def test_empty_label_omits_label_widget(self, setup_tk: tk.Tk) -> None:
+    def test_empty_label_omits_label_widget(self, parent: tk.Frame) -> None:
         """label='' must not render a bare ':' label."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-16.0")
         discrete_slider_row(parent, "", var, values=[-12.0, -14.0, -16.0])
         row = parent.winfo_children()[0]
@@ -377,7 +339,7 @@ class TestDiscreteSliderRow:
         assert ":" not in label_texts
 
     def test_slider_position_updates_when_var_set_externally_after_build(
-        self, setup_tk: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         """Regression test for the ReplayGain Analyzer bug: a value pushed into
         var *after* the row is built (e.g. CLI args applied post-UI-build, as
@@ -386,7 +348,7 @@ class TestDiscreteSliderRow:
         build time and never re-synced."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-16.0")
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
@@ -406,13 +368,13 @@ class TestDiscreteSliderRow:
         assert scale.get() == 4  # -23.0 is index 4
 
     def test_trace_callback_resyncs_scales_beyond_initial_build(
-        self, setup_tk: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         """The var write-trace must fire whenever var changes externally, even
         multiple times after build (e.g. a second CLI value pass)."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-16.0")
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
@@ -422,30 +384,30 @@ class TestDiscreteSliderRow:
         index_var_name = str(scale.cget("variable"))
 
         def scale_index() -> int:
-            return int(setup_tk.tk.getvar(index_var_name))
+            return int(parent.tk.getvar(index_var_name))
 
         # Probe: if the Scale cannot reflect its variable in this environment,
         # skip rather than fail (same policy as the existing Scale test).
         var.set("-18.0")
-        setup_tk.update()
+        parent.update()
         if scale_index() != 3:
             pytest.skip("Scale variable not functional in this environment")
 
         var.set("-12.0")
-        setup_tk.update()
+        parent.update()
         assert scale_index() == 0
 
         # "-13.0" is equidistant from -12.0 and -14.0; the first index (0)
         # wins the tie, exactly matching is not required.
         var.set("-13.0")
-        setup_tk.update()
+        parent.update()
         assert scale_index() == 0  # first index has smallest |values[i] - -13|
 
-    def test_trace_callback_handles_unparseable_value(self, setup_tk: tk.Tk) -> None:
+    def test_trace_callback_handles_unparseable_value(self, parent: tk.Frame) -> None:
         """A non-numeric var value must leave the Scale position untouched."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="")
         discrete_slider_row(parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0])
         row = parent.winfo_children()[0]
@@ -453,19 +415,19 @@ class TestDiscreteSliderRow:
         index_var_name = str(scale.cget("variable"))
 
         def scale_index() -> int:
-            return int(setup_tk.tk.getvar(index_var_name))
+            return int(parent.tk.getvar(index_var_name))
 
         assert scale_index() == 0  # fallback to first stop
 
         var.set("not-a-number")
-        setup_tk.update()
+        parent.update()
         assert scale_index() == 0  # untouched
 
-    def test_on_move_sets_var_to_formatted_value(self, setup_tk: tk.Tk) -> None:
+    def test_on_move_sets_var_to_formatted_value(self, parent: tk.Frame) -> None:
         """Dragging the Scale must write the formatted preset into var."""
         from audio_suite_shared.ui_common import discrete_slider_row
 
-        parent = tk.Frame(setup_tk)
+        parent = tk.Frame(parent)
         var = tk.StringVar(value="-16.0")
         discrete_slider_row(
             parent, "Target LUFS", var, values=[-12.0, -14.0, -16.0, -18.0, -23.0]
@@ -475,8 +437,8 @@ class TestDiscreteSliderRow:
 
         # Invoke the Tk command the Scale is wired to (the _on_move closure)
         # just as a user drag would, then flush pending Tcl callbacks.
-        setup_tk.tk.call(scale.cget("command"), "4")
-        setup_tk.update()
+        parent.tk.call(scale.cget("command"), "4")
+        parent.update()
         assert var.get() == "-23.0"
 
 
@@ -490,52 +452,47 @@ class TestShowMessage:
     """Tests for show_message modal dialog."""
 
     @staticmethod
-    def _close_all_toplevels(root: tk.Misc) -> None:
+    def _close_all_toplevels(parent: tk.Misc) -> None:
         """Destroy any Toplevel windows (used to unblock wait_window)."""
-        for w in root.winfo_children():
+        for w in parent.winfo_children():
             if isinstance(w, tk.Toplevel):
                 w.destroy()
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_creates_toplevel_and_destroys_on_ok(self, setup_tk: tk.Tk) -> None:
+    def test_creates_toplevel_and_destroys_on_ok(self, parent: tk.Frame) -> None:
         """The dialog must create a Toplevel and destroy it when OK is clicked."""
         from audio_suite_shared.ui_common import show_message
 
-        setup_tk.after(200, self._close_all_toplevels, setup_tk)
-        show_message(setup_tk, "Test Title", "Test message body")
+        parent.after(200, self._close_all_toplevels, parent)
+        show_message(parent, "Test Title", "Test message body")
 
         # After show_message returns, no Toplevel should remain.
-        for child in setup_tk.winfo_children():
+        for child in parent.winfo_children():
             assert not isinstance(child, tk.Toplevel)
 
-    def test_returns_none(self, setup_tk: tk.Tk) -> None:
+    def test_returns_none(self, parent: tk.Frame) -> None:
         """show_message has no return value."""
         from audio_suite_shared.ui_common import show_message
 
-        setup_tk.after(200, self._close_all_toplevels, setup_tk)
-        result = show_message(setup_tk, "Title", "Message")
+        parent.after(200, self._close_all_toplevels, parent)
+        result = show_message(parent, "Title", "Message")
         assert result is None
 
-    def test_custom_icon_and_color(self, setup_tk: tk.Tk) -> None:
+    def test_custom_icon_and_color(self, parent: tk.Frame) -> None:
         """Custom icon and icon_color must not cause errors."""
         from audio_suite_shared.ui_common import show_message
 
-        setup_tk.after(200, self._close_all_toplevels, setup_tk)
-        show_message(setup_tk, "Custom", "Body", icon="⚠", icon_color="#ff0000")
+        parent.after(200, self._close_all_toplevels, parent)
+        show_message(parent, "Custom", "Body", icon="⚠", icon_color="#ff0000")
 
-    def test_keyboard_escape_destroys_dialog(self, setup_tk: tk.Tk) -> None:
+    def test_keyboard_escape_destroys_dialog(self, parent: tk.Frame) -> None:
         """Pressing Escape must destroy the dialog."""
         from audio_suite_shared.ui_common import show_message
 
         # Escape is bound on the dialog itself; schedule a find-and-destroy
-        setup_tk.after(200, self._close_all_toplevels, setup_tk)
-        show_message(setup_tk, "Escape Test", "Press Escape")
+        parent.after(200, self._close_all_toplevels, parent)
+        show_message(parent, "Escape Test", "Press Escape")
 
-    def test_warns_when_called_from_non_main_thread(self, setup_tk: tk.Tk) -> None:
+    def test_warns_when_called_from_non_main_thread(self, parent: tk.Frame) -> None:
         """show_message from a non-main thread must log a warning, not raise."""
 
         from audio_suite_shared.ui_common import show_message
@@ -547,17 +504,19 @@ class TestShowMessage:
             patch("threading.main_thread", return_value=dummy_main),
             patch("audio_suite_shared.ui_dialogs._log") as mock_log,
         ):
-            setup_tk.after(200, self._close_all_toplevels, setup_tk)
-            show_message(setup_tk, "Thread Warn", "Called from wrong thread")
+            parent.after(200, self._close_all_toplevels, parent)
+            show_message(parent, "Thread Warn", "Called from wrong thread")
         mock_log.warning.assert_called()
 
-    def test_geometry_error_falls_back_to_plain_geometry(self, setup_tk: tk.Tk) -> None:
+    def test_geometry_error_falls_back_to_plain_geometry(
+        self, parent: tk.Frame
+    ) -> None:
         """If parent geometry queries raise, the dialog must still be placed."""
         from audio_suite_shared.ui_common import show_message
 
-        with patch.object(setup_tk, "winfo_rootx", side_effect=OSError("no window")):
-            setup_tk.after(200, self._close_all_toplevels, setup_tk)
-            show_message(setup_tk, "No Geo", "Geometry fallback")
+        with patch.object(parent, "winfo_rootx", side_effect=OSError("no window")):
+            parent.after(200, self._close_all_toplevels, parent)
+            show_message(parent, "No Geo", "Geometry fallback")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -583,22 +542,21 @@ class _PresetsFirstFrame(BaseSetupFrame):
         self._add_start_button()
 
 
-def _make_vars(root: tk.Misc) -> dict[str, tk.Variable]:
-    """Create the standard tk variables bound to the given root."""
+def _make_vars(parent: tk.Misc) -> dict[str, tk.Variable]:
+    """Create the standard tk variables bound to the given parent."""
     return {
-        "folder_path": tk.StringVar(master=root),
-        "run_mode": tk.StringVar(master=root, value="Dry Run"),
-        "auto_start": tk.BooleanVar(master=root, value=False),
-        "auto_end": tk.BooleanVar(master=root, value=False),
-        "clear_logs": tk.BooleanVar(master=root, value=False),
-        "parallel": tk.BooleanVar(master=root, value=False),
+        "folder_path": tk.StringVar(master=parent),
+        "run_mode": tk.StringVar(master=parent, value="Dry Run"),
+        "auto_start": tk.BooleanVar(master=parent, value=False),
+        "auto_end": tk.BooleanVar(master=parent, value=False),
+        "clear_logs": tk.BooleanVar(master=parent, value=False),
+        "parallel": tk.BooleanVar(master=parent, value=False),
     }
 
 
-def _make_base_frame(root: tk.Misc, **overrides) -> _MinimalFrame:
-    """Build a fully-wired _MinimalFrame on a fresh parent frame."""
-    vars_ = _make_vars(root)
-    parent = tk.Frame(root)
+def _make_base_frame(parent: tk.Misc, **overrides) -> _MinimalFrame:
+    """Build a fully-wired _MinimalFrame into *parent*."""
+    vars_ = _make_vars(parent)
     kwargs = {
         "title": "Test Tool",
         "start_text": "BEGIN TEST",
@@ -646,48 +604,43 @@ def _has_descendant_text(widget: tk.Widget, text: str) -> bool:
 class TestBaseSetupFrameLayout:
     """Skeleton ordering, widget types, and get_widgets() keys."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_title_applied(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk)
+    def test_title_applied(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent)
         title_texts = [
             c.cget("text") for c in frame.winfo_children() if isinstance(c, tk.Label)
         ]
         assert "Test Tool" in title_texts
 
-    def test_controls_panel_is_driver_controls_panel(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk)
+    def test_controls_panel_is_driver_controls_panel(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent)
         assert isinstance(frame.controls_panel, DriverControlsPanel)
 
-    def test_start_btn_is_tk_button(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk)
+    def test_start_btn_is_tk_button(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent)
         assert isinstance(frame.start_btn, tk.Button)
 
-    def test_start_btn_packs_bottom_by_default(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk)
+    def test_start_btn_packs_bottom_by_default(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent)
         assert frame.start_btn is not None
         assert frame.start_btn.pack_info().get("side") == tk.BOTTOM
 
-    def test_start_btn_omits_side_when_none(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, start_side=None)
+    def test_start_btn_omits_side_when_none(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, start_side=None)
         assert frame.start_btn is not None
         # Omitted side falls back to pack's implicit "top", not "bottom".
         assert frame.start_btn.pack_info()["side"] == "top"
 
-    def test_controls_panel_omitted_when_disabled(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, include_controls_panel=False)
+    def test_controls_panel_omitted_when_disabled(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, include_controls_panel=False)
         assert frame.controls_panel is None
         assert "controls_panel" not in frame.get_widgets()
 
-    def test_start_btn_is_instance_handle(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk)
+    def test_start_btn_is_instance_handle(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent)
         assert frame.get_widgets()["start_btn"] is frame.start_btn
 
-    def test_get_widgets_returns_expected_keys(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=MagicMock())
+    def test_get_widgets_returns_expected_keys(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=MagicMock())
         assert set(frame.get_widgets()) == {
             "start_btn",
             "controls_panel",
@@ -695,9 +648,9 @@ class TestBaseSetupFrameLayout:
             "refresh_preset_list",
         }
 
-    def test_get_widgets_omits_unbuilt_widgets(self, setup_tk: tk.Tk) -> None:
+    def test_get_widgets_omits_unbuilt_widgets(self, parent: tk.Frame) -> None:
         frame = _make_base_frame(
-            setup_tk, on_save_preset=None, include_controls_panel=False
+            parent, on_save_preset=None, include_controls_panel=False
         )
         assert frame.get_widgets() == {"start_btn": frame.start_btn}
 
@@ -705,61 +658,51 @@ class TestBaseSetupFrameLayout:
 class TestSetDriven:
     """driver_locked gating of the run-controls panel."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_driver_locked_disables_source_entry(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, driver_locked=True)
+    def test_driver_locked_disables_source_entry(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, driver_locked=True)
         assert str(frame.controls_panel.source_entry.cget("state")) == "disabled"
 
-    def test_standalone_source_editable(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, driver_locked=False)
+    def test_standalone_source_editable(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, driver_locked=False)
         assert str(frame.controls_panel.source_entry.cget("state")) == "normal"
 
-    def test_driver_locked_disables_mode_combo(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, driver_locked=True)
+    def test_driver_locked_disables_mode_combo(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, driver_locked=True)
         assert str(frame.controls_panel.mode_combo.cget("state")) == "disabled"
 
-    def test_auto_start_always_disabled(self, setup_tk: tk.Tk) -> None:
+    def test_auto_start_always_disabled(self, parent: tk.Frame) -> None:
         for locked in (True, False):
-            frame = _make_base_frame(setup_tk, driver_locked=locked)
+            frame = _make_base_frame(parent, driver_locked=locked)
             assert frame.controls_panel.auto_start_btn.cget("state") == "disabled"
 
 
 class TestPresetRow:
     """Preset-row gating, seeding, refresh, and stale-selection clearing."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_hidden_when_no_save_handler(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=None)
+    def test_hidden_when_no_save_handler(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=None)
         assert frame.preset_combo is None
         assert "preset_combo" not in frame.get_widgets()
         assert "refresh_preset_list" not in frame.get_widgets()
 
-    def test_visible_when_save_handler_set(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=MagicMock())
+    def test_visible_when_save_handler_set(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=MagicMock())
         assert frame.preset_combo is not None
 
     def test_visible_when_preset_row_always_and_no_handler(
-        self, setup_tk: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=None, preset_row_always=True)
+        frame = _make_base_frame(parent, on_save_preset=None, preset_row_always=True)
         assert frame.preset_combo is not None
         assert "preset_combo" in frame.get_widgets()
         assert "refresh_preset_list" in frame.get_widgets()
 
-    def test_combo_packed_inside_preset_row_frame(self, setup_tk: tk.Tk) -> None:
+    def test_combo_packed_inside_preset_row_frame(self, parent: tk.Frame) -> None:
         """The combobox must live inside the preset-row frame alongside the
         'Presets:' label and the Save/Delete buttons. A combo parented to the
         base frame packs as a direct child and detaches from the row visually.
         """
-        frame = _make_base_frame(setup_tk, on_save_preset=MagicMock())
+        frame = _make_base_frame(parent, on_save_preset=MagicMock())
         combo = frame.preset_combo
         assert combo is not None
         row = combo.master
@@ -774,70 +717,65 @@ class TestPresetRow:
             for child in row.winfo_children()
         )
 
-    def test_combo_seeded_from_preset_names(self, setup_tk: tk.Tk) -> None:
+    def test_combo_seeded_from_preset_names(self, parent: tk.Frame) -> None:
         frame = _make_base_frame(
-            setup_tk, on_save_preset=MagicMock(), preset_names=["A", "B"]
+            parent, on_save_preset=MagicMock(), preset_names=["A", "B"]
         )
         assert list(frame.preset_combo["values"]) == ["A", "B"]
 
-    def test_refresh_updates_values(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=MagicMock())
+    def test_refresh_updates_values(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=MagicMock())
         frame.refresh_preset_list(["X", "Y"])
         assert list(frame.preset_combo["values"]) == ["X", "Y"]
 
-    def test_stale_selection_cleared(self, setup_tk: tk.Tk) -> None:
+    def test_stale_selection_cleared(self, parent: tk.Frame) -> None:
         frame = _make_base_frame(
-            setup_tk, on_save_preset=MagicMock(), preset_names=["A", "B"]
+            parent, on_save_preset=MagicMock(), preset_names=["A", "B"]
         )
         frame.preset_combo.set("A")
         frame.refresh_preset_list(["B", "C"])
         assert frame.preset_combo.get() == ""
 
-    def test_current_selection_preserved(self, setup_tk: tk.Tk) -> None:
+    def test_current_selection_preserved(self, parent: tk.Frame) -> None:
         frame = _make_base_frame(
-            setup_tk, on_save_preset=MagicMock(), preset_names=["A", "B"]
+            parent, on_save_preset=MagicMock(), preset_names=["A", "B"]
         )
         frame.preset_combo.set("A")
         frame.refresh_preset_list(["A", "C"])
         assert frame.preset_combo.get() == "A"
 
-    def test_loader_honored_on_no_arg_call(self, setup_tk: tk.Tk) -> None:
+    def test_loader_honored_on_no_arg_call(self, parent: tk.Frame) -> None:
         frame = _make_base_frame(
-            setup_tk,
+            parent,
             on_save_preset=MagicMock(),
             preset_loader=lambda: ["L1", "L2"],
         )
         frame.refresh_preset_list()
         assert list(frame.preset_combo["values"]) == ["L1", "L2"]
 
-    def test_explicit_names_override_loader(self, setup_tk: tk.Tk) -> None:
+    def test_explicit_names_override_loader(self, parent: tk.Frame) -> None:
         frame = _make_base_frame(
-            setup_tk, on_save_preset=MagicMock(), preset_loader=lambda: ["L1"]
+            parent, on_save_preset=MagicMock(), preset_loader=lambda: ["L1"]
         )
         frame.refresh_preset_list(["X"])
         assert list(frame.preset_combo["values"]) == ["X"]
 
-    def test_refresh_noop_without_preset_row(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=None)
+    def test_refresh_noop_without_preset_row(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=None)
         frame.refresh_preset_list(["A", "B"])  # must not raise
 
 
 class TestConfigGroup:
     """add_config_group() behaviour."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_returns_labelframe_with_text(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=None)
+    def test_returns_labelframe_with_text(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=None)
         group = frame.add_config_group("Configuration")
         assert isinstance(group, tk.LabelFrame)
         assert "Configuration" in str(group.cget("text"))
 
-    def test_group_packed_into_frame(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=None)
+    def test_group_packed_into_frame(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=None)
         group = frame.add_config_group("Stage")
         assert group.winfo_manager() == "pack"
         assert group.master is frame
@@ -846,16 +784,11 @@ class TestConfigGroup:
 class TestParallelRow:
     """add_parallel_row() behaviour."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_descendant_texts_present(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=None)
+    def test_descendant_texts_present(self, parent: tk.Frame) -> None:
+        frame = _make_base_frame(parent, on_save_preset=None)
         frame.add_parallel_row(
-            tk.BooleanVar(master=setup_tk),
-            tk.IntVar(master=setup_tk, value=4),
+            tk.BooleanVar(master=parent),
+            tk.IntVar(master=parent, value=4),
             "(caption text)",
         )
         texts = _descendant_texts(frame)
@@ -868,16 +801,13 @@ class TestOrderingOverride:
     """_layout() subclass overrides reorder the additive stages."""
 
     @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    @staticmethod
     def _children(frame: tk.Frame) -> list[tk.Widget]:
         return list(frame.winfo_children())
 
-    def test_default_layout_puts_controls_before_presets(self, setup_tk: tk.Tk) -> None:
-        frame = _make_base_frame(setup_tk, on_save_preset=MagicMock())
+    def test_default_layout_puts_controls_before_presets(
+        self, parent: tk.Frame
+    ) -> None:
+        frame = _make_base_frame(parent, on_save_preset=MagicMock())
         children = self._children(frame)
         controls_index = next(
             i for i, c in enumerate(children) if isinstance(c, DriverControlsPanel)
@@ -892,11 +822,11 @@ class TestOrderingOverride:
         assert controls_index < preset_index
 
     def test_overridden_layout_puts_presets_before_controls(
-        self, setup_tk: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
-        vars_ = _make_vars(setup_tk)
+        vars_ = _make_vars(parent)
         frame = _PresetsFirstFrame(
-            tk.Frame(setup_tk),
+            parent,
             title="Override",
             start_text="BEGIN",
             on_start=MagicMock(),
@@ -934,23 +864,22 @@ class TestOrderingOverride:
 class TestSavePresetDialog:
     """save_preset_dialog() modal behaviour."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def _find_toplevel(self, root: tk.Tk) -> tk.Toplevel:
-        toplevels = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
+    def _find_toplevel(self, parent: tk.Frame) -> tk.Toplevel:
+        toplevels = [
+            w
+            for w in parent.winfo_toplevel().winfo_children()
+            if isinstance(w, tk.Toplevel)
+        ]
         assert toplevels, "No Toplevel was created"
         return toplevels[-1]
 
-    def test_invokes_on_save_with_typed_name(self, setup_tk: tk.Tk) -> None:
+    def test_invokes_on_save_with_typed_name(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import save_preset_dialog
 
-        combo = ttk.Combobox(setup_tk, values=["My Preset"], state="readonly")
+        combo = ttk.Combobox(parent, values=["My Preset"], state="readonly")
         on_save = MagicMock()
         save_preset_dialog(combo, on_save)
-        dialog = self._find_toplevel(setup_tk)
+        dialog = self._find_toplevel(parent)
         try:
             entry = next(w for w in dialog.winfo_children() if isinstance(w, tk.Entry))
             entry.insert(0, "My Preset")
@@ -966,13 +895,13 @@ class TestSavePresetDialog:
         on_save.assert_called_once_with("My Preset")
         assert combo.get() == "My Preset"
 
-    def test_blank_name_does_not_invoke_on_save(self, setup_tk: tk.Tk) -> None:
+    def test_blank_name_does_not_invoke_on_save(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import save_preset_dialog
 
-        combo = ttk.Combobox(setup_tk, state="readonly")
+        combo = ttk.Combobox(parent, state="readonly")
         on_save = MagicMock()
         save_preset_dialog(combo, on_save)
-        dialog = self._find_toplevel(setup_tk)
+        dialog = self._find_toplevel(parent)
         try:
             save_btn = next(
                 w
@@ -990,15 +919,10 @@ class TestSavePresetDialog:
 class TestDeletePresetAction:
     """delete_preset_action() confirm-and-delete behaviour."""
 
-    @staticmethod
-    @pytest.fixture()
-    def setup_tk(tk_root) -> tk.Tk:
-        return tk_root
-
-    def test_confirm_calls_on_delete_and_clears(self, setup_tk: tk.Tk) -> None:
+    def test_confirm_calls_on_delete_and_clears(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import delete_preset_action
 
-        combo = ttk.Combobox(setup_tk, values=["Preset A"], state="readonly")
+        combo = ttk.Combobox(parent, values=["Preset A"], state="readonly")
         combo.set("Preset A")
         on_delete = MagicMock()
         with patch("tkinter.messagebox.askyesno", return_value=True):
@@ -1006,10 +930,10 @@ class TestDeletePresetAction:
         on_delete.assert_called_once_with("Preset A")
         assert combo.get() == ""
 
-    def test_cancel_does_not_delete(self, setup_tk: tk.Tk) -> None:
+    def test_cancel_does_not_delete(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import delete_preset_action
 
-        combo = ttk.Combobox(setup_tk, values=["Preset A"], state="readonly")
+        combo = ttk.Combobox(parent, values=["Preset A"], state="readonly")
         combo.set("Preset A")
         on_delete = MagicMock()
         with patch("tkinter.messagebox.askyesno", return_value=False):
@@ -1017,10 +941,10 @@ class TestDeletePresetAction:
         on_delete.assert_not_called()
         assert combo.get() == "Preset A"
 
-    def test_no_selection_skips_prompt(self, setup_tk: tk.Tk) -> None:
+    def test_no_selection_skips_prompt(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import delete_preset_action
 
-        combo = ttk.Combobox(setup_tk, state="readonly")
+        combo = ttk.Combobox(parent, state="readonly")
         on_delete = MagicMock()
         with patch("tkinter.messagebox.askyesno", return_value=True) as ask:
             delete_preset_action(combo, on_delete)
@@ -1035,10 +959,10 @@ class TestDeletePresetAction:
         on_delete.assert_called_once_with("Preset A")
         assert combo.get() == ""
 
-    def test_on_delete_none_still_confirms_and_clears(self, setup_tk: tk.Tk) -> None:
+    def test_on_delete_none_still_confirms_and_clears(self, parent: tk.Frame) -> None:
         from audio_suite_shared.ui_common import delete_preset_action
 
-        combo = ttk.Combobox(setup_tk, values=["Preset A"], state="readonly")
+        combo = ttk.Combobox(parent, values=["Preset A"], state="readonly")
         combo.set("Preset A")
         with patch("tkinter.messagebox.askyesno", return_value=True):
             delete_preset_action(combo, None)

@@ -7,7 +7,7 @@ DriverControlsPanel builds genuine widgets.
 Changed in 2.1.2: added the ALAC description tests (R-02), which read the
 label text through both the combobox handler and the update_format_menu
 pre-fill route on real widgets.
-Changed in 2.9.0: ``parent`` is the test's own container on the shared root
+Changed in 2.9.0: ``parent`` is the test's own frame on the shared root
 and the fixture destroys it after each test, so the module no longer declares
 ``clean_shared_root``.
 """
@@ -44,7 +44,7 @@ def _make_vars(parent: tk.Frame) -> dict[str, tk.Variable]:
 
 
 def _build(parent: tk.Frame, **overrides):
-    """Build the tab into *parent*; returns (kwargs, widgets, parent)."""
+    """Build the tab into *parent*; returns (kwargs, widgets)."""
     vars_ = _make_vars(parent)
     kwargs = {
         "folder_path": vars_["folder_path"],
@@ -76,7 +76,7 @@ def _build(parent: tk.Frame, **overrides):
     }
     kwargs.update(overrides)
     widgets = setup_tab.build(parent, **kwargs)
-    return kwargs, widgets, parent
+    return kwargs, widgets
 
 
 def _descendant_texts(widget: tk.Widget) -> list[str]:
@@ -97,7 +97,7 @@ class TestWiredWidgets:
     """build() returns every callable/widget the app needs."""
 
     def test_returns_expected_keys(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         assert isinstance(widgets["start_btn"], tk.Button)
         assert isinstance(widgets["preset_combo"], ttk.Combobox)
         assert callable(widgets["update_detected_label"])
@@ -107,7 +107,7 @@ class TestWiredWidgets:
         assert isinstance(widgets["controls_panel"], DriverControlsPanel)
 
     def test_start_button_invokes_on_start(self, parent: tk.Frame) -> None:
-        kwargs, widgets, _ = _build(parent)
+        kwargs, widgets = _build(parent)
         widgets["start_btn"].invoke()
         kwargs["on_start"].assert_called_once()
 
@@ -120,14 +120,14 @@ class TestWiredWidgets:
         Synthetic key-event dispatch is unreliable headless (a withdrawn root
         never receives real OS focus), so only binding presence is asserted.
         """
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         entry = widgets["controls_panel"].source_entry
         assert entry.bind("<Return>")
         assert entry.bind("<FocusOut>")
 
     def test_tool_controls_present(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        texts = _descendant_texts(container)
+        _, _ = _build(parent)
+        texts = _descendant_texts(parent)
         assert "Output Directory (leave empty for same as input):" in texts
         assert "Output Format:" in texts
         assert "Quality Preset:" in texts
@@ -140,13 +140,13 @@ class TestStandaloneMode:
     """Standalone launch: Source/Mode editable, Auto Start greyed out."""
 
     def test_source_and_mode_editable(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=False)
+        _, widgets = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert str(panel.source_entry.cget("state")) == "normal"
         assert str(panel.mode_combo.cget("state")) == "readonly"
 
     def test_auto_start_disabled_auto_end_enabled(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=False)
+        _, widgets = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert panel.auto_start_btn.cget("state") == "disabled"
         assert panel.auto_end_btn.cget("state") == "normal"
@@ -156,7 +156,7 @@ class TestDrivenMode:
     """Driver launch: whole Run Controls panel locked to inherited values."""
 
     def test_all_controls_locked(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=True)
+        _, widgets = _build(parent, driver_locked=True)
         panel = widgets["controls_panel"]
         assert str(panel.source_entry.cget("state")) == "disabled"
         assert str(panel.mode_combo.cget("state")) == "disabled"
@@ -164,7 +164,7 @@ class TestDrivenMode:
         assert panel.auto_end_btn.cget("state") == "disabled"
 
     def test_browse_disabled_when_driven(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=True)
+        _, widgets = _build(parent, driver_locked=True)
         assert str(widgets["controls_panel"].browse_btn.cget("state")) == "disabled"
 
 
@@ -176,7 +176,7 @@ class TestDriverOnlyMirrorState:
             "clear_logs_var": tab_vars["clear_logs"],
             "parallel_var": tab_vars["parallel"],
         }
-        _, widgets, _ = _build(parent, driver_locked=True, **overrides)
+        _, widgets = _build(parent, driver_locked=True, **overrides)
         panel = widgets["controls_panel"]
         assert str(panel.clear_logs_btn.cget("state")) == "disabled"
         assert str(panel.parallel_btn.cget("state")) == "disabled"
@@ -190,7 +190,7 @@ class TestDriverOnlyMirrorState:
         )
 
     def test_standalone_still_inert(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent, driver_locked=False)
+        _, widgets = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert panel.clear_logs_btn.cget("state") == "disabled"
         assert panel.parallel_btn.cget("state") == "disabled"
@@ -202,8 +202,8 @@ class TestLegacyRowsRemoved:
     def test_panel_source_label_present_once_and_legacy_rows_gone(
         self, parent: tk.Frame
     ) -> None:
-        _, _, container = _build(parent)
-        texts = _descendant_texts(container)
+        _, _ = _build(parent)
+        texts = _descendant_texts(parent)
         assert texts.count("Source Music Directory:") == 1
         assert "Input Music Directory:" not in texts
         assert "Run Mode:" not in texts
@@ -213,54 +213,54 @@ class TestLosslessGainControl:
     """MP3 normalization controls must be present and bound."""
 
     def test_checkbox_present(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        texts = _descendant_texts(container)
+        _, _ = _build(parent)
+        texts = _descendant_texts(parent)
         assert "Normalize MP3 output to target loudness" in " ".join(texts)
 
     def test_checkbox_bound_to_var(self, parent: tk.Frame) -> None:
-        kwargs, _, container = _build(parent)
+        kwargs, _ = _build(parent)
         boxes = [
             w
-            for w in _all_checkbuttons(container)
+            for w in _all_checkbuttons(parent)
             if str(w.cget("variable")) == str(kwargs["normalize_mp3"])
         ]
         assert boxes
 
     def test_target_lufs_entry_bound(self, parent: tk.Frame) -> None:
-        kwargs, _, container = _build(parent)
+        kwargs, _ = _build(parent)
         entries = [
             w
-            for w in _all_entries(container)
+            for w in _all_entries(parent)
             if str(w.cget("textvariable")) == str(kwargs["target_lufs"])
         ]
         assert entries
 
     def test_default_target_is_minus_sixteen(self, parent: tk.Frame) -> None:
-        kwargs, _, _ = _build(parent)
+        kwargs, _ = _build(parent)
         assert kwargs["target_lufs"].get() == -16.0
 
 
-def _all_checkbuttons(container: tk.Widget) -> list[tk.Checkbutton]:
+def _all_checkbuttons(parent: tk.Widget) -> list[tk.Checkbutton]:
     result = []
-    for child in container.winfo_children():
+    for child in parent.winfo_children():
         if isinstance(child, tk.Checkbutton):
             result.append(child)
         result.extend(_all_checkbuttons(child))
     return result
 
 
-def _all_entries(container: tk.Widget) -> list[tk.Entry]:
+def _all_entries(parent: tk.Widget) -> list[tk.Entry]:
     result = []
-    for child in container.winfo_children():
+    for child in parent.winfo_children():
         if isinstance(child, tk.Entry):
             result.append(child)
         result.extend(_all_entries(child))
     return result
 
 
-def _find_comboboxes(container: tk.Widget) -> list[ttk.Combobox]:
+def _find_comboboxes(parent: tk.Widget) -> list[ttk.Combobox]:
     boxes = []
-    for child in container.winfo_children():
+    for child in parent.winfo_children():
         if isinstance(child, ttk.Combobox):
             boxes.append(child)
         boxes.extend(_find_comboboxes(child))
@@ -269,8 +269,8 @@ def _find_comboboxes(container: tk.Widget) -> list[ttk.Combobox]:
 
 class TestSampleRateControl:
     def test_sample_rate_var_bound_and_values(self, parent: tk.Frame) -> None:
-        kwargs, _, container = _build(parent)
-        boxes = _find_comboboxes(container)
+        kwargs, _ = _build(parent)
+        boxes = _find_comboboxes(parent)
         labels = [str(b.cget("textvariable")) for b in boxes]
         assert str(kwargs["sample_rate"]) in labels
         sr_box = next(
@@ -289,14 +289,14 @@ class TestSampleRateControl:
 
     def test_sample_rate_ui_preset_order(self, parent: tk.Frame) -> None:
         """Presets must list source first (the default passthrough)."""
-        kwargs, _, container = _build(parent)
-        sr_box = _find_sr_box(container, kwargs)
+        kwargs, _ = _build(parent)
+        sr_box = _find_sr_box(parent, kwargs)
         assert sr_box.cget("values")[0] == "source"
 
 
-def _find_sr_box(container: tk.Widget, kwargs: dict, var_key: str = "sample_rate"):
+def _find_sr_box(parent: tk.Widget, kwargs: dict, var_key: str = "sample_rate"):
     target = str(kwargs[var_key])
-    for b in _find_comboboxes(container):
+    for b in _find_comboboxes(parent):
         if str(b.cget("textvariable")) == target:
             return b
     raise AssertionError(f"No combobox bound to {var_key}")
@@ -304,8 +304,8 @@ def _find_sr_box(container: tk.Widget, kwargs: dict, var_key: str = "sample_rate
 
 class TestBitDepthControl:
     def test_bit_depth_var_bound_and_values(self, parent: tk.Frame) -> None:
-        kwargs, _, container = _build(parent)
-        bd_box = _find_sr_box(container, kwargs, "bit_depth")
+        kwargs, _ = _build(parent)
+        bd_box = _find_sr_box(parent, kwargs, "bit_depth")
         values = list(bd_box.cget("values"))
         assert "auto" in values
         assert "16" in values
@@ -315,20 +315,20 @@ class TestBitDepthControl:
 
     def test_bit_depth_disabled_for_non_wav(self, parent: tk.Frame) -> None:
         """mp3 selected by default → bit depth control is inert."""
-        kwargs, _, container = _build(parent)
-        bd_box = _find_sr_box(container, kwargs, "bit_depth")
+        kwargs, _ = _build(parent)
+        bd_box = _find_sr_box(parent, kwargs, "bit_depth")
         assert str(bd_box.cget("state")) == "disabled"
 
     def test_bit_depth_enabled_for_wav_output(self, parent: tk.Frame) -> None:
         """Selecting WAV via the app's scan seam re-enables the control."""
-        kwargs, widgets, container = _build(parent)
+        kwargs, widgets = _build(parent)
         widgets["update_format_menu"](["flac", "wav"], "wav")
-        bd_box = _find_sr_box(container, kwargs, "bit_depth")
+        bd_box = _find_sr_box(parent, kwargs, "bit_depth")
         assert str(bd_box.cget("state")) == "readonly"
 
     def test_bit_depth_resets_to_auto_on_format_switch(self, parent: tk.Frame) -> None:
         """Selecting a non-WAV format clears a stale explicit depth."""
-        kwargs, widgets, container = _build(parent)
+        kwargs, widgets = _build(parent)
         widgets["update_format_menu"](["flac", "wav"], "wav")
         widgets["update_format_info"]("wav")
         kwargs["bit_depth"].set("24")
@@ -340,28 +340,28 @@ class TestDitherControl:
     """The TPDF dither opt-out checkbox (plan E1, decision D1 option A)."""
 
     @staticmethod
-    def _find_dither_box(container: tk.Widget) -> tk.Checkbutton:
+    def _find_dither_box(parent: tk.Widget) -> tk.Checkbutton:
         boxes = [
             b
-            for b in _all_checkbuttons(container)
+            for b in _all_checkbuttons(parent)
             if "dither" in str(b.cget("text")).lower()
         ]
         assert len(boxes) == 1, f"expected one dither checkbox, got {len(boxes)}"
         return boxes[0]
 
     def test_checkbox_present(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        assert self._find_dither_box(container) is not None
+        _, _ = _build(parent)
+        assert self._find_dither_box(parent) is not None
 
     def test_defaults_to_on(self, parent: tk.Frame) -> None:
         """Dither is the always-on default; the checkbox is only an opt-out."""
-        kwargs, _, _ = _build(parent)
+        kwargs, _ = _build(parent)
         assert kwargs["dither"].get() is True
 
     def test_bound_to_the_supplied_var(self, parent: tk.Frame) -> None:
         """The widget must write through to the app's own BooleanVar."""
-        kwargs, _, container = _build(parent)
-        box = self._find_dither_box(container)
+        kwargs, _ = _build(parent)
+        box = self._find_dither_box(parent)
         box.invoke()
         assert kwargs["dither"].get() is False
         box.invoke()
@@ -372,9 +372,9 @@ class TestDitherControl:
     ) -> None:
         """Unlike bit depth, this is not gated on format: the depth reduction
         that AIFF performs internally needs it just as much as WAV does."""
-        _, widgets, container = _build(parent)
+        _, widgets = _build(parent)
         widgets["update_format_menu"](["flac", "wav"], "wav")
-        assert str(self._find_dither_box(container).cget("state")) != "disabled"
+        assert str(self._find_dither_box(parent).cget("state")) != "disabled"
 
 
 class TestAlacFormatDescription:
@@ -388,21 +388,21 @@ class TestAlacFormatDescription:
     description the user ever sees.
     """
 
-    def test_alac_description_names_the_m4a_container(self, parent: tk.Frame) -> None:
-        _, widgets, container = _build(parent)
+    def test_alac_description_names_the_m4a_parent(self, parent: tk.Frame) -> None:
+        _, widgets = _build(parent)
 
         widgets["update_format_info"]("alac")
 
-        texts = _descendant_texts(container)
+        texts = _descendant_texts(parent)
         assert any(".m4a" in text and "container" in text.lower() for text in texts), (
             texts
         )
 
     def test_prefill_route_updates_the_description(self, parent: tk.Frame) -> None:
         """`update_format_menu` is the pre-fill route; it must update the label."""
-        _, widgets, container = _build(parent)
+        _, widgets = _build(parent)
 
         widgets["update_format_menu"](list(ALL_FORMATS), "alac")
 
-        texts = _descendant_texts(container)
+        texts = _descendant_texts(parent)
         assert any("ALAC" in text and ".m4a" in text for text in texts), texts

@@ -481,6 +481,26 @@ used once, and every bullet belongs to exactly one of them.
   no separate lock. The REFINE helper also stops returning the parent its
   caller just passed, which removes a redundant value from 34 call sites.
 
+- **The last three root-declaring suites build into `parent`.**
+  `test_ui_common`, `test_ui_audition` and the REFINE Setup suite each built
+  their widgets on the session root and leaned on `clean_shared_root` to
+  destroy them. Their builders really do parent everything under the frame
+  they are handed - `add_audition_buttons` packs its row, caption and match
+  switches on the parent, `show_message`/`save_preset_dialog` take a Toplevel
+  of it or of its toplevel, and the DSP editor opens on the tab it was built
+  in - so all three now build into the shared `parent` fixture and their
+  declarations are gone. No shipped suite declares the root any more; the
+  lock's child sessions in `tests/test_conftest.py` are the only declaration
+  left, so the fixture is what a new suite copies. `test_ui_common` drops nine
+  private `setup_tk` fixtures and two `_make_parent` helpers that returned a
+  frame nobody could otherwise reach, and `save_preset_dialog`'s dialog is
+  found through `winfo_toplevel()` because the shared helper parents it on the
+  window, not on the combobox's frame. The thirteen Setup suites from 5f02378
+  also stop `_build` returning the parent its caller passed: the third tuple
+  value was never anything but the first argument, so 155 call sites read a
+  two-value pair and walk `parent` where they used to walk the echoed
+  `container`.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no

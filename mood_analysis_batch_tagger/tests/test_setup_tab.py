@@ -8,7 +8,7 @@ Behaviour-lock (iteration-7 B3): the tool-own labels/defaults must
 survive the shared-builder consolidation — if dedup removes a
 tool-specific string or default, these tests fail.
 
-Changed in 2.9.0: ``parent`` is the test's own container on the shared root
+Changed in 2.9.0: ``parent`` is the test's own frame on the shared root
 and the fixture destroys it after each test, so the module no longer declares
 ``clean_shared_root``.
 """
@@ -38,7 +38,7 @@ def _make_vars(parent: tk.Frame) -> dict[str, tk.Variable]:
 
 
 def _build(parent: tk.Frame, **overrides):
-    """Build the tab into *parent*; returns (kwargs, widgets, parent)."""
+    """Build the tab into *parent*; returns (kwargs, widgets)."""
     vars_ = _make_vars(parent)
     kwargs = {
         "root_path": vars_["root_path"],
@@ -59,7 +59,7 @@ def _build(parent: tk.Frame, **overrides):
     }
     kwargs.update(overrides)
     widgets = setup_tab.build(parent, **kwargs)
-    return kwargs, widgets, parent
+    return kwargs, widgets
 
 
 def _descendant_texts(widget: tk.Widget) -> list[str]:
@@ -75,19 +75,19 @@ class TestWiredWidgets:
     """build() returns every callable/widget the app needs."""
 
     def test_returns_expected_keys(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         assert isinstance(widgets["start_btn"], tk.Button)
         assert isinstance(widgets["preset_combo"], ttk.Combobox)
         assert callable(widgets["refresh_preset_list"])
         assert isinstance(widgets["controls_panel"], DriverControlsPanel)
 
     def test_start_button_invokes_on_start(self, parent: tk.Frame) -> None:
-        kwargs, widgets, _ = _build(parent)
+        kwargs, widgets = _build(parent)
         widgets["start_btn"].invoke()
         kwargs["on_start"].assert_called_once()
 
     def test_start_button_label_is_batch_mood_specific(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         assert widgets["start_btn"].cget("text") == "BEGIN BATCH MOOD ANALYSIS"
 
 
@@ -95,21 +95,21 @@ class TestDistinctToolSurfaces:
     """Tool-own texts survive consolidation (no over-eager dedup)."""
 
     def test_title_and_option_labels(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        texts = _descendant_texts(container)
+        _, _ = _build(parent)
+        texts = _descendant_texts(parent)
         assert "Mood Analysis Batch Tagger" in texts
         assert "Analysis Duration (seconds):" in texts
         assert "(Lower values = faster processing, less accuracy)" in texts
         assert "How Mood Is Determined:" in texts
 
     def test_help_text_content_is_batch_proprietary(self, parent: tk.Frame) -> None:
-        _, _, container = _build(parent)
-        joined = "\n".join(_descendant_texts(container))
+        _, _ = _build(parent)
+        joined = "\n".join(_descendant_texts(parent))
         assert "recursively scans" in joined
         assert "mood_analysis_batch_log.txt" in joined
 
     def test_parallel_row_present_with_caption(self, parent: tk.Frame) -> None:
-        _, widgets, _ = _build(parent)
+        _, widgets = _build(parent)
         texts = _descendant_texts(widgets["start_btn"].master)
         assert "Parallel Processing" in texts
         assert "Workers:" in texts
@@ -118,5 +118,5 @@ class TestDistinctToolSurfaces:
 
 @pytest.mark.parametrize("driver_locked", [False, True])
 def test_build_completes_without_raising(parent: tk.Frame, driver_locked: bool) -> None:
-    _, widgets, _ = _build(parent, driver_locked=driver_locked)
+    _, widgets = _build(parent, driver_locked=driver_locked)
     assert widgets["controls_panel"] is not None

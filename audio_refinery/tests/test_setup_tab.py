@@ -13,9 +13,9 @@ Changed in 2.9.0: the Best Audio row is locked - the bulk box, the per-stage
 Auto boxes and the read-only preview, all of which leave the stage toggles
 and the presets as the user left them.
 
-Changed in 2.9.0: the module declares the session-scoped Tk root with
-``clean_shared_root``, so the widgets its tests build there are destroyed after
-each test and cannot reach another module's walk of the root.
+Changed in 2.9.0: the tab is built into the shared ``parent`` fixture and the
+editor dialogs it opens are children of that tab, so the fixture destroys them
+with it and the module no longer declares ``clean_shared_root``.
 """
 
 from __future__ import annotations
@@ -31,15 +31,15 @@ import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
-
 _MODE_VAR_IDS = itertools.count()
 
 
-def _mode_var(root: tk.Tk, value: str) -> tk.StringVar:
+def _mode_var(parent: tk.Misc, value: str) -> tk.StringVar:
     """Create a mode variable with a stable, unique Tcl name, bound to the
-    supplied root's interpreter (not ``tk._default_root``)."""
-    return tk.StringVar(root, value=value, name=f"_test_mode_cbo_{next(_MODE_VAR_IDS)}")
+    supplied parent's interpreter (not ``tk._default_root``)."""
+    return tk.StringVar(
+        parent, value=value, name=f"_test_mode_cbo_{next(_MODE_VAR_IDS)}"
+    )
 
 
 def _make_app() -> object:
@@ -66,11 +66,11 @@ class TestStagePanelSync:
     config the pipeline reads is asserted.
     """
 
-    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+    def _build(self, parent: tk.Frame, config: Any) -> dict[str, Any]:
         from audio_refinery.ui import setup_tab
 
         return setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -143,13 +143,13 @@ class TestStagePanelSync:
         return captured
 
     def test_declick_sliders_write_back(
-        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+        self, parent: tk.Frame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         captured = self._capture(monkeypatch)
-        self._build(root, config)
+        self._build(parent, config)
 
         captured["sensitivity"].set(0.05)
         captured["max_width"].set(7)
@@ -158,13 +158,13 @@ class TestStagePanelSync:
         assert config.declick_params.max_width_ms == 7
 
     def test_trim_controls_write_back(
-        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+        self, parent: tk.Frame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         captured = self._capture(monkeypatch)
-        self._build(root, config)
+        self._build(parent, config)
 
         captured["threshold"].set(-35)
         captured["fade"].set(True)
@@ -177,13 +177,13 @@ class TestStagePanelSync:
         assert config.trim_params.fade_out_ms == 750
 
     def test_normalise_controls_write_back(
-        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+        self, parent: tk.Frame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         captured = self._capture(monkeypatch)
-        self._build(root, config)
+        self._build(parent, config)
 
         captured["target_lufs"].set(-18.0)
         captured["tolerance"].set(1.2)
@@ -196,7 +196,7 @@ class TestStagePanelSync:
         assert config.normalise_params.lra == 7.0
 
     def test_normalise_strategy_choice_writes_back(
-        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+        self, parent: tk.Frame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui import setup_tab
@@ -205,9 +205,8 @@ class TestStagePanelSync:
         self._capture(monkeypatch)
         # Build into this test's own frame so the session-scoped root's other
         # widgets (other tests' mode combos) cannot match the search.
-        frame = tk.Frame(root)
         setup_tab.build(
-            parent=frame,
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -219,7 +218,7 @@ class TestStagePanelSync:
 
         combos: list[ttk.Combobox] = [
             widget
-            for widget in _walk(frame, ttk.Combobox)
+            for widget in _walk(parent, ttk.Combobox)
             if isinstance(widget, ttk.Combobox)
             and "Lossless (MP3 global gain)" in tuple(widget.cget("values"))
         ]
@@ -233,13 +232,13 @@ class TestStagePanelSync:
 class TestSetupTabBuild:
     """Tests for setup_tab.build() return value and panel embedding."""
 
-    def test_returns_dict(self, root: tk.Tk) -> None:
+    def test_returns_dict(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -250,13 +249,13 @@ class TestSetupTabBuild:
         )
         assert isinstance(result, dict)
 
-    def test_dict_has_start_btn(self, root: tk.Tk) -> None:
+    def test_dict_has_start_btn(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -268,13 +267,13 @@ class TestSetupTabBuild:
         assert "start_btn" in result
         assert isinstance(result["start_btn"], tk.Button)
 
-    def test_dict_has_reset_btn(self, root: tk.Tk) -> None:
+    def test_dict_has_reset_btn(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -286,13 +285,13 @@ class TestSetupTabBuild:
         assert "reset_btn" in result
         assert isinstance(result["reset_btn"], tk.Button)
 
-    def test_dict_has_controls_panel(self, root: tk.Tk) -> None:
+    def test_dict_has_controls_panel(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -304,13 +303,13 @@ class TestSetupTabBuild:
         assert "controls_panel" in result
         assert isinstance(result["controls_panel"], DriverControlsPanel)
 
-    def test_panel_source_label(self, root: tk.Tk) -> None:
+    def test_panel_source_label(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -327,13 +326,13 @@ class TestSetupTabBuild:
         ]
         assert "Source Music Directory:" in texts
 
-    def test_panel_mode_label(self, root: tk.Tk) -> None:
+    def test_panel_mode_label(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -358,13 +357,13 @@ class TestSetupTabBuild:
 
         assert "Mode:" in _descendant_texts(panel)
 
-    def test_panel_checkbox_labels(self, root: tk.Tk) -> None:
+    def test_panel_checkbox_labels(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -393,13 +392,13 @@ class TestSetupTabBuild:
         assert "Clear Logs" in all_texts
         assert "Parallel" in all_texts
 
-    def test_driver_locked_disables_widgets(self, root: tk.Tk) -> None:
+    def test_driver_locked_disables_widgets(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -414,13 +413,13 @@ class TestSetupTabBuild:
         assert str(panel.mode_combo.cget("state")) == "disabled"
         assert str(panel.auto_start_btn.cget("state")) == "disabled"
 
-    def test_standalone_keeps_source_editable(self, root: tk.Tk) -> None:
+    def test_standalone_keeps_source_editable(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -434,14 +433,14 @@ class TestSetupTabBuild:
         assert str(panel.source_entry.cget("state")) == "normal"
         assert str(panel.mode_combo.cget("state")) == "readonly"
 
-    def test_source_var_bound(self, root: tk.Tk) -> None:
+    def test_source_var_bound(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         src_var = tk.StringVar(value="/test/music")
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=src_var,
             output_path=None,
             config=config,
@@ -451,18 +450,18 @@ class TestSetupTabBuild:
             on_reset=lambda: None,
         )
         panel: DriverControlsPanel = result["controls_panel"]
-        root.update_idletasks()
+        parent.update_idletasks()
         assert src_var.get() == "/test/music"
         assert panel.source_entry.cget("textvariable") == str(src_var)
 
-    def test_output_path_row_present(self, root: tk.Tk) -> None:
+    def test_output_path_row_present(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
         config = StageConfig()
         out_var = tk.StringVar(value="/output")
         build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=out_var,
             config=config,
@@ -473,7 +472,9 @@ class TestSetupTabBuild:
         )
         assert out_var.get() == "/output"
 
-    def test_mode_combo_displays_default_when_no_var_passed(self, root: tk.Tk) -> None:
+    def test_mode_combo_displays_default_when_no_var_passed(
+        self, parent: tk.Frame
+    ) -> None:
         """Regression: the Mode combo must not render blank.
 
         A bare inline StringVar passed to the combobox is garbage-collected
@@ -485,7 +486,7 @@ class TestSetupTabBuild:
 
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -496,18 +497,18 @@ class TestSetupTabBuild:
         )
         panel: DriverControlsPanel = result["controls_panel"]
         gc.collect()
-        root.update_idletasks()
+        parent.update_idletasks()
         assert panel.mode_combo.get() == "Dry Run"
 
-    def test_mode_combo_uses_passed_mode_var(self, root: tk.Tk) -> None:
+    def test_mode_combo_uses_passed_mode_var(self, parent: tk.Frame) -> None:
         """The Mode combo binds the caller's var and reflects its value."""
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
-        mode_var = _mode_var(root, "Live Update")
+        mode_var = _mode_var(parent, "Live Update")
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -519,19 +520,19 @@ class TestSetupTabBuild:
         )
         panel: DriverControlsPanel = result["controls_panel"]
         gc.collect()
-        root.update_idletasks()
+        parent.update_idletasks()
         assert panel.mode_combo.get() == "Live Update"
         assert panel.mode_combo.cget("textvariable") == str(mode_var)
 
-    def test_mode_combo_tracks_mode_var_changes(self, root: tk.Tk) -> None:
+    def test_mode_combo_tracks_mode_var_changes(self, parent: tk.Frame) -> None:
         """Changing the bound var updates the displayed Mode value."""
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui.setup_tab import build
 
-        mode_var = _mode_var(root, "Dry Run")
+        mode_var = _mode_var(parent, "Dry Run")
         config = StageConfig()
         result = build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -543,7 +544,7 @@ class TestSetupTabBuild:
         )
         panel: DriverControlsPanel = result["controls_panel"]
         mode_var.set("Live Update")
-        root.update_idletasks()
+        parent.update_idletasks()
         assert panel.mode_combo.get() == "Live Update"
 
 
@@ -622,11 +623,11 @@ class TestEnhancePanelSync:
     synced one variable at a time from the inline sliders.
     """
 
-    def _build(self, root: tk.Tk, config: object) -> dict:
+    def _build(self, parent: tk.Frame, config: object) -> dict:
         from audio_refinery.ui import setup_tab
 
         return setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -641,11 +642,11 @@ class TestEnhancePanelSync:
         panel.open()
         return panel
 
-    def test_slider_edit_writes_back_to_config(self, root: tk.Tk) -> None:
+    def test_slider_edit_writes_back_to_config(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        state = self._build(root, config)
+        state = self._build(parent, config)
         panel = self._open_panel(state)
 
         var = panel.variable("compressor_ratio")
@@ -654,11 +655,11 @@ class TestEnhancePanelSync:
 
         assert config.enhance_params.compressor_ratio == 9.0
 
-    def test_effect_toggle_writes_back_to_config(self, root: tk.Tk) -> None:
+    def test_effect_toggle_writes_back_to_config(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        state = self._build(root, config)
+        state = self._build(parent, config)
         panel = self._open_panel(state)
 
         for field in ("reverse", "karaoke", "phaser", "flanger", "chorus"):
@@ -673,12 +674,12 @@ class TestEnhancePanelSync:
         assert config.enhance_params.karaoke_strength == 0.4
         assert config.enhance_params.chorus is True
 
-    def test_preset_switch_does_not_reset_the_effects(self, root: tk.Tk) -> None:
+    def test_preset_switch_does_not_reset_the_effects(self, parent: tk.Frame) -> None:
         """D13: a named preset supplies the 13 base fields only."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        state = self._build(root, config)
+        state = self._build(parent, config)
         panel = self._open_panel(state)
         reverse = panel.variable("reverse")
         assert reverse is not None
@@ -689,37 +690,37 @@ class TestEnhancePanelSync:
         assert config.enhance_params.reverse is True
         assert config.enhance_params.preset == "Mild"
 
-    def test_stage_body_holds_no_inline_controls(self, root: tk.Tk) -> None:
+    def test_stage_body_holds_no_inline_controls(self, parent: tk.Frame) -> None:
         """The 19 controls must live in the editor, not in the stage body."""
         from audio_refinery.core.models import StageConfig
 
-        state = self._build(root, StageConfig())
+        state = self._build(parent, StageConfig())
         body = state["dsp_row"].master
         assert _walk(body, tk.Scale) == []
         assert _walk(body, tk.Checkbutton) == []
         assert state["dsp_panel"].variable("compressor_ratio") is None
 
-    def test_custom_pick_opens_the_shared_editor(self, root: tk.Tk) -> None:
+    def test_custom_pick_opens_the_shared_editor(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
-        state = self._build(root, StageConfig())
+        state = self._build(parent, StageConfig())
         combo = state["enhance_preset_combo"]
         combo.set("Custom")
         combo.event_generate("<<ComboboxSelected>>")
 
         assert state["dsp_panel"].is_open()
 
-    def test_custom_mode_adds_only_the_summary_row(self, root: tk.Tk) -> None:
+    def test_custom_mode_adds_only_the_summary_row(self, parent: tk.Frame) -> None:
         """Regression for the REFINE tab overflow: Custom must stay compact."""
         from audio_refinery.core.models import StageConfig
 
-        state = self._build(root, StageConfig())
+        state = self._build(parent, StageConfig())
         body = state["dsp_row"].master
-        root.update_idletasks()
+        parent.update_idletasks()
         before = body.winfo_reqheight()
 
         state["preset_var"].set("Custom")
-        root.update_idletasks()
+        parent.update_idletasks()
 
         # The row appears (summary + button, well under 150 px); the old inline
         # panel added 745 px here and pushed the tab past the desktop height.
@@ -727,14 +728,14 @@ class TestEnhancePanelSync:
         assert body.winfo_reqheight() - before < 150
 
     def test_output_gain_row_hidden_while_normaliser_is_enabled(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         """The Normaliser owns the final level, so the row is hidden."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.normalise = True
-        state = self._build(root, config)
+        state = self._build(parent, config)
         panel = self._open_panel(state)
         dialog = panel.open()
 
@@ -756,11 +757,11 @@ class TestEnhancePanelSync:
 class TestEqPanel:
     """The EQ table and curve are two views of the rack the run renders (F-S1)."""
 
-    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+    def _build(self, parent: tk.Frame, config: Any) -> dict[str, Any]:
         from audio_refinery.ui import setup_tab
 
         return setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -770,17 +771,17 @@ class TestEqPanel:
             on_reset=lambda: None,
         )
 
-    def test_the_stage_and_its_refresh_are_registered(self, root: tk.Tk) -> None:
+    def test_the_stage_and_its_refresh_are_registered(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
-        state = self._build(root, StageConfig())
+        state = self._build(parent, StageConfig())
 
         assert "eq" in state["stage_vars"]
         assert callable(state["eq_refresh"])
         assert state["eq_tree"].get_children() == ()
 
     def test_a_loaded_rack_reaches_the_table_and_the_measured_curve(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_suite_shared.dsp_eq import EqBand, EqSettings, response_curve
@@ -790,7 +791,7 @@ class TestEqPanel:
             eq_params=EqSettings(bands=(EqBand("peaking", 1000.0, 6.0, 1.0),)),
         )
 
-        state = self._build(root, config)
+        state = self._build(parent, config)
         state["eq_refresh"]()
 
         assert len(state["eq_tree"].get_children()) == 1
@@ -800,12 +801,12 @@ class TestEqPanel:
         nearest = min(range(len(freqs)), key=lambda i: abs(freqs[i] - 1000.0))
         assert curve[nearest] == pytest.approx(6.0, abs=0.5)
 
-    def test_adding_a_band_writes_the_run_config(self, root: tk.Tk) -> None:
+    def test_adding_a_band_writes_the_run_config(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_suite_shared.dsp_eq import EqBand
 
         config = StageConfig(eq=True)
-        state = self._build(root, config)
+        state = self._build(parent, config)
         entries = state["eq_entries"]
         entries["kind"].set("highshelf")
         entries["freq"].set("8000")
@@ -818,12 +819,12 @@ class TestEqPanel:
         assert len(state["eq_tree"].get_children()) == 1
 
     def test_an_invalid_band_is_refused_without_touching_the_rack(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig(eq=True)
-        state = self._build(root, config)
+        state = self._build(parent, config)
         state["eq_entries"]["freq"].set("90000")
 
         state["eq_add"]()
@@ -845,11 +846,11 @@ def _walk_labels(widget: Any) -> list[tk.Label]:
 class TestDynamicsPanel:
     """The eight controls write the settings object the stage renders (F-S2)."""
 
-    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+    def _build(self, parent: tk.Frame, config: Any) -> dict[str, Any]:
         from audio_refinery.ui import setup_tab
 
         return setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -860,12 +861,12 @@ class TestDynamicsPanel:
         )
 
     def test_the_stage_joins_select_all_with_all_eight_controls(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        state = self._build(root, config)
+        state = self._build(parent, config)
         entries = state["dynamics_entries"]
 
         assert state["stage_vars"]["dynamics"] is not None
@@ -887,14 +888,16 @@ class TestDynamicsPanel:
             entries["ceiling_dbtp"].get() == f"{config.limiter_params.ceiling_dbtp:g}"
         )
 
-    def test_the_pipeline_line_names_the_stage_in_its_place(self, root: tk.Tk) -> None:
+    def test_the_pipeline_line_names_the_stage_in_its_place(
+        self, parent: tk.Frame
+    ) -> None:
         """The window's own subtitle must name every stage it now shows."""
         from audio_refinery.core.models import StageConfig
 
-        self._build(root, StageConfig())
+        self._build(parent, StageConfig())
         state_label = next(
             label
-            for label in _walk_labels(root)
+            for label in _walk_labels(parent)
             if str(label.cget("text")).startswith("Single-pass pipeline")
         )
         line = str(state_label.cget("text"))
@@ -903,11 +906,13 @@ class TestDynamicsPanel:
         for stage in ("Declick", "Trim", "Noise Reduction", "Normalise"):
             assert stage in line
 
-    def test_an_edit_writes_the_pair_the_pipeline_renders(self, root: tk.Tk) -> None:
+    def test_an_edit_writes_the_pair_the_pipeline_renders(
+        self, parent: tk.Frame
+    ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig(dynamics=True)
-        state = self._build(root, config)
+        state = self._build(parent, config)
         entries = state["dynamics_entries"]
         entries["threshold_db"].set("-24")
         entries["ratio"].set("6")
@@ -929,12 +934,12 @@ class TestDynamicsPanel:
         assert state["dynamics_status"].get() == ""
 
     def test_a_refused_value_is_reported_and_left_out_of_the_run(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig(dynamics=True)
-        state = self._build(root, config)
+        state = self._build(parent, config)
         before = config.limiter_params
 
         state["dynamics_entries"]["ceiling_dbtp"].set("5")
@@ -943,12 +948,12 @@ class TestDynamicsPanel:
         assert "outside" in state["dynamics_status"].get()
 
     def test_a_non_number_is_refused_without_touching_the_pair(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig(dynamics=True)
-        state = self._build(root, config)
+        state = self._build(parent, config)
         before = config.compressor_params
 
         state["dynamics_entries"]["ratio"].set("4x")
@@ -960,11 +965,11 @@ class TestDynamicsPanel:
 class TestNoiseEnginePanel:
     """A restored neural setup shows the engine, through the edit path (2.8.0)."""
 
-    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+    def _build(self, parent: tk.Frame, config: Any) -> dict[str, Any]:
         from audio_refinery.ui import setup_tab
 
         return setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -974,49 +979,49 @@ class TestNoiseEnginePanel:
             on_reset=lambda: None,
         )
 
-    def test_a_restored_neural_engine_narrows_the_panel(self, root: tk.Tk) -> None:
+    def test_a_restored_neural_engine_narrows_the_panel(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.noise_reduction_params.broadband_engine = "neural"
         config.noise_reduction_params.neural_amount = 0.4
 
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["engine"].get() == "neural"
         assert widgets["amount"].get() == 40
         assert widgets["neural_frame"].winfo_manager() == "pack"
         assert widgets["spectral_frame"].winfo_manager() == ""
 
-    def test_choosing_spectral_writes_the_params_back(self, root: tk.Tk) -> None:
+    def test_choosing_spectral_writes_the_params_back(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.noise_reduction_params.broadband_engine = "neural"
 
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
         widgets["engine"].set("spectral")
 
         assert config.noise_reduction_params.broadband_engine == "spectral"
         assert widgets["neural_frame"].winfo_manager() == ""
         assert widgets["spectral_frame"].winfo_manager() == "pack"
 
-    def test_the_amount_reaches_the_params(self, root: tk.Tk) -> None:
+    def test_the_amount_reaches_the_params(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         widgets["amount"].set(35)
 
         assert config.noise_reduction_params.neural_amount == pytest.approx(0.35)
 
-    def test_the_16_bit_opt_in_is_off_and_writes_back(self, root: tk.Tk) -> None:
+    def test_the_16_bit_opt_in_is_off_and_writes_back(self, parent: tk.Frame) -> None:
         """The downmix is a deliberate choice: off at build time, one tick on."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["allow_wide"].get() is False
         assert config.noise_reduction_params.allow_16bit_output is False
@@ -1025,24 +1030,24 @@ class TestNoiseEnginePanel:
 
         assert config.noise_reduction_params.allow_16bit_output is True
 
-    def test_a_restored_opt_in_shows_on_the_panel(self, root: tk.Tk) -> None:
+    def test_a_restored_opt_in_shows_on_the_panel(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.noise_reduction_params.allow_16bit_output = True
 
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["allow_wide"].get() is True
 
     def test_the_hum_panel_opens_on_auto_and_can_be_overridden(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         """Detection is the default; a radio choice turns it into the override."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["hum"].get() == "auto"
         assert config.noise_reduction_params.hum_auto is True
@@ -1052,18 +1057,20 @@ class TestNoiseEnginePanel:
         assert config.noise_reduction_params.hum_auto is False
         assert config.noise_reduction_params.hum_frequency == 50
 
-    def test_a_restored_hum_override_shows_on_the_panel(self, root: tk.Tk) -> None:
+    def test_a_restored_hum_override_shows_on_the_panel(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.noise_reduction_params.hum_auto = False
         config.noise_reduction_params.hum_frequency = 60
 
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["hum"].get() == "60"
 
-    def test_the_panel_offers_a_report_only_analyse_action(self, root: tk.Tk) -> None:
+    def test_the_panel_offers_a_report_only_analyse_action(
+        self, parent: tk.Frame
+    ) -> None:
         """The button is wired to its callback and its output is a label.
 
         The report is the whole output, so the panel owns a text variable the
@@ -1075,7 +1082,7 @@ class TestNoiseEnginePanel:
         calls: list[int] = []
         config = StageConfig()
         widgets = setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -1092,13 +1099,13 @@ class TestNoiseEnginePanel:
         assert calls == [1]
 
     def test_the_profile_panel_opens_on_auto_and_can_be_overridden(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         """Detection is the default; unticking it is the manual region."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["profile"].get() is True
         assert config.noise_reduction_params.profile_auto is True
@@ -1107,13 +1114,15 @@ class TestNoiseEnginePanel:
 
         assert config.noise_reduction_params.profile_auto is False
 
-    def test_a_restored_manual_region_shows_on_the_panel(self, root: tk.Tk) -> None:
+    def test_a_restored_manual_region_shows_on_the_panel(
+        self, parent: tk.Frame
+    ) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.noise_reduction_params.profile_auto = False
 
-        widgets = self._build(root, config)["noise_widgets"]
+        widgets = self._build(parent, config)["noise_widgets"]
 
         assert widgets["profile"].get() is False
 
@@ -1128,9 +1137,9 @@ def _iter_widgets(widget: tk.Misc):
         yield from _iter_widgets(child)
 
 
-def _checkbutton_for(root: tk.Misc, variable: tk.Variable) -> tk.Checkbutton:
+def _checkbutton_for(parent: tk.Misc, variable: tk.Variable) -> tk.Checkbutton:
     """Return the Checkbutton bound to *variable*."""
-    for widget in _iter_widgets(root):
+    for widget in _iter_widgets(parent):
         if isinstance(widget, tk.Checkbutton):
             try:
                 if str(widget.cget("variable")) == str(variable):
@@ -1156,11 +1165,11 @@ def _states(widget: tk.Misc) -> list[str]:
 class TestBestAudioPanel:
     """One stored list drives the bulk box, the stage boxes and the locks."""
 
-    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+    def _build(self, parent: tk.Frame, config: Any) -> dict[str, Any]:
         from audio_refinery.ui import setup_tab
 
         return setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
@@ -1170,11 +1179,11 @@ class TestBestAudioPanel:
             on_reset=lambda: None,
         )
 
-    def test_the_bulk_box_selects_every_declared_stage(self, root: tk.Tk) -> None:
+    def test_the_bulk_box_selects_every_declared_stage(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import AUTO_STAGES, StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)
+        widgets = self._build(parent, config)
         registry = widgets["auto_registry"]
 
         # ``invoke`` flips the box as a click does, then runs its command.
@@ -1184,11 +1193,11 @@ class TestBestAudioPanel:
         for stage in AUTO_STAGES:
             assert registry[stage]["var"].get() is True
 
-    def test_unticking_the_bulk_box_clears_them_again(self, root: tk.Tk) -> None:
+    def test_unticking_the_bulk_box_clears_them_again(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)
+        widgets = self._build(parent, config)
         registry = widgets["auto_registry"]
         widgets["apply_auto_stages"](["trim", "eq"])
 
@@ -1208,11 +1217,11 @@ class TestBestAudioPanel:
 
         assert config.auto_stages == ()
 
-    def test_one_stage_box_adds_only_its_own_entry(self, root: tk.Tk) -> None:
+    def test_one_stage_box_adds_only_its_own_entry(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        widgets = self._build(root, config)
+        widgets = self._build(parent, config)
         registry = widgets["auto_registry"]
         widgets["apply_auto_stages"](["trim"])
 
@@ -1221,13 +1230,13 @@ class TestBestAudioPanel:
         assert config.auto_stages == ("trim", "eq")
         assert registry["_bulk_var"].get() is False
 
-    def test_the_manual_entries_are_locked_and_restored(self, root: tk.Tk) -> None:
+    def test_the_manual_entries_are_locked_and_restored(self, parent: tk.Frame) -> None:
         """Contract rule A4: nothing is hidden, and the values survive."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.declick_params.sensitivity = 0.22
-        widgets = self._build(root, config)
+        widgets = self._build(parent, config)
         registry = widgets["auto_registry"]
         body = registry["declick"]["body"]
 
@@ -1238,13 +1247,13 @@ class TestBestAudioPanel:
         assert "disabled" not in _states(body)
         assert config.declick_params.sensitivity == 0.22
 
-    def test_a_restored_selection_reaches_the_boxes(self, root: tk.Tk) -> None:
+    def test_a_restored_selection_reaches_the_boxes(self, parent: tk.Frame) -> None:
         """The settings/CLI/preset route all end in the same function."""
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
         config.auto_stages = ("trim", "eq")
-        widgets = self._build(root, config)
+        widgets = self._build(parent, config)
         registry = widgets["auto_registry"]
 
         assert registry["trim"]["var"].get() is True
@@ -1252,15 +1261,15 @@ class TestBestAudioPanel:
         assert registry["declick"]["var"].get() is False
         assert registry["_bulk_var"].get() is False
 
-    def test_normalise_has_no_auto_box(self, root: tk.Tk) -> None:
+    def test_normalise_has_no_auto_box(self, parent: tk.Frame) -> None:
         from audio_refinery.core.models import StageConfig
 
-        widgets = self._build(root, StageConfig())
+        widgets = self._build(parent, StageConfig())
 
         assert "normalise" not in widgets["auto_registry"]
 
     def test_the_preview_action_is_wired_and_writes_a_report_line(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.ui import setup_tab
@@ -1268,7 +1277,7 @@ class TestBestAudioPanel:
         calls: list[int] = []
         config = StageConfig()
         widgets = setup_tab.build(
-            parent=tk.Frame(root),
+            parent=parent,
             source_path=tk.StringVar(),
             output_path=None,
             config=config,
