@@ -10,16 +10,23 @@ completion, progress and error seams.
 
 Changed in 2.9.0: the source-folder opener is the shared mixin helper (A1).
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+Changed in 2.9.0: the window adopts ``SuiteApp`` (C1 stage 3, D50).  Its two
+one-line tab delegates are gone and the shell builds the notebook, the
+Processing and Results tabs and the report's View Log; the run's four callbacks
+queue their payload for the shell's poller instead of marshalling with
+``root.after``, and the coverage check's failure is a completion of its own that
+leaves the run's report behind.
 """
 
-import os
-import threading
-import tkinter as tk
-from tkinter import messagebox, ttk
-from typing import Any
+from __future__ import annotations
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+import os
+import tkinter as tk
+from queue import SimpleQueue
+from tkinter import messagebox, ttk
+from typing import Any, ClassVar
+
+from audio_suite_shared import suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.exceptions import (
@@ -27,43 +34,65 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
-from audio_suite_shared.ui_helpers import UIHelperMixin
+from audio_suite_shared.suite_app import SuiteApp
 
 from .core import consolidator
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 from .utils.cli_args import GenreTaggerArgs
 
 TOOL_ID = "album_genre_tagger"
 
+#: The report a run leaves in the folder it read; View Log opens it.
+LOG_NAME = "AlbumGenre_Tagger_Log.txt"
 
-class GenreConsolidatorApp(UIHelperMixin):
-    """Album Genre Tagger application GUI."""
+#: The Processing tab's first list line, posted before the read phase runs.
+PHASE1_HEADER = "=== PHASE1: READING TITLEGENRE TAGS ==="
 
+DRY_RUN = "Dry Run"
+LIVE_UPDATE = "Live Update"
+
+
+class GenreConsolidatorApp(SuiteApp):
+    """Album Genre Tagger application window."""
+
+    title = "Album Genre Tagger"
+    window_key = "album_genre_tagger_window"
+    program_name = TOOL_ID
+    #: Kept for the guide registry's scan; the shell reads ``guide_name``.
     HELP_GUIDE = "AlbumGenre_Tagger_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    #: Replaced per run: a dry run analyses, a live run consolidates.
+    completion_text = "Analysis Complete!"
+    processing_stats_text = "Processed: 0 | With Genre: 0 | Errors: 0"
+    #: The consolidated genre string the Results tab shows under the summary.
+    result_extra_labels = ("genre_label",)
+    #: Built by the shell from ``result_extra_labels`` and published here.
+    genre_label: tk.Label
+
+    #: The manifest id the window has always declared.
+    TOOL_ID: ClassVar[str] = TOOL_ID
 
     def __init__(
         self, root: tk.Tk, cli_args_parsed: GenreTaggerArgs | None = None
     ) -> None:
-        self.root = root
-        # Pre-parsed args supplied by entry point to avoid a second parse.
-        self._cli_args_parsed = cli_args_parsed
+        """Build the window, its variables and its state.
 
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Album Genre Tagger",
-            "album_genre_tagger_window",
-            "album_genre_tagger",
-        )
+        Args:
+            root: The Tk root the launcher created.
+            cli_args_parsed: Arguments the entry point already parsed, so the
+                handshake is not read off ``sys.argv`` twice.
+        """
+        self._cli_args_parsed: GenreTaggerArgs | None = cli_args_parsed
 
         # ── Tk variables ──────────────────────────────────────────────────────
-        self.folder_path = tk.StringVar()
-        self.run_mode = tk.StringVar(value="Dry Run")
-        self.min_coverage = tk.IntVar(value=50)
-        self.auto_start_var = tk.BooleanVar(value=False)
-        self.auto_end_var = tk.BooleanVar(value=False)
-        self.clear_logs_var = tk.BooleanVar(value=False)
-        self.parallel_var = tk.BooleanVar(value=False)
+        self.folder_path: tk.StringVar = tk.StringVar()
+        self.run_mode: tk.StringVar = tk.StringVar(value=DRY_RUN)
+        self.min_coverage: tk.IntVar = tk.IntVar(value=50)
+        self.auto_start_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.auto_end_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.clear_logs_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.parallel_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
         # Master Driver handshake: any CLI argument means driver-launched,
         # in which case the Run Controls panel is locked to inherited values.
@@ -72,57 +101,31 @@ class GenreConsolidatorApp(UIHelperMixin):
         # ── State ─────────────────────────────────────────────────────────────
         self._log_path: str = ""
         self._dir_path: str = ""
-        # Snapshotted on the main thread by start_processing; the worker and
-        # the main-thread UI helpers read these, never the Tk vars.
+        # Snapshotted on the Tk thread by start_processing; the worker reads
+        # these, never the Tk vars.
         self._is_dry_run: bool = True
         self._min_coverage: int = 50
-        self.auto_end: bool = False
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
+        #: A run's messages; ``_start_worker`` replaces it, and a direct caller
+        #: (tests, a hand-built shell) finds one ready.
+        self._ui_updates = SimpleQueue()
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        super().__init__(root)
 
-        # ── Apply CLI arguments ───────────────────────────────────────────────
         self._apply_cli_args()
 
-        # ── Restore last-used directory (if not set by CLI) ───────────────────
         if not self.folder_path.get():
-            last = suite_config.load_last_directory()
+            last: str = suite_config.load_last_directory()
             if last:
                 self.folder_path.set(last)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tab ─────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        # Help button above notebook
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        # Three-tab notebook
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
-        setup_widgets = setup_tab.build(
-            tab_setup,
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folder, the coverage option and the presets."""
+        widgets: dict[str, Any] = setup_tab.build(
+            parent,
             folder_path=self.folder_path,
             run_mode=self.run_mode,
             min_coverage=self.min_coverage,
@@ -138,28 +141,10 @@ class GenreConsolidatorApp(UIHelperMixin):
             on_delete_preset=self._delete_preset,
             on_preset_selected=self._on_preset_selected,
         )
-        self.start_btn = setup_widgets["start_btn"]
-        self._refresh_preset_list = setup_widgets["refresh_preset_list"]
-        self._preset_combo = setup_widgets["preset_combo"]
-
-        proc_widgets = processing_tab.build(tab_processing)
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-        self.genre_label: tk.Label = res_widgets["genre_label"]
-
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
+        self.start_btn = widgets["start_btn"]
+        self._refresh_preset_list = widgets["refresh_preset_list"]
+        self._preset_combo = widgets["preset_combo"]
+        self.controls_panel = widgets["controls_panel"]
 
     # ── Presets ───────────────────────────────────────────────────────────────
 
@@ -201,7 +186,7 @@ class GenreConsolidatorApp(UIHelperMixin):
         # Mirror the inherited driver arguments onto the Run Controls
         # panel before any early return so the display always reflects
         # exactly what the Master Driver passed.
-        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
+        self.run_mode.set(LIVE_UPDATE if parsed.live_mode else DRY_RUN)
         self.auto_start_var.set(parsed.auto_start)
         self.auto_end_var.set(parsed.auto_end)
         self.clear_logs_var.set(parsed.clear_logs)
@@ -230,18 +215,8 @@ class GenreConsolidatorApp(UIHelperMixin):
             save_last_dir=True,
         )
 
-    def _open_help(self) -> None:
-        self._open_help_standard(self.HELP_GUIDE)
-
-    def _open_log(self) -> None:
-        self._open_log_standard()
-
-    def _open_folder(self) -> None:
-        """Open the source folder since Album Genre Tagger processes files in-place."""
-        self._open_source_folder_standard()
-
     def start_processing(self) -> None:
-        """Start the album genre tagging process."""
+        """Validate the inputs, snapshot them, then start the run."""
         folder = self.folder_path.get()
         if not folder:
             messagebox.showwarning("Warning", "Please select a music directory first.")
@@ -258,33 +233,31 @@ class GenreConsolidatorApp(UIHelperMixin):
 
         self.start_btn.config(state="disabled")
         self.file_listbox.delete(0, tk.END)
-        self.notebook.select(self._tab_processing)
+        self.notebook.select(self.processing_frame)
         self.overall_status.set("Processing genres...")
+        self._reset_progress_ui()
 
-        # Snapshot every Tk variable on the main thread: the worker must not
-        # call .get() on a Tk var (see _run's thread-safety note below).
-        self._dir_path = self.folder_path.get()
-        self._is_dry_run = self.run_mode.get() == "Dry Run"
-        self._min_coverage = self.min_coverage.get()
-        self._log_path = os.path.join(self._dir_path, "AlbumGenre_Tagger_Log.txt")
+        # Snapshot every Tk variable on the Tk thread: the worker must not
+        # call .get() on a Tk var (see _run's thread-safety note).
+        self._dir_path = folder
+        self._is_dry_run = self.run_mode.get() == DRY_RUN
+        self._min_coverage = coverage
+        self._log_path = os.path.join(self._dir_path, LOG_NAME)
 
-        threading.Thread(target=self._run, daemon=True).start()
+        self._start_worker(self._run, ())
 
     # ── Background thread ─────────────────────────────────────────────────────
 
     @handle_audio_errors(reraise=False, context="genre_tagger_app_run")
     def _run(self) -> None:
-        """Process the directory on a worker thread.
+        """Process the directory on the worker thread the shell started.
 
-        Thread safety: this runs off the Tk main thread, so it must not touch
-        a widget or call ``.get()`` on a Tk variable. Both the inputs
+        Thread safety: this runs off the Tk thread, so it must not touch a
+        widget or call ``.get()`` on a Tk variable.  The inputs
         (``_dir_path``, ``_is_dry_run``, ``_min_coverage``) and the log path
-        are snapshotted by ``start_processing`` on the main thread, and every
-        UI mutation goes through a callback that schedules a main-thread
-        helper via ``root.after(0, ...)``.
+        are snapshotted by ``start_processing``, and every callback below
+        queues its payload for the shell's poller instead of writing a widget.
         """
-        self._schedule_phase1_header()
-
         with active_batch("album_genre_tagger", "tag_edit"):
             consolidator.run_analysis(
                 dir_path=self._dir_path,
@@ -297,10 +270,7 @@ class GenreConsolidatorApp(UIHelperMixin):
                 on_error=self._on_error,
             )
 
-    # ── Callbacks ─────────────────────────────────────────────────────────────
-    #
-    # file_processor_base invokes these on worker threads, so each one only
-    # schedules a main-thread helper. The helpers do the Tk work.
+    # ── Callbacks (worker thread: queue only, no widget writes) ──────────────
 
     def _on_phase1_progress(
         self,
@@ -312,33 +282,16 @@ class GenreConsolidatorApp(UIHelperMixin):
         log_text: str,
         **_extra: Any,
     ) -> None:
-        """Called from a worker thread — schedule the UI update."""
-        self.root.after(
-            0,
-            self._update_phase1_ui,
-            processed,
-            total,
-            files_with_genre,
-            errors,
-            display_text,
+        """Queue one read-phase tick for the Tk poller."""
+        self._ui_updates.put(
+            ("phase1", processed, total, files_with_genre, errors, display_text)
         )
 
-    def _update_phase1_ui(
-        self,
-        processed: int,
-        total: int,
-        files_with_genre: int,
-        errors: int,
-        display_text: str,
+    def _on_phase2_progress(
+        self, display_text: str, log_text: str, **_extra: Any
     ) -> None:
-        """Update the processing tab (must run on the main thread)."""
-        # +1 reserves space for the write phase.
-        self._render_progress_standard(processed, total + 1, display_text)
-        self.stats_label.config(
-            text=f"Processed: {processed} | With Genre: {files_with_genre}"
-            f" | Errors: {errors}"
-        )
-        self.root.update_idletasks()
+        """Queue one write-phase line for the Tk poller."""
+        self._ui_updates.put(("phase2", display_text))
 
     def _on_coverage_fail(
         self,
@@ -349,55 +302,22 @@ class GenreConsolidatorApp(UIHelperMixin):
         duration_secs: float,
         log_entries: list[Any],
     ) -> None:
-        """Called from a worker thread — log here, schedule the UI update."""
+        """Write the run's report, then queue the failure completion.
+
+        The coverage check failing ends the run the same way a finished
+        consolidation does: the report is on disk before the window says why.
+        """
         self._write_log(log_entries)
-        self.root.after(
-            0,
-            self._show_coverage_fail,
-            total,
-            files_with_genre,
-            coverage_pct,
-            min_coverage,
-            duration_secs,
+        self._ui_updates.put(
+            (
+                "coverage_fail",
+                total,
+                files_with_genre,
+                coverage_pct,
+                min_coverage,
+                duration_secs,
+            )
         )
-
-    def _show_coverage_fail(
-        self,
-        total: int,
-        files_with_genre: int,
-        coverage_pct: float,
-        min_coverage: int,
-        duration_secs: float,
-    ) -> None:
-        """Show the coverage-failure summary (must run on the main thread)."""
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
-
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
-        self.summary_label.config(
-            text=f"Total: {total} files\n"
-            f"With TITLEGENRE: {files_with_genre} ({coverage_pct:.1f}%)\n"
-            f"Required: {min_coverage}%\n\n"
-            f"Status: FAILED - Insufficient coverage"
-        )
-        self.completion_label.config(text="Coverage Check Failed!")
-        self.genre_label.config(text="")
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
-
-        if self.auto_end:
-            self.root.after(2000, self.root.destroy)
-
-    def _on_phase2_progress(
-        self, display_text: str, log_text: str, **_extra: Any
-    ) -> None:
-        """Called from a worker thread — schedule the listbox append."""
-        self.root.after(0, self._append_phase2_text, display_text)
-
-    def _append_phase2_text(self, display_text: str) -> None:
-        """Append a phase-2 line to the log listbox (main thread only)."""
-        self._append_progress_line(display_text)
-        self.root.update_idletasks()
 
     def _on_complete(
         self,
@@ -413,24 +333,104 @@ class GenreConsolidatorApp(UIHelperMixin):
         log_entries: list[Any],
         **_extra: Any,
     ) -> None:
-        """Called from a worker thread — log here, schedule the UI update."""
+        """Write the run's report, then queue the finished run.
+
+        The ten declared fields are required, so a payload that drops one
+        raises with its name before any report is written.
+        """
         self._write_log(log_entries)
-        self.root.after(
-            0,
-            self._show_complete,
-            total,
-            files_with_genre,
-            coverage_pct,
-            unique_genres,
-            album_genre_string,
-            write_count,
-            write_errors,
-            read_errors,
-            duration_secs,
-            log_entries,
+        self._ui_updates.put(
+            (
+                "complete",
+                total,
+                files_with_genre,
+                coverage_pct,
+                unique_genres,
+                album_genre_string,
+                write_count,
+                write_errors,
+                read_errors,
+                duration_secs,
+            )
         )
 
-    def _show_complete(
+    def _on_error(self, message: str) -> None:
+        """Queue a fatal run error for the Tk poller's dialog."""
+        self._ui_updates.put(("error", message))
+
+    # ── Rendering (Tk thread: one queued message at a time) ──────────────────
+
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued message on the Tk thread."""
+        kind = message[0]
+        if kind == "phase1":
+            _, processed, total, files_with_genre, errors, display_text = message
+            # +1 reserves the bar's last step for the write phase.
+            self._render_progress_standard(processed, total + 1, display_text)
+            self.stats_label.config(
+                text=f"Processed: {processed} | With Genre: {files_with_genre}"
+                f" | Errors: {errors}"
+            )
+        elif kind == "phase2":
+            self._append_progress_line(message[1])
+        elif kind == "coverage_fail":
+            _, total, files_with_genre, coverage_pct, min_coverage, duration_secs = (
+                message
+            )
+            self._render_coverage_fail(
+                total, files_with_genre, coverage_pct, min_coverage, duration_secs
+            )
+        elif kind == "complete":
+            (
+                _,
+                total,
+                files_with_genre,
+                coverage_pct,
+                unique_genres,
+                album_genre_string,
+                write_count,
+                write_errors,
+                read_errors,
+                duration_secs,
+            ) = message
+            self._render_complete(
+                total,
+                files_with_genre,
+                coverage_pct,
+                unique_genres,
+                album_genre_string,
+                write_count,
+                write_errors,
+                read_errors,
+                duration_secs,
+            )
+        elif kind == "error":
+            super()._on_error(message[1])
+        elif kind == "log_error":
+            messagebox.showerror("Error", message[1])
+
+    def _render_coverage_fail(
+        self,
+        total: int,
+        files_with_genre: int,
+        coverage_pct: float,
+        min_coverage: int,
+        duration_secs: float,
+    ) -> None:
+        """Show why the run stopped short (Tk thread only)."""
+        self.summary_label.config(
+            text=f"Total: {total} files\n"
+            f"With TITLEGENRE: {files_with_genre} ({coverage_pct:.1f}%)\n"
+            f"Required: {min_coverage}%\n\n"
+            f"Status: FAILED - Insufficient coverage"
+        )
+        self.genre_label.config(text="")
+        self.progress["value"] = total + 1
+        self.completion_text = "Coverage Check Failed!"
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
+        self._schedule_auto_end()
+
+    def _render_complete(
         self,
         total: int,
         files_with_genre: int,
@@ -441,17 +441,12 @@ class GenreConsolidatorApp(UIHelperMixin):
         write_errors: int,
         read_errors: int,
         duration_secs: float,
-        log_entries: list[Any],
     ) -> None:
-        """Show the final summary (must run on the main thread)."""
-        minutes = int(duration_secs // 60)
-        seconds = int(duration_secs % 60)
-        # Read the snapshotted mode, not the Tk var: this helper is only ever
-        # scheduled after the run began, and Tk vars are not read off-thread.
+        """Show the finished run's summary (Tk thread only)."""
+        # Read the snapshotted mode, not the Tk var: this runs after the run
+        # began, and the snapshot is what the run itself used.
         is_dry_run = self._is_dry_run
-
         self.progress["value"] = total + 1
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
         self.summary_label.config(
             text=f"Total: {total} files\n"
             f"With TITLEGENRE: {files_with_genre} ({coverage_pct:.1f}%)\n"
@@ -461,44 +456,31 @@ class GenreConsolidatorApp(UIHelperMixin):
             f"Errors: {read_errors + write_errors}"
         )
         self.genre_label.config(text=f"Consolidated ALBUMGENRE:\n{album_genre_string}")
-        self.completion_label.config(
-            text="Analysis Complete!" if is_dry_run else "Genre Consolidation Complete!"
+        self.completion_text = (
+            "Analysis Complete!" if is_dry_run else "Genre Consolidation Complete!"
         )
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
+        self.render_completion(duration_secs=duration_secs, output_dir=self._dir_path)
+        self._schedule_auto_end()
 
-        if self.auto_end:
-            log_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
-            self._write_log(log_entries)
-            self.root.update_idletasks()
+    def _schedule_auto_end(self) -> None:
+        """Close the window when the driver asked it to (Tk thread only)."""
+        if self.auto_end_var.get():
+            self.overall_status.set("Auto End enabled - closing in 2 seconds...")
             self.root.after(2000, self.root.destroy)
-
-    def _on_error(self, message: str) -> None:
-        """Called from a worker thread — schedule the dialog."""
-        self.root.after(0, self._show_error, message)
-
-    def _show_error(self, message: str) -> None:
-        """Show the error dialog (must run on the main thread)."""
-        messagebox.showerror("Error", message)
-        self.start_btn.config(state="normal")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _schedule_phase1_header(self) -> None:
-        """Reset the progress bar and post the phase-1 header (worker thread).
-
-        Only the scheduling happens here; the widget writes run on the main
-        thread via ``_reset_progress_ui``.
-        """
-        self.root.after(0, self._reset_progress_ui)
-
     def _reset_progress_ui(self) -> None:
-        """Zero the progress bar and open the log list (main thread only)."""
+        """Zero the progress bar and open the log list with the phase-1 header."""
         self.progress["value"] = 0
-        self.file_listbox.insert(tk.END, "=== PHASE 1: READING TITLEGENRE TAGS ===")
-        self.root.update_idletasks()
+        self.file_listbox.insert(tk.END, PHASE1_HEADER)
 
     def _write_log(self, log_entries: list[Any]) -> None:
+        """Serialise the run's entries into ``_log_path``.
+
+        Called from the run's completion handlers, so a failed write is queued
+        for the Tk poller's dialog rather than raised off the worker thread.
+        """
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:
                 f.writelines(log_entries)
@@ -510,14 +492,6 @@ class GenreConsolidatorApp(UIHelperMixin):
             self.error_logger.log_error(
                 type(exc).__name__, f"Error: {mapped}", include_traceback=True
             )
-            # Reachable from the worker callbacks, so the dialog is scheduled
-            # rather than shown inline.
-            self.root.after(
-                0,
-                self._show_log_error,
-                f"Could not write log file:\n{user_message_for(mapped)}",
+            self._ui_updates.put(
+                ("log_error", f"Could not write log file:\n{user_message_for(mapped)}")
             )
-
-    def _show_log_error(self, message: str) -> None:
-        """Report a failed log write (must run on the main thread)."""
-        messagebox.showerror("Error", message)

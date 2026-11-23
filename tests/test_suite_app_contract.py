@@ -77,6 +77,9 @@ produces, through the same completion drive (D33).
 Changed in 2.9.0: Restoration follows last in wave 3, so the table is
 nineteen, the declipper gains a report drive, and its report's label is
 locked (C1 stage 2, D34).
+Changed in 2.9.0: Album Genre Tagger opens stage 3, so the table is twenty,
+the consolidator gains a report drive through its completion handler, and the
+label its own writer prints is locked in the same drive (C1 stage 3, D50).
 
 
 Changed in 2.9.0: the module destroys the window it builds. ``SuiteApp``
@@ -103,6 +106,9 @@ from album_art_normalizer import app as art_normalizer_app
 from album_art_normalizer.app import ArtNormalizerApp
 from album_art_sync import app as album_art_sync_app
 from album_art_sync.app import AudioSuiteV6
+from album_genre_tagger import app as album_genre_tagger_app
+from album_genre_tagger.app import GenreConsolidatorApp
+from album_genre_tagger.utils.cli_args import GenreTaggerArgs
 from asx_extractor.app import ASXExtractorTool
 from audio_fingerprinter import app as fingerprinter_app
 from audio_fingerprinter.app import FingerprinterApp
@@ -178,6 +184,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     TagEditorApp,
     TagFieldUpdaterApp,
     RestorationApp,
+    GenreConsolidatorApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -407,6 +414,13 @@ def _stub_mood_analysis_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_album_genre_tagger_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the tagger's launcher parse (it runs in the constructor)."""
+    monkeypatch.setattr(
+        album_genre_tagger_app.cli_args, "parse", lambda: GenreTaggerArgs()
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -427,6 +441,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     TagEditorApp: _stub_tag_editor_edges,
     TagFieldUpdaterApp: _stub_tag_field_updater_edges,
     RestorationApp: _stub_restoration_edges,
+    GenreConsolidatorApp: _stub_album_genre_tagger_edges,
 }
 
 
@@ -822,6 +837,34 @@ def _complete_mood_analysis_run(
     app.root.update()
 
 
+def _complete_album_genre_tagger_run(app: GenreConsolidatorApp, tmp_path: Path) -> None:
+    """Drive the consolidation's completion: the window writes the report.
+
+    ``_on_complete`` is the handler the analysis is bound to and the report
+    writer itself, so the drive hands it the payload the consolidator
+    publishes and drains the window's queue, which is what renders the
+    Results tab.  The folder and the dry-run snapshot are the state
+    ``start_processing`` takes on the Tk thread.
+    """
+    app._dir_path = str(tmp_path)
+    app._is_dry_run = True
+    app._log_path = str(tmp_path / album_genre_tagger_app.LOG_NAME)
+    app._ui_updates = SimpleQueue()
+    app._on_complete(
+        total=1,
+        files_with_genre=1,
+        coverage_pct=100.0,
+        unique_genres=["Rock"],
+        album_genre_string="Rock",
+        write_count=1,
+        write_errors=0,
+        read_errors=0,
+        duration_secs=1.0,
+        log_entries=["Total files: 1\n", "SUMMARY:\n"],
+    )
+    app._poll_ui_updates()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -843,6 +886,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     TagEditorApp: _complete_tag_editor_run,
     TagFieldUpdaterApp: _complete_tag_field_updater_run,
     RestorationApp: _complete_restoration_run,
+    GenreConsolidatorApp: _complete_album_genre_tagger_run,
 }
 
 #: The label line each adopter that writes through
@@ -1123,6 +1167,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "TagEditorApp",
         "TagFieldUpdaterApp",
         "RestorationApp",
+        "GenreConsolidatorApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

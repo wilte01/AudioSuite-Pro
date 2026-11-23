@@ -8,6 +8,10 @@ Phase 2 — writes the consolidated ALBUMGENRE / ALBUMDERIVED to every file.
 
 No tkinter imports. All progress and completion reporting via injected
 callbacks so this module is independently testable.
+
+Changed in 2.9.0: the report's summary marker is ``SUMMARY:`` like every other
+window's, so the suite's run-report lock reads this report the way it reads the
+shell's (C1 stage 3, D50).
 """
 
 import logging
@@ -200,7 +204,7 @@ def run_analysis(
     log_entries += [
         "\n",
         "=" * 60 + "\n",
-        "SUMMARY\n",
+        "SUMMARY:\n",
         "-" * 60 + "\n",
         f"Total files: {total}\n",
         f"Files with TITLEGENRE: {files_with_genre} ({coverage_pct:.1f}%)\n",

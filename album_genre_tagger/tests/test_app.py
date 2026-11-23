@@ -7,15 +7,25 @@ Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_analysis`` into the completion handler (PLAN D117).
 
 Changed in 2.9.0: the _open_folder tests patch the shared helper (A1).
+Changed in 2.9.0: the window adopts ``SuiteApp`` (C1 stage 3, D50).  The
+callbacks queue their payload for the shell's poller instead of scheduling a
+main-thread helper with ``root.after``, the coverage check's failure is a queued
+completion of its own, and the notebook, the Processing tab and the Results tab
+are the shell's — so the tests drive ``_dispatch_ui_message`` and read the
+shell's frames instead of the two deleted tab delegates.
 """
 
 import os
 import tkinter as tk
 from pathlib import Path
+from queue import Empty, SimpleQueue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+#: The Processing tab's first list line, posted before the read phase runs.
+PHASE1_HEADER = "=== PHASE1: READING TITLEGENRE TAGS ==="
 
 
 def _make_shell_app(parsed):
@@ -27,9 +37,9 @@ def _make_shell_app(parsed):
     app.folder_path = MagicMock()
     app.run_mode = MagicMock()
     app.min_coverage = MagicMock()
-    app.auto_end = False
     app.auto_start_var = MagicMock()
     app.auto_end_var = MagicMock()
+    app.auto_end_var.get.return_value = False
     app.clear_logs_var = MagicMock()
     app.parallel_var = MagicMock()
     # Widgets touched by result callbacks
@@ -41,8 +51,9 @@ def _make_shell_app(parsed):
     app.completion_label = MagicMock()
     app.genre_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_processing = MagicMock()
-    app._tab_results = MagicMock()
+    app.overall_status = MagicMock()
+    app.processing_frame = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     app._cli_args_parsed = parsed
     # Snapshotted by start_processing on the main thread (see _run's
@@ -51,6 +62,7 @@ def _make_shell_app(parsed):
     app._is_dry_run = False
     app._min_coverage = 50
     app._log_path = ""
+    app._ui_updates = SimpleQueue()
 
     handler = MagicMock()
     handler.apply_cli_args.return_value = False
@@ -62,6 +74,25 @@ def _run_apply(app, handler_cls):
     with patch("album_genre_tagger.app.UniversalCLIHandler", handler_cls):
         app._apply_cli_args()
     return app
+
+
+def _drain(app: Any) -> list[tuple[Any, ...]]:
+    """Render every queued message the way the shell's poller does."""
+    rendered: list[tuple[Any, ...]] = []
+    while True:
+        try:
+            message = app._ui_updates.get_nowait()
+        except Empty:
+            return rendered
+        rendered.append(message)
+        app._dispatch_ui_message(message)
+
+
+def _flush_zero_delay(app: Any) -> None:
+    """Run the main-thread work ``render_completion`` deferred on the root."""
+    for call in app.root.after.call_args_list:
+        if call.args[0] == 0:
+            call.args[1](*call.args[2:])
 
 
 class TestApplyCliArgsDriven:
@@ -181,8 +212,6 @@ class TestRunOpensUndoBatch:
 
         app = object.__new__(GenreConsolidatorApp)
         app.root = MagicMock()
-        app.progress = MagicMock()
-        app.file_listbox = MagicMock()
         app._dir_path = str(tmp_path)
         app._is_dry_run = True
         app._min_coverage = 50
@@ -201,57 +230,31 @@ class TestRunOpensUndoBatch:
         assert mock_run.call_args.kwargs["is_dry_run"] is True
 
 
-class TestWorkerThreadMarshalling:
-    """Callbacks fire on a worker thread: every Tk write is deferred (audit H3).
+class TestQueuedMarshalling:
+    """Callbacks fire on the worker thread: every one queues, none writes (H3).
 
-    ``root.after`` records the scheduling instead of running it, so a direct
-    widget call from the worker path would leave the recorded lists empty.
+    The payloads are read back from the queue the shell's poller drains, so a
+    widget call made from the worker path leaves the queue empty and fails.
     """
 
-    def _scheduled(self, app):
-        return [tuple(call_.args) for call_ in app.root.after.call_args_list]
-
-    def test_start_processing_snapshots_tk_vars_and_starts_daemon_thread(
-        self, tmp_path
-    ):
+    def test_start_processing_snapshots_tk_vars_and_starts_the_worker(self, tmp_path):
         """The worker must never call .get() on a Tk variable."""
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = str(tmp_path)
         app.run_mode.get.return_value = "Live Update"
         app.min_coverage.get.return_value = 72
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
-        with patch("album_genre_tagger.app.threading.Thread") as mock_thread:
-            app.start_processing()
+        app.start_processing()
 
         assert app._dir_path == str(tmp_path)
         assert app._is_dry_run is False
         assert app._min_coverage == 72
         assert app._log_path == str(tmp_path / "AlbumGenre_Tagger_Log.txt")
-        assert mock_thread.call_args.kwargs["daemon"] is True
-        assert mock_thread.call_args.kwargs["target"] == app._run
+        app._start_worker.assert_called_once_with(app._run, ())
 
-    def test_run_schedules_its_header_instead_of_writing_widgets(self, tmp_path):
-        app, _, _ = _make_shell_app(None)
-        app._dir_path = str(tmp_path)
-        app._is_dry_run = True
-        app._min_coverage = 50
-
-        with (
-            patch("album_genre_tagger.app.active_batch"),
-            patch("album_genre_tagger.app.consolidator.run_analysis"),
-        ):
-            app._run()
-
-        assert self._scheduled(app) == [(0, app._reset_progress_ui)]
-        app.progress.__setitem__.assert_not_called()
-        app.file_listbox.insert.assert_not_called()
-        # No Tk variable was read on the worker thread.
-        app.folder_path.get.assert_not_called()
-        app.run_mode.get.assert_not_called()
-        app.min_coverage.get.assert_not_called()
-
-    def test_every_callback_schedules_its_main_thread_helper(self, tmp_path):
+    @patch("audio_suite_shared.suite_app.messagebox")
+    def test_every_callback_queues_its_payload(self, mock_mb, tmp_path):
         app, _, _ = _make_shell_app(None)
         app._log_path = str(tmp_path / "genre_log.txt")
         app._is_dry_run = True
@@ -273,47 +276,42 @@ class TestWorkerThreadMarshalling:
         )
         app._on_error("boom")
 
-        zero_delay = [entry for entry in self._scheduled(app) if entry[0] == 0]
-        callbacks = [entry[1] for entry in zero_delay]
-        assert callbacks == [
-            app._update_phase1_ui,
-            app._append_phase2_text,
-            app._show_coverage_fail,
-            app._show_complete,
-            app._show_error,
+        queued = [message[0] for message in _drain(app)]
+        assert queued == [
+            "phase1",
+            "phase2",
+            "coverage_fail",
+            "complete",
+            "error",
         ]
-        assert zero_delay[0][2:] == (1, 3, 1, 0, "display")
-        assert zero_delay[1][2:] == ("display2",)
-        assert zero_delay[4][2:] == ("boom",)
-        # Nothing was written straight from the worker callback.
+
+    def test_the_run_makes_no_widget_writes_of_its_own(self, tmp_path):
+        app, _, _ = _make_shell_app(None)
+
+        app._on_phase1_progress(1, 3, 1, 0, "display", "log")
+        app._on_phase2_progress("display2", "log2")
+
         app.progress.__setitem__.assert_not_called()
         app.file_listbox.insert.assert_not_called()
-        app.summary_label.config.assert_not_called()
-        app.notebook.select.assert_not_called()
-        app.start_btn.config.assert_not_called()
+        app.stats_label.config.assert_not_called()
+        app.root.after.assert_not_called()
 
-    def test_log_write_failure_schedules_the_dialog(self, tmp_path):
+    def test_log_write_failure_queues_the_dialog(self, tmp_path):
         app, _, _ = _make_shell_app(None)
         app._log_path = str(tmp_path / "missing_dir" / "genre_log.txt")
         app.error_logger = MagicMock()
 
         app._write_log(["line\n"])
 
-        zero_delay = [entry for entry in self._scheduled(app) if entry[0] == 0]
-        assert [entry[1] for entry in zero_delay] == [app._show_log_error]
-        assert "Could not write log file" in zero_delay[0][2]
+        message = app._ui_updates.get_nowait()
+        assert message[0] == "log_error"
+        assert "Could not write log file" in message[1]
 
 
 class TestRealWidgetMarshalling:
-    """The after(0, ...) bridge against real Tk widgets.
+    """One queued message reaches a real Tk widget through the dispatcher."""
 
-    A per-test withdrawn Toplevel off the session-scoped shared root is used
-    so nothing lasting past the test is interned on the shared root.
-    """
-
-    def test_scheduled_callback_updates_a_real_listbox(self, root):
-        import tkinter as tk
-
+    def test_dispatched_line_lands_in_a_real_listbox(self, root):
         from album_genre_tagger.app import GenreConsolidatorApp
 
         top = tk.Toplevel(root)
@@ -321,11 +319,11 @@ class TestRealWidgetMarshalling:
             app = object.__new__(GenreConsolidatorApp)
             app.root = top
             app.file_listbox = tk.Listbox(top)
+            app._ui_updates = SimpleQueue()
+            app._ui_updates.put(("phase2", "real widget line"))
 
-            app._on_phase2_progress("real widget line", "log")
-
-            assert app.file_listbox.size() == 0  # deferred, not written yet
-            top.update()
+            assert app.file_listbox.size() == 0  # nothing written yet
+            _drain(app)
             assert app.file_listbox.get(0, tk.END) == ("real widget line",)
         finally:
             top.destroy()
@@ -483,76 +481,18 @@ class TestDeletePreset:
 
 
 # ---------------------------------------------------------------------------
-# User actions — _open_folder
-# ---------------------------------------------------------------------------
-
-
-class TestOpenFolder:
-    """_open_folder opens the folder or shows an info dialog."""
-
-    @patch("audio_suite_shared.ui_helpers.messagebox")
-    @patch("audio_suite_shared.ui_helpers.platform_utils")
-    @patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=True)
-    def test_existing_folder_opens_path(self, mock_exists, mock_pu, mock_mb):
-        app, _, _ = _make_shell_app(None)
-        app.folder_path.get.return_value = "/some/music/dir"
-
-        app._open_folder()
-
-        mock_pu.open_path.assert_called_once_with("/some/music/dir")
-        mock_mb.showinfo.assert_not_called()
-
-    @patch("audio_suite_shared.ui_helpers.messagebox")
-    @patch("audio_suite_shared.ui_helpers.platform_utils")
-    @patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=False)
-    def test_missing_folder_shows_info(self, mock_exists, mock_pu, mock_mb):
-        app, _, _ = _make_shell_app(None)
-        app.folder_path.get.return_value = "/nonexistent"
-
-        app._open_folder()
-
-        mock_pu.open_path.assert_not_called()
-        mock_mb.showinfo.assert_called_once_with(
-            "Folder", "Source folder not available."
-        )
-
-    @patch("audio_suite_shared.ui_helpers.messagebox")
-    @patch("audio_suite_shared.ui_helpers.platform_utils")
-    def test_empty_path_shows_info(self, mock_pu, mock_mb):
-        app, _, _ = _make_shell_app(None)
-        app.folder_path.get.return_value = ""
-
-        app._open_folder()
-
-        mock_pu.open_path.assert_not_called()
-        mock_mb.showinfo.assert_called_once_with(
-            "Folder", "Source folder not available."
-        )
-
-    @patch("audio_suite_shared.ui_helpers.messagebox")
-    @patch("audio_suite_shared.ui_helpers.platform_utils")
-    @patch("audio_suite_shared.ui_helpers.os.path.exists", return_value=True)
-    def test_existing_folder_with_spaces(self, mock_exists, mock_pu, mock_mb):
-        app, _, _ = _make_shell_app(None)
-        app.folder_path.get.return_value = "C:\\My Music\\Collection"
-
-        app._open_folder()
-
-        mock_pu.open_path.assert_called_once_with("C:\\My Music\\Collection")
-
-
-# ---------------------------------------------------------------------------
 # Validation in start_processing
 # ---------------------------------------------------------------------------
 
 
 class TestStartProcessingValidation:
-    """start_processing guards against bad input before spawning a thread."""
+    """start_processing guards against bad input before starting the worker."""
 
     @patch("album_genre_tagger.app.messagebox")
     def test_empty_folder_shows_warning_and_returns(self, mock_mb):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = ""
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
@@ -560,12 +500,14 @@ class TestStartProcessingValidation:
             "Warning", "Please select a music directory first."
         )
         app.start_btn.config.assert_not_called()
+        app._start_worker.assert_not_called()
 
     @patch("album_genre_tagger.app.os.path.isdir", return_value=False)
     @patch("album_genre_tagger.app.messagebox")
     def test_nonexistent_directory_shows_error_and_returns(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/not/a/dir"
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
@@ -573,99 +515,93 @@ class TestStartProcessingValidation:
             "Error", "Selected path is not a valid directory."
         )
         app.start_btn.config.assert_not_called()
+        app._start_worker.assert_not_called()
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
-    def test_negative_coverage_shows_error(self, mock_mb, mock_isdir, mock_thread):
+    def test_negative_coverage_shows_error(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/dir"
         app.min_coverage.get.return_value = -5
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
         mock_mb.showerror.assert_called_once_with(
             "Error", "Coverage percentage must be between 0 and 100."
         )
-        mock_thread.assert_not_called()
+        app._start_worker.assert_not_called()
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
-    def test_coverage_over_100_shows_error(self, mock_mb, mock_isdir, mock_thread):
+    def test_coverage_over_100_shows_error(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/dir"
         app.min_coverage.get.return_value = 150
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
         mock_mb.showerror.assert_called_once_with(
             "Error", "Coverage percentage must be between 0 and 100."
         )
-        mock_thread.assert_not_called()
+        app._start_worker.assert_not_called()
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
-    def test_zero_coverage_is_valid(self, mock_mb, mock_isdir, mock_thread):
+    def test_zero_coverage_is_valid(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/dir"
         app.run_mode.get.return_value = "Dry Run"
         app.min_coverage.get.return_value = 0
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
         mock_mb.showerror.assert_not_called()
-        mock_thread.assert_called_once()
+        app._start_worker.assert_called_once()
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
-    def test_100_coverage_is_valid(self, mock_mb, mock_isdir, mock_thread):
+    def test_100_coverage_is_valid(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/dir"
         app.run_mode.get.return_value = "Dry Run"
         app.min_coverage.get.return_value = 100
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
         mock_mb.showerror.assert_not_called()
-        mock_thread.assert_called_once()
+        app._start_worker.assert_called_once()
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
     def test_success_disables_btn_clears_listbox_switches_tab(
-        self, mock_mb, mock_isdir, mock_thread
+        self, mock_mb, mock_isdir
     ):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/dir"
         app.run_mode.get.return_value = "Live Update"
         app.min_coverage.get.return_value = 60
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
         app.start_btn.config.assert_called_once_with(state="disabled")
         app.file_listbox.delete.assert_called_once_with(0, tk.END)
-        app.notebook.select.assert_called_once_with(app._tab_processing)
+        app.file_listbox.insert.assert_called_once_with(tk.END, PHASE1_HEADER)
+        app.notebook.select.assert_called_once_with(app.processing_frame)
         app.overall_status.set.assert_called_once_with("Processing genres...")
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
-    def test_success_snapshots_vars_and_starts_thread(
-        self, mock_mb, mock_isdir, mock_thread
-    ):
+    def test_success_snapshots_vars_and_starts_the_worker(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/my/music"
         app.run_mode.get.return_value = "Dry Run"
         app.min_coverage.get.return_value = 75
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
@@ -673,18 +609,16 @@ class TestStartProcessingValidation:
         assert app._is_dry_run is True
         assert app._min_coverage == 75
         assert app._log_path == os.path.join("/my/music", "AlbumGenre_Tagger_Log.txt")
-        mock_thread.assert_called_once_with(target=app._run, daemon=True)
-        mock_thread.return_value.start.assert_called_once()
+        app._start_worker.assert_called_once_with(app._run, ())
 
-    @patch("album_genre_tagger.app.threading.Thread")
     @patch("album_genre_tagger.app.os.path.isdir", return_value=True)
     @patch("album_genre_tagger.app.messagebox")
-    def test_live_mode_is_not_dry_run(self, mock_mb, mock_isdir, mock_thread):
+    def test_live_mode_is_not_dry_run(self, mock_mb, mock_isdir):
         app, _, _ = _make_shell_app(None)
         app.folder_path.get.return_value = "/some/dir"
         app.run_mode.get.return_value = "Live Update"
         app.min_coverage.get.return_value = 50
-        app.overall_status = MagicMock()
+        app._start_worker = MagicMock()
 
         app.start_processing()
 
@@ -692,17 +626,17 @@ class TestStartProcessingValidation:
 
 
 # ---------------------------------------------------------------------------
-# Main-thread helpers
+# Rendering: one queued message at a time, on the Tk thread
 # ---------------------------------------------------------------------------
 
 
-class TestUpdatePhase1Ui:
-    """_update_phase1_ui updates progress bar, stats label, and listbox."""
+class TestPhase1Message:
+    """A phase-1 tick reserves the write phase's last bar step."""
 
     def test_sets_progress_and_inserts_display_text(self):
         app, _, _ = _make_shell_app(None)
 
-        app._update_phase1_ui(3, 10, 2, 1, "Track 03 - Artist - Title")
+        app._dispatch_ui_message(("phase1", 3, 10, 2, 1, "Track 03 - Artist - Title"))
 
         assert app.progress.__setitem__.call_args_list[0].args == ("maximum", 11)
         assert app.progress.__setitem__.call_args_list[1].args == ("value", 3)
@@ -713,12 +647,11 @@ class TestUpdatePhase1Ui:
             tk.END, "Track 03 - Artist - Title"
         )
         app.file_listbox.see.assert_called_once_with(tk.END)
-        app.root.update_idletasks.assert_called_once()
 
     def test_first_file_zero_errors(self):
         app, _, _ = _make_shell_app(None)
 
-        app._update_phase1_ui(1, 5, 0, 0, "Track 01")
+        app._dispatch_ui_message(("phase1", 1, 5, 0, 0, "Track 01"))
 
         app.stats_label.config.assert_called_once_with(
             text="Processed: 1 | With Genre: 0 | Errors: 0"
@@ -727,44 +660,39 @@ class TestUpdatePhase1Ui:
     def test_total_plus_one_reserves_write_phase(self):
         app, _, _ = _make_shell_app(None)
 
-        app._update_phase1_ui(0, 20, 0, 0, "header")
+        app._dispatch_ui_message(("phase1", 0, 20, 0, 0, "header"))
 
         assert app.progress.__setitem__.call_args_list[0].args == ("maximum", 21)
 
 
-class TestShowCoverageFail:
-    """_show_coverage_fail displays failure summary and re-enables start."""
+class TestCoverageFailMessage:
+    """The coverage check's failure renders as a completion of its own."""
 
     def test_displays_failure_summary(self):
         app, _, _ = _make_shell_app(None)
 
-        app._show_coverage_fail(
-            total=10,
-            files_with_genre=3,
-            coverage_pct=30.0,
-            min_coverage=50,
-            duration_secs=65.5,
-        )
+        app._dispatch_ui_message(("coverage_fail", 10, 3, 30.0, 50, 65.5))
+        _flush_zero_delay(app)
 
-        app.time_label.config.assert_called_once_with(text="Total Time: 01:05")
         app.summary_label.config.assert_called_once()
         summary_text = app.summary_label.config.call_args.kwargs["text"]
         assert "Total: 10 files" in summary_text
         assert "With TITLEGENRE: 3 (30.0%)" in summary_text
         assert "Required: 50%" in summary_text
         assert "FAILED" in summary_text
+        app.genre_label.config.assert_called_once_with(text="")
         app.completion_label.config.assert_called_once_with(
             text="Coverage Check Failed!"
         )
-        app.genre_label.config.assert_called_once_with(text="")
-        app.notebook.select.assert_called_once_with(app._tab_results)
+        app.time_label.config.assert_called_once_with(text="Total Time: 01:05")
+        app.notebook.select.assert_called_once_with(app.results_frame)
         app.start_btn.config.assert_called_once_with(state="normal")
 
     def test_auto_end_schedules_destroy(self):
         app, _, _ = _make_shell_app(None)
-        app.auto_end = True
+        app.auto_end_var.get.return_value = True
 
-        app._show_coverage_fail(5, 1, 20.0, 50, 1.0)
+        app._dispatch_ui_message(("coverage_fail", 5, 1, 20.0, 50, 1.0))
 
         destroy_calls = [
             c for c in app.root.after.call_args_list if c.args[1] == app.root.destroy
@@ -774,9 +702,8 @@ class TestShowCoverageFail:
 
     def test_no_auto_end_does_not_schedule_destroy(self):
         app, _, _ = _make_shell_app(None)
-        app.auto_end = False
 
-        app._show_coverage_fail(5, 1, 20.0, 50, 1.0)
+        app._dispatch_ui_message(("coverage_fail", 5, 1, 20.0, 50, 1.0))
 
         destroy_calls = [
             c for c in app.root.after.call_args_list if c.args[1] == app.root.destroy
@@ -784,27 +711,29 @@ class TestShowCoverageFail:
         assert len(destroy_calls) == 0
 
 
-class TestShowComplete:
-    """_show_complete displays the final summary."""
+class TestCompleteMessage:
+    """The finished run's summary, heading and bar."""
 
     def test_dry_run_shows_analysis_complete(self):
         app, _, _ = _make_shell_app(None)
         app._is_dry_run = True
 
-        app._show_complete(
-            total=8,
-            files_with_genre=8,
-            coverage_pct=100.0,
-            unique_genres=["Rock", "Pop"],
-            album_genre_string="Rock; Pop",
-            write_count=8,
-            write_errors=0,
-            read_errors=0,
-            duration_secs=122.0,
-            log_entries=["line\n"],
+        app._dispatch_ui_message(
+            (
+                "complete",
+                8,
+                8,
+                100.0,
+                ["Rock", "Pop"],
+                "Rock; Pop",
+                8,
+                0,
+                0,
+                122.0,
+            )
         )
+        _flush_zero_delay(app)
 
-        app.time_label.config.assert_called_once_with(text="Total Time: 02:02")
         summary_text = app.summary_label.config.call_args.kwargs["text"]
         assert "Total: 8 files" in summary_text
         assert "With TITLEGENRE: 8 (100.0%)" in summary_text
@@ -815,25 +744,18 @@ class TestShowComplete:
             text="Consolidated ALBUMGENRE:\nRock; Pop"
         )
         app.completion_label.config.assert_called_once_with(text="Analysis Complete!")
-        app.notebook.select.assert_called_once_with(app._tab_results)
+        app.time_label.config.assert_called_once_with(text="Total Time: 02:02")
+        app.notebook.select.assert_called_once_with(app.results_frame)
         app.start_btn.config.assert_called_once_with(state="normal")
 
     def test_live_mode_shows_consolidation_complete(self):
         app, _, _ = _make_shell_app(None)
         app._is_dry_run = False
 
-        app._show_complete(
-            total=5,
-            files_with_genre=5,
-            coverage_pct=100.0,
-            unique_genres=["Jazz"],
-            album_genre_string="Jazz",
-            write_count=5,
-            write_errors=1,
-            read_errors=0,
-            duration_secs=5.0,
-            log_entries=[],
+        app._dispatch_ui_message(
+            ("complete", 5, 5, 100.0, ["Jazz"], "Jazz", 5, 1, 0, 5.0)
         )
+        _flush_zero_delay(app)
 
         app.completion_label.config.assert_called_once_with(
             text="Genre Consolidation Complete!"
@@ -842,25 +764,13 @@ class TestShowComplete:
         assert "would be" not in summary_text
         assert "Errors: 1" in summary_text
 
-    def test_auto_end_schedules_destroy_and_writes_log(self, tmp_path):
+    def test_auto_end_schedules_destroy(self):
         app, _, _ = _make_shell_app(None)
-        app.auto_end = True
+        app.auto_end_var.get.return_value = True
         app._is_dry_run = True
-        app._log_path = str(tmp_path / "log.txt")
-        app.error_logger = MagicMock()
 
-        log = ["entry\n"]
-        app._show_complete(
-            total=2,
-            files_with_genre=2,
-            coverage_pct=100.0,
-            unique_genres=["Pop"],
-            album_genre_string="Pop",
-            write_count=2,
-            write_errors=0,
-            read_errors=0,
-            duration_secs=1.0,
-            log_entries=log,
+        app._dispatch_ui_message(
+            ("complete", 2, 2, 100.0, ["Pop"], "Pop", 2, 0, 0, 1.0)
         )
 
         destroy_calls = [
@@ -868,27 +778,15 @@ class TestShowComplete:
         ]
         assert len(destroy_calls) == 1
         assert destroy_calls[0].args[0] == 2000
-        app.root.update_idletasks.assert_called_once()
-        # The auto-end block appends to the log list.
-        assert any("Auto End" in entry for entry in log)
+        app.overall_status.set.assert_called_once_with(
+            "Auto End enabled - closing in 2 seconds..."
+        )
 
     def test_no_auto_end_does_not_schedule_destroy(self):
         app, _, _ = _make_shell_app(None)
-        app.auto_end = False
         app._is_dry_run = True
 
-        app._show_complete(
-            total=2,
-            files_with_genre=2,
-            coverage_pct=100.0,
-            unique_genres=[],
-            album_genre_string="",
-            write_count=0,
-            write_errors=0,
-            read_errors=0,
-            duration_secs=0.5,
-            log_entries=[],
-        )
+        app._dispatch_ui_message(("complete", 2, 2, 100.0, [], "", 0, 0, 0, 0.5))
 
         destroy_calls = [
             c for c in app.root.after.call_args_list if c.args[1] == app.root.destroy
@@ -899,17 +797,8 @@ class TestShowComplete:
         app, _, _ = _make_shell_app(None)
         app._is_dry_run = True
 
-        app._show_complete(
-            total=12,
-            files_with_genre=12,
-            coverage_pct=100.0,
-            unique_genres=["Rock"],
-            album_genre_string="Rock",
-            write_count=12,
-            write_errors=0,
-            read_errors=0,
-            duration_secs=10.0,
-            log_entries=[],
+        app._dispatch_ui_message(
+            ("complete", 12, 12, 100.0, ["Rock"], "Rock", 12, 0, 0, 10.0)
         )
 
         assert app.progress.__setitem__.call_args.args == ("value", 13)
@@ -918,40 +807,29 @@ class TestShowComplete:
         app, _, _ = _make_shell_app(None)
         app._is_dry_run = True
 
-        app._show_complete(
-            total=10,
-            files_with_genre=10,
-            coverage_pct=100.0,
-            unique_genres=[],
-            album_genre_string="",
-            write_count=10,
-            write_errors=3,
-            read_errors=2,
-            duration_secs=1.0,
-            log_entries=[],
-        )
+        app._dispatch_ui_message(("complete", 10, 10, 100.0, [], "", 10, 3, 2, 1.0))
 
         summary_text = app.summary_label.config.call_args.kwargs["text"]
         assert "Errors: 5" in summary_text
 
 
-class TestShowError:
-    """_show_error shows an error dialog and re-enables the start button."""
+class TestErrorMessage:
+    """A queued run error is the shell's dialog plus a usable start button."""
 
-    @patch("album_genre_tagger.app.messagebox")
+    @patch("audio_suite_shared.suite_app.messagebox")
     def test_shows_error_and_reenables_start(self, mock_mb):
         app, _, _ = _make_shell_app(None)
 
-        app._show_error("Something went wrong")
+        app._dispatch_ui_message(("error", "Something went wrong"))
 
         mock_mb.showerror.assert_called_once_with("Error", "Something went wrong")
         app.start_btn.config.assert_called_once_with(state="normal")
 
-    @patch("album_genre_tagger.app.messagebox")
+    @patch("audio_suite_shared.suite_app.messagebox")
     def test_empty_message(self, mock_mb):
         app, _, _ = _make_shell_app(None)
 
-        app._show_error("")
+        app._dispatch_ui_message(("error", ""))
 
         mock_mb.showerror.assert_called_once_with("Error", "")
 
@@ -965,20 +843,19 @@ class TestResetProgressUi:
         app._reset_progress_ui()
 
         assert app.progress.__setitem__.call_args.args == ("value", 0)
-        app.file_listbox.insert.assert_called_once_with(
-            tk.END, "=== PHASE 1: READING TITLEGENRE TAGS ==="
-        )
-        app.root.update_idletasks.assert_called_once()
+        app.file_listbox.insert.assert_called_once_with(tk.END, PHASE1_HEADER)
 
 
-class TestShowLogError:
-    """_show_log_error shows an error dialog for log write failures."""
+class TestLogErrorMessage:
+    """A failed report write reaches the user through the poller's dialog."""
 
     @patch("album_genre_tagger.app.messagebox")
     def test_shows_error_dialog(self, mock_mb):
         app, _, _ = _make_shell_app(None)
 
-        app._show_log_error("Could not write log file:\nPermission denied")
+        app._dispatch_ui_message(
+            ("log_error", "Could not write log file:\nPermission denied")
+        )
 
         mock_mb.showerror.assert_called_once_with(
             "Error", "Could not write log file:\nPermission denied"
@@ -989,7 +866,7 @@ class TestShowLogError:
         app, _, _ = _make_shell_app(None)
         long_msg = "Could not write log file:\n" + "x" * 500
 
-        app._show_log_error(long_msg)
+        app._dispatch_ui_message(("log_error", long_msg))
 
         mock_mb.showerror.assert_called_once_with("Error", long_msg)
 
@@ -1035,18 +912,16 @@ def _completion_shell(directory: Path) -> Any:
     """Shell with only what the completion path touches."""
     from album_genre_tagger.app import GenreConsolidatorApp
 
-    root = MagicMock()
-    scheduled: list[Any] = []
-    root.after.side_effect = lambda delay, fn, *args: scheduled.append((fn, args))
-
     app = object.__new__(GenreConsolidatorApp)
-    app.root = root
+    app.root = MagicMock()
     app._dir_path = str(directory)
     app._is_dry_run = True
     app._min_coverage = 50
     app._log_path = os.path.join(str(directory), "AlbumGenre_Tagger_Log.txt")
     app.error_logger = MagicMock()
-    app.auto_end = False
+    app.auto_end_var = MagicMock()
+    app.auto_end_var.get.return_value = False
+    app.overall_status = MagicMock()
     app.progress = MagicMock()
     app.file_listbox = MagicMock()
     app.stats_label = MagicMock()
@@ -1055,9 +930,9 @@ def _completion_shell(directory: Path) -> Any:
     app.completion_label = MagicMock()
     app.genre_label = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
-    app._scheduled = scheduled
+    app._ui_updates = SimpleQueue()
     return app
 
 
@@ -1120,6 +995,8 @@ class TestCompletionSeam:
         app = _completion_shell(tmp_path)
 
         self._run(app, tmp_path)
+        _drain(app)
+        _flush_zero_delay(app)
 
         report = (tmp_path / "AlbumGenre_Tagger_Log.txt").read_text(encoding="utf-8")
         assert "Total files: 3" in report
@@ -1129,9 +1006,6 @@ class TestCompletionSeam:
         assert "Write errors: 1" in report
         assert "Read errors: 1" in report
 
-        # The panel is scheduled from the worker's payload, not rebuilt here.
-        for fn, args in list(app._scheduled):
-            fn(*args)
         text = app.summary_label.config.call_args.kwargs["text"]
         assert text == (
             "Total: 3 files\n"

@@ -18,6 +18,16 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Album Genre Tagger is the twentieth window on `SuiteApp`.** Its two
+  one-line tab delegates are gone and the shell builds the notebook, the
+  Processing tab and the Results tab, with the consolidated genre string
+  as the shell's `result_extra_labels`. The run's four callbacks queue
+  their payload for the shell's poller instead of marshalling with
+  `root.after`, and the coverage check's failure is a queued completion
+  of its own that still leaves the run's report behind. The consolidator's
+  summary marker is `SUMMARY:` like every other tool's, which is what the
+  suite's run-report lock reads.
+
 - **The run report's SUMMARY footer is one function, and the dead scaffold
   is gone.** `SuiteApp`'s writer, the analysis scaffold's `_on_complete`
   and the eight windows that still built the block themselves
