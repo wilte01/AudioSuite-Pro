@@ -339,6 +339,12 @@ Rules:
 - **Destroy what you build.** A container a test makes on the root (`tk.Frame`,
   a `Toplevel`) is that test's to destroy; a fixture that builds one destroys it
   in its teardown.
+- **Build into `parent` when the builder takes one.** The root `conftest.py`
+  provides `parent`, a frame on the shared root that the fixture destroys after
+  the test; a Setup tab, a panel or a dialog row parents its widgets there
+  instead of on the root. It is self-locking - a frame the fixture failed to
+  destroy fails `_shared_root_keeps_nothing` at that test - so a module that
+  uses it needs no declaration.
 - **A module that builds on the root deliberately says so once**, in its body:
   `pytestmark = pytest.mark.usefixtures("clean_shared_root")`. The lock then
   destroys that module's leftovers without failing it. Declaring is for tests

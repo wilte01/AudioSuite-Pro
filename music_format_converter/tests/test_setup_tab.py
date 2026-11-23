@@ -7,10 +7,9 @@ DriverControlsPanel builds genuine widgets.
 Changed in 2.1.2: added the ALAC description tests (R-02), which read the
 label text through both the combobox handler and the update_format_menu
 pre-fill route on real widgets.
-Changed in 2.9.0: the module declares the shared root with
-``clean_shared_root``, so the containers its tests build are destroyed after
-each test and the root carries no leftover Setup frames into the next
-module's title-once check.
+Changed in 2.9.0: ``parent`` is the test's own container on the shared root
+and the fixture destroys it after each test, so the module no longer declares
+``clean_shared_root``.
 """
 
 import tkinter as tk
@@ -23,32 +22,30 @@ from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from music_format_converter.core.formats import ALL_FORMATS
 from music_format_converter.ui import setup_tab
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
-
-def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
+def _make_vars(parent: tk.Frame) -> dict[str, tk.Variable]:
     return {
-        "folder_path": tk.StringVar(master=root),
-        "output_folder": tk.StringVar(master=root),
-        "output_format": tk.StringVar(master=root, value="mp3"),
-        "quality_preset": tk.StringVar(master=root, value="highest"),
-        "sample_rate": tk.StringVar(master=root, value="source"),
-        "bit_depth": tk.StringVar(master=root, value="auto"),
-        "delete_originals": tk.BooleanVar(master=root, value=False),
-        "normalize_mp3": tk.BooleanVar(master=root, value=False),
-        "target_lufs": tk.DoubleVar(master=root, value=-16.0),
-        "dither": tk.BooleanVar(master=root, value=True),
-        "run_mode": tk.StringVar(master=root, value="Dry Run"),
-        "auto_start": tk.BooleanVar(master=root, value=False),
-        "auto_end": tk.BooleanVar(master=root, value=False),
-        "clear_logs": tk.BooleanVar(master=root, value=False),
-        "parallel": tk.BooleanVar(master=root, value=False),
+        "folder_path": tk.StringVar(master=parent),
+        "output_folder": tk.StringVar(master=parent),
+        "output_format": tk.StringVar(master=parent, value="mp3"),
+        "quality_preset": tk.StringVar(master=parent, value="highest"),
+        "sample_rate": tk.StringVar(master=parent, value="source"),
+        "bit_depth": tk.StringVar(master=parent, value="auto"),
+        "delete_originals": tk.BooleanVar(master=parent, value=False),
+        "normalize_mp3": tk.BooleanVar(master=parent, value=False),
+        "target_lufs": tk.DoubleVar(master=parent, value=-16.0),
+        "dither": tk.BooleanVar(master=parent, value=True),
+        "run_mode": tk.StringVar(master=parent, value="Dry Run"),
+        "auto_start": tk.BooleanVar(master=parent, value=False),
+        "auto_end": tk.BooleanVar(master=parent, value=False),
+        "clear_logs": tk.BooleanVar(master=parent, value=False),
+        "parallel": tk.BooleanVar(master=parent, value=False),
     }
 
 
-def _build(root: tk.Tk, **overrides):
-    """Build the tab on a fresh container; returns (kwargs, widgets, container)."""
-    vars_ = _make_vars(root)
+def _build(parent: tk.Frame, **overrides):
+    """Build the tab into *parent*; returns (kwargs, widgets, parent)."""
+    vars_ = _make_vars(parent)
     kwargs = {
         "folder_path": vars_["folder_path"],
         "output_folder": vars_["output_folder"],
@@ -78,9 +75,8 @@ def _build(root: tk.Tk, **overrides):
         "on_preset_selected": MagicMock(),
     }
     kwargs.update(overrides)
-    container = tk.Frame(root)
-    widgets = setup_tab.build(container, **kwargs)
-    return kwargs, widgets, container
+    widgets = setup_tab.build(parent, **kwargs)
+    return kwargs, widgets, parent
 
 
 def _descendant_texts(widget: tk.Widget) -> list[str]:
@@ -93,15 +89,15 @@ def _descendant_texts(widget: tk.Widget) -> list[str]:
 
 
 @pytest.fixture
-def tab_vars(root: tk.Tk):
-    return _make_vars(root)
+def tab_vars(parent: tk.Frame):
+    return _make_vars(parent)
 
 
 class TestWiredWidgets:
     """build() returns every callable/widget the app needs."""
 
-    def test_returns_expected_keys(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root)
+    def test_returns_expected_keys(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent)
         assert isinstance(widgets["start_btn"], tk.Button)
         assert isinstance(widgets["preset_combo"], ttk.Combobox)
         assert callable(widgets["update_detected_label"])
@@ -110,12 +106,12 @@ class TestWiredWidgets:
         assert callable(widgets["refresh_preset_list"])
         assert isinstance(widgets["controls_panel"], DriverControlsPanel)
 
-    def test_start_button_invokes_on_start(self, root: tk.Tk) -> None:
-        kwargs, widgets, _ = _build(root)
+    def test_start_button_invokes_on_start(self, parent: tk.Frame) -> None:
+        kwargs, widgets, _ = _build(parent)
         widgets["start_btn"].invoke()
         kwargs["on_start"].assert_called_once()
 
-    def test_folder_change_bound_to_panel_entry(self, root: tk.Tk) -> None:
+    def test_folder_change_bound_to_panel_entry(self, parent: tk.Frame) -> None:
         """Legacy FocusOut/Return triggers must survive on the panel entry.
 
         Regression guard: when the input-folder row moved into the shared
@@ -124,13 +120,13 @@ class TestWiredWidgets:
         Synthetic key-event dispatch is unreliable headless (a withdrawn root
         never receives real OS focus), so only binding presence is asserted.
         """
-        _, widgets, _ = _build(root)
+        _, widgets, _ = _build(parent)
         entry = widgets["controls_panel"].source_entry
         assert entry.bind("<Return>")
         assert entry.bind("<FocusOut>")
 
-    def test_tool_controls_present(self, root: tk.Tk) -> None:
-        _, _, container = _build(root)
+    def test_tool_controls_present(self, parent: tk.Frame) -> None:
+        _, _, container = _build(parent)
         texts = _descendant_texts(container)
         assert "Output Directory (leave empty for same as input):" in texts
         assert "Output Format:" in texts
@@ -143,14 +139,14 @@ class TestWiredWidgets:
 class TestStandaloneMode:
     """Standalone launch: Source/Mode editable, Auto Start greyed out."""
 
-    def test_source_and_mode_editable(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root, driver_locked=False)
+    def test_source_and_mode_editable(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert str(panel.source_entry.cget("state")) == "normal"
         assert str(panel.mode_combo.cget("state")) == "readonly"
 
-    def test_auto_start_disabled_auto_end_enabled(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root, driver_locked=False)
+    def test_auto_start_disabled_auto_end_enabled(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert panel.auto_start_btn.cget("state") == "disabled"
         assert panel.auto_end_btn.cget("state") == "normal"
@@ -159,42 +155,42 @@ class TestStandaloneMode:
 class TestDrivenMode:
     """Driver launch: whole Run Controls panel locked to inherited values."""
 
-    def test_all_controls_locked(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root, driver_locked=True)
+    def test_all_controls_locked(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent, driver_locked=True)
         panel = widgets["controls_panel"]
         assert str(panel.source_entry.cget("state")) == "disabled"
         assert str(panel.mode_combo.cget("state")) == "disabled"
         assert panel.auto_start_btn.cget("state") == "disabled"
         assert panel.auto_end_btn.cget("state") == "disabled"
 
-    def test_browse_disabled_when_driven(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root, driver_locked=True)
+    def test_browse_disabled_when_driven(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent, driver_locked=True)
         assert str(widgets["controls_panel"].browse_btn.cget("state")) == "disabled"
 
 
 class TestDriverOnlyMirrorState:
     """Clear Logs / Parallel mirror driver state but stay inert."""
 
-    def test_mirror_vars_bound_and_disabled(self, root: tk.Tk, tab_vars) -> None:
+    def test_mirror_vars_bound_and_disabled(self, parent: tk.Frame, tab_vars) -> None:
         overrides = {
             "clear_logs_var": tab_vars["clear_logs"],
             "parallel_var": tab_vars["parallel"],
         }
-        _, widgets, _ = _build(root, driver_locked=True, **overrides)
+        _, widgets, _ = _build(parent, driver_locked=True, **overrides)
         panel = widgets["controls_panel"]
         assert str(panel.clear_logs_btn.cget("state")) == "disabled"
         assert str(panel.parallel_btn.cget("state")) == "disabled"
 
         # Raw Tcl query — cget("variable") is version-specific on 3.14.
-        assert root.tk.eval(str(panel.clear_logs_btn) + " cget -variable") == str(
+        assert parent.tk.eval(str(panel.clear_logs_btn) + " cget -variable") == str(
             tab_vars["clear_logs"]
         )
-        assert root.tk.eval(str(panel.parallel_btn) + " cget -variable") == str(
+        assert parent.tk.eval(str(panel.parallel_btn) + " cget -variable") == str(
             tab_vars["parallel"]
         )
 
-    def test_standalone_still_inert(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root, driver_locked=False)
+    def test_standalone_still_inert(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent, driver_locked=False)
         panel = widgets["controls_panel"]
         assert panel.clear_logs_btn.cget("state") == "disabled"
         assert panel.parallel_btn.cget("state") == "disabled"
@@ -204,9 +200,9 @@ class TestLegacyRowsRemoved:
     """Input folder row and Run Mode block are replaced by the shared panel."""
 
     def test_panel_source_label_present_once_and_legacy_rows_gone(
-        self, root: tk.Tk
+        self, parent: tk.Frame
     ) -> None:
-        _, _, container = _build(root)
+        _, _, container = _build(parent)
         texts = _descendant_texts(container)
         assert texts.count("Source Music Directory:") == 1
         assert "Input Music Directory:" not in texts
@@ -216,13 +212,13 @@ class TestLegacyRowsRemoved:
 class TestLosslessGainControl:
     """MP3 normalization controls must be present and bound."""
 
-    def test_checkbox_present(self, root: tk.Tk) -> None:
-        _, _, container = _build(root)
+    def test_checkbox_present(self, parent: tk.Frame) -> None:
+        _, _, container = _build(parent)
         texts = _descendant_texts(container)
         assert "Normalize MP3 output to target loudness" in " ".join(texts)
 
-    def test_checkbox_bound_to_var(self, root: tk.Tk) -> None:
-        kwargs, _, container = _build(root)
+    def test_checkbox_bound_to_var(self, parent: tk.Frame) -> None:
+        kwargs, _, container = _build(parent)
         boxes = [
             w
             for w in _all_checkbuttons(container)
@@ -230,8 +226,8 @@ class TestLosslessGainControl:
         ]
         assert boxes
 
-    def test_target_lufs_entry_bound(self, root: tk.Tk) -> None:
-        kwargs, _, container = _build(root)
+    def test_target_lufs_entry_bound(self, parent: tk.Frame) -> None:
+        kwargs, _, container = _build(parent)
         entries = [
             w
             for w in _all_entries(container)
@@ -239,8 +235,8 @@ class TestLosslessGainControl:
         ]
         assert entries
 
-    def test_default_target_is_minus_sixteen(self, root: tk.Tk) -> None:
-        kwargs, _, _ = _build(root)
+    def test_default_target_is_minus_sixteen(self, parent: tk.Frame) -> None:
+        kwargs, _, _ = _build(parent)
         assert kwargs["target_lufs"].get() == -16.0
 
 
@@ -272,8 +268,8 @@ def _find_comboboxes(container: tk.Widget) -> list[ttk.Combobox]:
 
 
 class TestSampleRateControl:
-    def test_sample_rate_var_bound_and_values(self, root: tk.Tk) -> None:
-        kwargs, _, container = _build(root)
+    def test_sample_rate_var_bound_and_values(self, parent: tk.Frame) -> None:
+        kwargs, _, container = _build(parent)
         boxes = _find_comboboxes(container)
         labels = [str(b.cget("textvariable")) for b in boxes]
         assert str(kwargs["sample_rate"]) in labels
@@ -291,9 +287,9 @@ class TestSampleRateControl:
         assert "176400" in values
         assert "192000" in values
 
-    def test_sample_rate_ui_preset_order(self, root: tk.Tk) -> None:
+    def test_sample_rate_ui_preset_order(self, parent: tk.Frame) -> None:
         """Presets must list source first (the default passthrough)."""
-        kwargs, _, container = _build(root)
+        kwargs, _, container = _build(parent)
         sr_box = _find_sr_box(container, kwargs)
         assert sr_box.cget("values")[0] == "source"
 
@@ -307,8 +303,8 @@ def _find_sr_box(container: tk.Widget, kwargs: dict, var_key: str = "sample_rate
 
 
 class TestBitDepthControl:
-    def test_bit_depth_var_bound_and_values(self, root: tk.Tk) -> None:
-        kwargs, _, container = _build(root)
+    def test_bit_depth_var_bound_and_values(self, parent: tk.Frame) -> None:
+        kwargs, _, container = _build(parent)
         bd_box = _find_sr_box(container, kwargs, "bit_depth")
         values = list(bd_box.cget("values"))
         assert "auto" in values
@@ -317,22 +313,22 @@ class TestBitDepthControl:
         assert "32" in values
         assert "float" in values
 
-    def test_bit_depth_disabled_for_non_wav(self, root: tk.Tk) -> None:
+    def test_bit_depth_disabled_for_non_wav(self, parent: tk.Frame) -> None:
         """mp3 selected by default → bit depth control is inert."""
-        kwargs, _, container = _build(root)
+        kwargs, _, container = _build(parent)
         bd_box = _find_sr_box(container, kwargs, "bit_depth")
         assert str(bd_box.cget("state")) == "disabled"
 
-    def test_bit_depth_enabled_for_wav_output(self, root: tk.Tk) -> None:
+    def test_bit_depth_enabled_for_wav_output(self, parent: tk.Frame) -> None:
         """Selecting WAV via the app's scan seam re-enables the control."""
-        kwargs, widgets, container = _build(root)
+        kwargs, widgets, container = _build(parent)
         widgets["update_format_menu"](["flac", "wav"], "wav")
         bd_box = _find_sr_box(container, kwargs, "bit_depth")
         assert str(bd_box.cget("state")) == "readonly"
 
-    def test_bit_depth_resets_to_auto_on_format_switch(self, root: tk.Tk) -> None:
+    def test_bit_depth_resets_to_auto_on_format_switch(self, parent: tk.Frame) -> None:
         """Selecting a non-WAV format clears a stale explicit depth."""
-        kwargs, widgets, container = _build(root)
+        kwargs, widgets, container = _build(parent)
         widgets["update_format_menu"](["flac", "wav"], "wav")
         widgets["update_format_info"]("wav")
         kwargs["bit_depth"].set("24")
@@ -353,28 +349,30 @@ class TestDitherControl:
         assert len(boxes) == 1, f"expected one dither checkbox, got {len(boxes)}"
         return boxes[0]
 
-    def test_checkbox_present(self, root: tk.Tk) -> None:
-        _, _, container = _build(root)
+    def test_checkbox_present(self, parent: tk.Frame) -> None:
+        _, _, container = _build(parent)
         assert self._find_dither_box(container) is not None
 
-    def test_defaults_to_on(self, root: tk.Tk) -> None:
+    def test_defaults_to_on(self, parent: tk.Frame) -> None:
         """Dither is the always-on default; the checkbox is only an opt-out."""
-        kwargs, _, _ = _build(root)
+        kwargs, _, _ = _build(parent)
         assert kwargs["dither"].get() is True
 
-    def test_bound_to_the_supplied_var(self, root: tk.Tk) -> None:
+    def test_bound_to_the_supplied_var(self, parent: tk.Frame) -> None:
         """The widget must write through to the app's own BooleanVar."""
-        kwargs, _, container = _build(root)
+        kwargs, _, container = _build(parent)
         box = self._find_dither_box(container)
         box.invoke()
         assert kwargs["dither"].get() is False
         box.invoke()
         assert kwargs["dither"].get() is True
 
-    def test_checkbox_is_enabled_for_every_output_format(self, root: tk.Tk) -> None:
+    def test_checkbox_is_enabled_for_every_output_format(
+        self, parent: tk.Frame
+    ) -> None:
         """Unlike bit depth, this is not gated on format: the depth reduction
         that AIFF performs internally needs it just as much as WAV does."""
-        _, widgets, container = _build(root)
+        _, widgets, container = _build(parent)
         widgets["update_format_menu"](["flac", "wav"], "wav")
         assert str(self._find_dither_box(container).cget("state")) != "disabled"
 
@@ -390,8 +388,8 @@ class TestAlacFormatDescription:
     description the user ever sees.
     """
 
-    def test_alac_description_names_the_m4a_container(self, root: tk.Tk) -> None:
-        _, widgets, container = _build(root)
+    def test_alac_description_names_the_m4a_container(self, parent: tk.Frame) -> None:
+        _, widgets, container = _build(parent)
 
         widgets["update_format_info"]("alac")
 
@@ -400,9 +398,9 @@ class TestAlacFormatDescription:
             texts
         )
 
-    def test_prefill_route_updates_the_description(self, root: tk.Tk) -> None:
+    def test_prefill_route_updates_the_description(self, parent: tk.Frame) -> None:
         """`update_format_menu` is the pre-fill route; it must update the label."""
-        _, widgets, container = _build(root)
+        _, widgets, container = _build(parent)
 
         widgets["update_format_menu"](list(ALL_FORMATS), "alac")
 

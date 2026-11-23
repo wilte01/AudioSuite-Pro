@@ -20,26 +20,16 @@ with it and the module no longer declares ``clean_shared_root``.
 from __future__ import annotations
 
 import tkinter as tk
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
-import pytest
 
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from master_driver.state.app_state import AppState
 from master_driver.ui import refinery_tab
 from master_driver.ui.refinery_tab import _inject_select_all
-
-
-@pytest.fixture
-def parent(root: tk.Tk) -> Iterator[tk.Frame]:
-    """A fresh container on the shared root, destroyed after the test."""
-    frame = tk.Frame(root)
-    yield frame
-    frame.destroy()
 
 
 def _build(

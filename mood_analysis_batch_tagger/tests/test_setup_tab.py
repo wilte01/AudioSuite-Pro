@@ -8,10 +8,9 @@ Behaviour-lock (iteration-7 B3): the tool-own labels/defaults must
 survive the shared-builder consolidation — if dedup removes a
 tool-specific string or default, these tests fail.
 
-Changed in 2.9.0: the module declares the shared root with
-``clean_shared_root``, so every build's container is destroyed after the test
-and a leftover tab cannot leave a second title label on the session root for
-the shell contract to count.
+Changed in 2.9.0: ``parent`` is the test's own container on the shared root
+and the fixture destroys it after each test, so the module no longer declares
+``clean_shared_root``.
 """
 
 import tkinter as tk
@@ -23,26 +22,24 @@ import pytest
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from mood_analysis_batch_tagger.ui import setup_tab
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
 
-
-def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
+def _make_vars(parent: tk.Frame) -> dict[str, tk.Variable]:
     return {
-        "root_path": tk.StringVar(master=root),
-        "run_mode": tk.StringVar(master=root, value="Dry Run"),
-        "analysis_duration": tk.IntVar(master=root, value=90),
-        "auto_start": tk.BooleanVar(master=root, value=False),
-        "auto_end": tk.BooleanVar(master=root, value=False),
-        "clear_logs": tk.BooleanVar(master=root, value=False),
-        "parallel": tk.BooleanVar(master=root, value=False),
-        "parallel_mode": tk.BooleanVar(master=root, value=True),
-        "max_workers": tk.IntVar(master=root, value=4),
+        "root_path": tk.StringVar(master=parent),
+        "run_mode": tk.StringVar(master=parent, value="Dry Run"),
+        "analysis_duration": tk.IntVar(master=parent, value=90),
+        "auto_start": tk.BooleanVar(master=parent, value=False),
+        "auto_end": tk.BooleanVar(master=parent, value=False),
+        "clear_logs": tk.BooleanVar(master=parent, value=False),
+        "parallel": tk.BooleanVar(master=parent, value=False),
+        "parallel_mode": tk.BooleanVar(master=parent, value=True),
+        "max_workers": tk.IntVar(master=parent, value=4),
     }
 
 
-def _build(root: tk.Tk, **overrides):
-    """Build the tab on a fresh container; returns (kwargs, widgets, container)."""
-    vars_ = _make_vars(root)
+def _build(parent: tk.Frame, **overrides):
+    """Build the tab into *parent*; returns (kwargs, widgets, parent)."""
+    vars_ = _make_vars(parent)
     kwargs = {
         "root_path": vars_["root_path"],
         "run_mode": vars_["run_mode"],
@@ -61,9 +58,8 @@ def _build(root: tk.Tk, **overrides):
         "on_preset_selected": MagicMock(),
     }
     kwargs.update(overrides)
-    container = tk.Frame(root)
-    widgets = setup_tab.build(container, **kwargs)
-    return kwargs, widgets, container
+    widgets = setup_tab.build(parent, **kwargs)
+    return kwargs, widgets, parent
 
 
 def _descendant_texts(widget: tk.Widget) -> list[str]:
@@ -78,42 +74,42 @@ def _descendant_texts(widget: tk.Widget) -> list[str]:
 class TestWiredWidgets:
     """build() returns every callable/widget the app needs."""
 
-    def test_returns_expected_keys(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root)
+    def test_returns_expected_keys(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent)
         assert isinstance(widgets["start_btn"], tk.Button)
         assert isinstance(widgets["preset_combo"], ttk.Combobox)
         assert callable(widgets["refresh_preset_list"])
         assert isinstance(widgets["controls_panel"], DriverControlsPanel)
 
-    def test_start_button_invokes_on_start(self, root: tk.Tk) -> None:
-        kwargs, widgets, _ = _build(root)
+    def test_start_button_invokes_on_start(self, parent: tk.Frame) -> None:
+        kwargs, widgets, _ = _build(parent)
         widgets["start_btn"].invoke()
         kwargs["on_start"].assert_called_once()
 
-    def test_start_button_label_is_batch_mood_specific(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root)
+    def test_start_button_label_is_batch_mood_specific(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent)
         assert widgets["start_btn"].cget("text") == "BEGIN BATCH MOOD ANALYSIS"
 
 
 class TestDistinctToolSurfaces:
     """Tool-own texts survive consolidation (no over-eager dedup)."""
 
-    def test_title_and_option_labels(self, root: tk.Tk) -> None:
-        _, _, container = _build(root)
+    def test_title_and_option_labels(self, parent: tk.Frame) -> None:
+        _, _, container = _build(parent)
         texts = _descendant_texts(container)
         assert "Mood Analysis Batch Tagger" in texts
         assert "Analysis Duration (seconds):" in texts
         assert "(Lower values = faster processing, less accuracy)" in texts
         assert "How Mood Is Determined:" in texts
 
-    def test_help_text_content_is_batch_proprietary(self, root: tk.Tk) -> None:
-        _, _, container = _build(root)
+    def test_help_text_content_is_batch_proprietary(self, parent: tk.Frame) -> None:
+        _, _, container = _build(parent)
         joined = "\n".join(_descendant_texts(container))
         assert "recursively scans" in joined
         assert "mood_analysis_batch_log.txt" in joined
 
-    def test_parallel_row_present_with_caption(self, root: tk.Tk) -> None:
-        _, widgets, _ = _build(root)
+    def test_parallel_row_present_with_caption(self, parent: tk.Frame) -> None:
+        _, widgets, _ = _build(parent)
         texts = _descendant_texts(widgets["start_btn"].master)
         assert "Parallel Processing" in texts
         assert "Workers:" in texts
@@ -121,6 +117,6 @@ class TestDistinctToolSurfaces:
 
 
 @pytest.mark.parametrize("driver_locked", [False, True])
-def test_build_completes_without_raising(root: tk.Tk, driver_locked: bool) -> None:
-    _, widgets, _ = _build(root, driver_locked=driver_locked)
+def test_build_completes_without_raising(parent: tk.Frame, driver_locked: bool) -> None:
+    _, widgets, _ = _build(parent, driver_locked=driver_locked)
     assert widgets["controls_panel"] is not None

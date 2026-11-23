@@ -64,6 +64,9 @@ green.  ``clean_shared_root``'s declaration is load-bearing too: the lock
 records the modules it sees building on the root, and the session fails every
 module that declared it and built nothing - an unused declaration
 pre-approves the next leak.
+Changed in 2.9.0: ``parent`` is the suite's container on the shared root -
+a frame the fixture destroys after the test - so a Setup tab or a panel
+builds into it instead of on the root and needs no declaration.
 """
 
 from __future__ import annotations
@@ -627,6 +630,21 @@ def tk_root() -> tk.Tk:
     tk_root = _root
     assert tk_root is not None, "No display available — Tk root was not created"
     return tk_root
+
+
+@pytest.fixture()
+def parent(root: tk.Tk) -> Generator[tk.Frame, None, None]:
+    """A fresh container on the shared root, destroyed after the test.
+
+    A suite that builds a tab, a panel or a dialog row parents it here
+    instead of on the root, so the widget tree goes with the fixture's
+    teardown and the module needs no ``clean_shared_root`` declaration.  A
+    build that misses this fixture still fails the lock at its own teardown,
+    so an undeclared leak is reported the same way it always was.
+    """
+    frame = tk.Frame(root)
+    yield frame
+    frame.destroy()
 
 
 @pytest.fixture()

@@ -466,6 +466,21 @@ used once, and every bullet belongs to exactly one of them.
   declaration now covers the suites that build on the root inline, which is
   what it is for.
 
+- **The Setup suites all build into one shared `parent` fixture.**
+  `conftest.py` now provides `parent`: a fresh frame on the session root that
+  the fixture destroys after the test. The fourteen Setup-tab suites, the
+  REFINE tab and Lyrics Manager build into it instead of making their own
+  `tk.Frame(root)`, so their declarations are gone - seventeen modules down to
+  the three that still build on the root inline (`audio_refinery`, whose
+  builder takes the caller's frame, `ui_common`'s dialog and row helpers, and
+  `ui_audition`'s builder). One fixture is the point: nine copies of a
+  destroy-the-containers fixture were the defect D41 removed, so its
+  replacement is declared once rather than fifteen times. It is self-locking,
+  too: a frame the fixture failed to destroy would be seen by
+  `_shared_root_keeps_nothing` at that test's teardown, so the fixture needs
+  no separate lock. The REFINE helper also stops returning the parent its
+  caller just passed, which removes a redundant value from 34 call sites.
+
 ### Removed
 
 - **The analyse-and-tag scaffold is deleted.** `AnalysisTagToolApp` had no

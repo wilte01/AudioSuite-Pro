@@ -8,10 +8,9 @@ Validates the Run Controls panel integration:
   - driver-launched build locks the whole panel to inherited values
   - legacy folder / mode rows are fully replaced by the shared panel
 
-Changed in 2.9.0: the module declares the shared root with
-``clean_shared_root``, so every build's container is destroyed after the test
-and a leftover tab cannot leave a second title label on the session root for
-the shell contract to count.
+Changed in 2.9.0: ``parent`` is the test's own container on the shared root
+and the fixture destroys it after each test, so the module no longer declares
+``clean_shared_root``.
 """
 
 import tkinter as tk
@@ -21,8 +20,6 @@ import pytest
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from replaygain_analyzer.ui import setup_tab
 
-pytestmark = pytest.mark.usefixtures("clean_shared_root")
-
 
 def _container(parent: tk.Misc) -> tk.Frame:
     """A fresh frame to build into, registered for teardown."""
@@ -30,29 +27,29 @@ def _container(parent: tk.Misc) -> tk.Frame:
     return frame
 
 
-def _make_vars(root):
+def _make_vars(parent):
     # Explicit master keeps every var on the session root's interpreter,
     # immune to other packages' tests disturbing tkinter's default root.
     return {
-        "folder_path": tk.StringVar(master=root, value=""),
-        "target_lufs": tk.StringVar(master=root, value="-16.0"),
-        "run_mode": tk.StringVar(master=root, value="Dry Run"),
-        "auto_start_var": tk.BooleanVar(master=root, value=False),
-        "auto_end_var": tk.BooleanVar(master=root, value=False),
-        "clear_logs_var": tk.BooleanVar(master=root, value=False),
-        "parallel_var": tk.BooleanVar(master=root, value=False),
-        "apply_lossless_gain_var": tk.BooleanVar(master=root, value=False),
+        "folder_path": tk.StringVar(master=parent, value=""),
+        "target_lufs": tk.StringVar(master=parent, value="-16.0"),
+        "run_mode": tk.StringVar(master=parent, value="Dry Run"),
+        "auto_start_var": tk.BooleanVar(master=parent, value=False),
+        "auto_end_var": tk.BooleanVar(master=parent, value=False),
+        "clear_logs_var": tk.BooleanVar(master=parent, value=False),
+        "parallel_var": tk.BooleanVar(master=parent, value=False),
+        "apply_lossless_gain_var": tk.BooleanVar(master=parent, value=False),
     }
 
 
-def _build(root, **overrides):
-    kwargs = _make_vars(root)
+def _build(parent, **overrides):
+    kwargs = _make_vars(parent)
     callbacks = {
         "on_browse_calls": [],
         "on_start_calls": [],
     }
     controls = setup_tab.build(
-        _container(root),
+        _container(parent),
         folder_path=kwargs["folder_path"],
         target_lufs=kwargs["target_lufs"],
         run_mode=kwargs["run_mode"],
@@ -81,8 +78,8 @@ def _descendant_texts(widget):
 
 
 class TestBuildReturnsWiredWidgets:
-    def test_returns_all_documented_keys(self, root):
-        _, controls, _ = _build(root)
+    def test_returns_all_documented_keys(self, parent):
+        _, controls, _ = _build(parent)
         assert set(controls) == {
             "start_btn",
             "preset_combo",
@@ -90,30 +87,30 @@ class TestBuildReturnsWiredWidgets:
             "controls_panel",
         }
 
-    def test_controls_panel_is_shared_widget(self, root):
-        _, controls, _ = _build(root)
+    def test_controls_panel_is_shared_widget(self, parent):
+        _, controls, _ = _build(parent)
         assert isinstance(controls["controls_panel"], DriverControlsPanel)
 
-    def test_start_button_invokes_on_start(self, root):
-        _, controls, callbacks = _build(root)
+    def test_start_button_invokes_on_start(self, parent):
+        _, controls, callbacks = _build(parent)
         controls["start_btn"].invoke()
         assert callbacks["on_start_calls"] == [True]
 
-    def test_browse_button_invokes_on_browse(self, root):
-        _, controls, callbacks = _build(root)
+    def test_browse_button_invokes_on_browse(self, parent):
+        _, controls, callbacks = _build(parent)
         panel = controls["controls_panel"]
         assert panel.browse_btn is not None
         assert panel.browse_btn.cget("text") == "Browse"
         panel.browse_btn.invoke()
         assert callbacks["on_browse_calls"] == [True]
 
-    def test_source_entry_bound_to_folder_var(self, root):
-        kwargs, controls, _ = _build(root)
+    def test_source_entry_bound_to_folder_var(self, parent):
+        kwargs, controls, _ = _build(parent)
         kwargs["folder_path"].set("D:/Music")
         assert controls["controls_panel"].source_entry.get() == "D:/Music"
 
-    def test_refresh_preset_list_updates_combo(self, root):
-        _, controls, _ = _build(root)
+    def test_refresh_preset_list_updates_combo(self, parent):
+        _, controls, _ = _build(parent)
         combo = controls["preset_combo"]
         controls["refresh_preset_list"](["Album", "Streaming"])
         assert list(combo["values"]) == ["Album", "Streaming"]
@@ -125,8 +122,8 @@ class TestStandalonePanelState:
 
     @pytest.fixture
     @staticmethod
-    def panel(root):
-        _, controls, _ = _build(root, driver_locked=False)
+    def panel(parent):
+        _, controls, _ = _build(parent, driver_locked=False)
         return controls["controls_panel"]
 
     def test_source_and_browse_editable(self, panel):
@@ -152,8 +149,8 @@ class TestDrivenPanelState:
 
     @pytest.fixture
     @staticmethod
-    def panel(root):
-        _, controls, _ = _build(root, driver_locked=True)
+    def panel(parent):
+        _, controls, _ = _build(parent, driver_locked=True)
         return controls["controls_panel"]
 
     def test_source_locked(self, panel):
@@ -170,10 +167,10 @@ class TestDrivenPanelState:
 class TestLegacyRowsRemoved:
     """The old folder row and mode selector must not coexist with the panel."""
 
-    def test_no_duplicate_folder_or_mode_labels(self, root):
+    def test_no_duplicate_folder_or_mode_labels(self, parent):
         # Build inside a fresh container so the widget walk is not
         # polluted by panels created by earlier tests on the shared root.
-        container = _container(root)
+        container = _container(parent)
         _build(container)
         texts = _descendant_texts(container)
         assert texts.count("Source Music Directory:") == 1
@@ -184,23 +181,23 @@ class TestLegacyRowsRemoved:
 class TestLosslessGainCheckbox:
     """apply_lossless_gain_var checkbox renders and binds correctly."""
 
-    def test_checkbox_present_when_var_provided(self, root):
-        container = _container(root)
+    def test_checkbox_present_when_var_provided(self, parent):
+        container = _container(parent)
         _, controls, _ = _build(container)
         texts = _descendant_texts(container)
         assert any("losslessly" in t.lower() for t in texts)
 
-    def test_checkbox_not_present_when_var_none(self, root):
-        container = _container(root)
+    def test_checkbox_not_present_when_var_none(self, parent):
+        container = _container(parent)
         setup_tab.build(
             container,
-            folder_path=tk.StringVar(master=root),
-            target_lufs=tk.StringVar(master=root),
-            run_mode=tk.StringVar(master=root),
-            auto_start_var=tk.BooleanVar(master=root),
-            auto_end_var=tk.BooleanVar(master=root),
-            clear_logs_var=tk.BooleanVar(master=root),
-            parallel_var=tk.BooleanVar(master=root),
+            folder_path=tk.StringVar(master=parent),
+            target_lufs=tk.StringVar(master=parent),
+            run_mode=tk.StringVar(master=parent),
+            auto_start_var=tk.BooleanVar(master=parent),
+            auto_end_var=tk.BooleanVar(master=parent),
+            clear_logs_var=tk.BooleanVar(master=parent),
+            parallel_var=tk.BooleanVar(master=parent),
             apply_lossless_gain_var=None,
             on_browse=lambda: None,
             on_start=lambda: None,
@@ -212,16 +209,16 @@ class TestLosslessGainCheckbox:
 class TestDriverOnlyMirrorState:
     """Clear Logs / Parallel checkboxes mirror driver state, stay inert."""
 
-    def test_mirror_vars_bound_and_disabled(self, root) -> None:
-        kwargs, controls, _ = _build(root, driver_locked=True)
+    def test_mirror_vars_bound_and_disabled(self, parent) -> None:
+        kwargs, controls, _ = _build(parent, driver_locked=True)
         panel = controls["controls_panel"]
         assert str(panel.clear_logs_btn.cget("state")) == "disabled"
         assert str(panel.parallel_btn.cget("state")) == "disabled"
 
         # Raw Tcl query — cget("variable") is version-specific on 3.14.
-        assert root.tk.eval(str(panel.clear_logs_btn) + " cget -variable") == str(
+        assert parent.tk.eval(str(panel.clear_logs_btn) + " cget -variable") == str(
             kwargs["clear_logs_var"]
         )
-        assert root.tk.eval(str(panel.parallel_btn) + " cget -variable") == str(
+        assert parent.tk.eval(str(panel.parallel_btn) + " cget -variable") == str(
             kwargs["parallel_var"]
         )
