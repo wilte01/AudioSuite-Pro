@@ -518,6 +518,18 @@ used once, and every bullet belongs to exactly one of them.
   driver note stay on the worker, and the error dialog is raised by the shell's
   handler on the Tk thread.
 
+- **The Album Art Normalizer's and Music Format Converter's Setup suites leave
+  the shared Tk root as they found it.** Each built its tab in a bare
+  `tk.Frame` on the session-scoped root and never destroyed it, so every test
+  left a whole Setup tab — including its title label — parented on the root
+  that the contract test walks. `pytest album_art_normalizer
+  tests/test_suite_app_contract.py` therefore failed
+  `test_the_tool_title_is_shown_once[ArtNormalizerApp]` with twelve labels,
+  and the converter failed the same way; the bare gate's module order (root
+  `tests/` collect before the packages) hid both. Both suites now collect the
+  containers they build and destroy them in an autouse fixture, the pattern
+  the other Setup-tab suites already use.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added
