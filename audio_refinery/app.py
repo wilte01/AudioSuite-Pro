@@ -20,13 +20,18 @@ Changed in 2.4.1: the local ``_ThreadSafeSlotVar`` clone is retired
 behind ``audio_suite_shared.thread_safe_slot_var.make_safe_slot_vars``,
 the helper four sibling tools already used (WP-3).
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+Changed in 2.9.0: the window composes ``SuiteApp`` (C1 stage 3).  The shell
+builds the Help bar, the notebook and the Processing and Results tabs, so the
+window supplies its settings panel, its own album table and its run; the three
+callbacks queue their payload for the shell's poller instead of calling
+``root.after`` from the worker thread, and the report gains the ``SUMMARY:``
+marker the suite's report lock reads.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import threading
 import tkinter as tk
 from pathlib import Path
 from queue import Queue
@@ -36,11 +41,9 @@ from typing import Any, Mapping, Sequence, cast
 from audio_suite_shared import (
     audio_playback,
     optional_deps,
-    styles,
     suite_config,
     ui_common,
 )
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
@@ -51,16 +54,15 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.file_discovery import FileDiscoveryMixin
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_audition import AuditionMixin
-from audio_suite_shared.ui_helpers import UIHelperMixin
 from noise_reduction.core.models import BROADBAND_ENGINES, SPECTRAL_ENGINE
 from noise_reduction.core.noise_reducer import analyse_noise
 
 from .core.file_processor import run_pipeline
 from .core.models import has_active_stage
 from .core.registry import CompletionRegistry
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import results_tab, setup_tab
 from .utils import cli_args
 from .utils.cli_args import parse as parse_cli
 from .utils.settings import load as load_settings
@@ -75,21 +77,22 @@ _TOOL_ID = "audio_refinery"
 _PREVIEW_FILE_CAP = 25
 
 
-class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
+class AudioRefineryApp(SuiteApp, FileDiscoveryMixin):
     """Main application window for Audio Refinery."""
 
+    title = "Audio Refinery"
+    window_key = "audio_refinery_window"
+    program_name = _TOOL_ID
+    #: Kept for the guide registry scan; the shell reads guide_name.
     HELP_GUIDE = "Audio_Refinery_User_Guide.docx"
+    guide_name = HELP_GUIDE
+    completion_text = "Refinery Complete!"
+    #: The window's own tab captions, unchanged by the migration.
+    tab_labels = ("  1. Setup  ", "  2. Processing  ", "  3. Results  ")
+    #: The shared Results tab carries the before/after audition row.
+    audition_row = True
 
     def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.root.update_idletasks()
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Audio Refinery",
-            "audio_refinery_window",
-            "audio_refinery",
-        )
-
         # ── Tk variables ──────────────────────────────────────────────────────
         self.source_path = tk.StringVar()
         self.output_path = tk.StringVar()
@@ -114,22 +117,21 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         self._out_dir: str = ""
         self._in_place: bool = False
         self._run_was_dry_run: bool = False
-        # overall_status is set after processing_tab.build() returns its dict
 
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
-        self.slot_vars = [
+        # Built before super().__init__: the shell renders the grid from it.
+        self.slot_vars: list[tk.StringVar] = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
+        self._safe_slot_vars = make_safe_slot_vars(root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        super().__init__(root)
 
         # ── CLI args ──────────────────────────────────────────────────────────
         self._apply_cli_args()
@@ -144,31 +146,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         # Watch for source path changes to swap registry
         self.source_path.trace_add("write", self._on_source_changed)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Shell tabs ────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        # Menu bar / help button row
-        top = tk.Frame(self.root, bg=styles.BG_APP, pady=4)
-        top.pack(fill="x", padx=12)
-        tk.Button(
-            top,
-            text="? Help",
-            bg=styles.BG_LIGHT,
-            fg=styles.FG_SUB,
-            font=styles.FONT_CAPTION,
-            relief=tk.FLAT,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=8, pady=(0, 8))
-
-        # ── Tab 1: Setup ──────────────────────────────────────────────────────
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_WHITE)
-        self.notebook.add(tab_setup, text="  1. Setup  ")
-
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folders, the stage panels and the run controls."""
         setup_widgets = setup_tab.build(
-            parent=tab_setup,
+            parent=parent,
             source_path=self.source_path,
             output_path=self.output_path,
             config=self.config,
@@ -191,46 +174,22 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         )
         self.start_btn = cast(tk.Button, setup_widgets["start_btn"])
         self.reset_btn = cast(tk.Button, setup_widgets["reset_btn"])
+        self.controls_panel = setup_widgets["controls_panel"]
         self._setup_state = setup_widgets
         self._refresh_preset_list = self._setup_state.get("refresh_preset_list")
 
-        # ── Tab 2: Processing ─────────────────────────────────────────────────
-        tab_proc = tk.Frame(self.notebook, bg=styles.BG_WHITE)
-        self.notebook.add(tab_proc, text="  2. Processing  ")
+    def _build_results_tab(self, parent: tk.Frame) -> None:
+        """Build the shell's Results tab, then the album table under it.
 
-        proc_widgets = processing_tab.build(
-            parent=tab_proc,
-            slot_vars=self.slot_vars,
-        )
-        self.overall_status = proc_widgets["overall_status"]
-        self._progress_bar = proc_widgets["progress"]
-        self._stats_label = proc_widgets["stats_label"]
-        self._file_listbox = proc_widgets["file_listbox"]
-        # The shared progress tick writes the mixin's declared attributes.
-        self.progress = self._progress_bar
-        self.file_listbox = self._file_listbox
-
-        # ── Tab 3: Results ────────────────────────────────────────────────────
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_WHITE)
-        self.notebook.add(tab_results, text="  3. Results  ")
-        self._tab_results = tab_results
-
-        results_widgets = results_tab.build(
-            parent=tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
-            on_play_original=self._play_original,
-            on_play_result=self._play_result,
-        )
-        self._completion_label = results_widgets["completion_label"]
-        self._time_label = results_widgets["time_label"]
-        self._summary_label = results_widgets["summary_label"]
+        The album report is the Refinery's own - no other tool plans an album -
+        so it is added to the tab the shell built instead of a second copy of
+        the shared results layout.
+        """
+        super()._build_results_tab(parent)
+        album = results_tab.build_album_table(parent)
         # Changed in 2.7.0: the album table the completion handler fills (F-S6).
-        self._album_frame: tk.Frame = results_widgets["album_frame"]
-        self._album_tree: ttk.Treeview = results_widgets["album_tree"]
-        self.setup_audition(results_widgets)
-
-        self._tab_processing = tab_proc
+        self._album_frame: tk.Frame = album["album_frame"]
+        self._album_tree: ttk.Treeview = album["album_tree"]
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -249,15 +208,6 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             path_variable=self.output_path,
             save_last_dir=False,
         )
-
-    def _open_help(self) -> None:
-        self._open_help_standard(self.HELP_GUIDE)
-
-    def _open_log(self) -> None:
-        self._open_log_standard()
-
-    def _open_folder(self) -> None:
-        self._open_folder_standard()
 
     def _on_source_changed(self, *_: Any) -> None:
         src = self.source_path.get().strip()
@@ -812,16 +762,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             save_settings(self.config)
 
             self.start_btn.config(state="disabled")
-            self._file_listbox.delete(0, tk.END)
-            self._progress_bar["value"] = 0
-            self.notebook.select(self._tab_processing)
+            self.file_listbox.delete(0, tk.END)
+            self.progress["value"] = 0
+            self.notebook.select(self.processing_frame)
             self.overall_status.set("Pipeline running…")
 
-            threading.Thread(
-                target=self._run,
-                args=(source_dir, output_dir),
-                daemon=True,
-            ).start()
+            self._start_worker(self._run, (source_dir, output_dir))
 
         except Exception as exc:
             mapped = map_to_audio_error(exc)
@@ -833,8 +779,8 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
 
     @handle_audio_errors(reraise=False, context="audio_refinery_app_run")
     def _run(self, source_dir: Path, output_dir: Path) -> None:
-        # _on_start loaded the registry for this source before spawning the
-        # thread; narrow the Optional for run_pipeline's benefit.
+        # start_processing loaded the registry for this source before the
+        # shell started this thread; narrow the Optional for run_pipeline.
         registry = self._registry
         assert registry is not None
         with active_batch("audio_refinery", "tag_edit"):
@@ -850,6 +796,8 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
                 on_error=self._on_error,
             )
 
+    # ── Callbacks (worker thread: queue only, no widget writes) ──────────────
+
     def _on_progress(
         self,
         processed: int,
@@ -861,13 +809,10 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         log_text: str,
         **_extra: Any,
     ) -> None:
-        def _update() -> None:
-            self._render_progress_standard(processed, total, display_text)
-            self.overall_status.set(
-                f"Processing… {processed}/{total}  ✓{succeeded}  ⊘{skipped}  ✗{errors}"
-            )
-
-        self.root.after(0, _update)
+        """Queue one progress tick for the shell's poller."""
+        self._ui_updates.put(
+            ("progress", processed, total, succeeded, skipped, errors, display_text)
+        )
 
     def _on_complete(
         self,
@@ -881,9 +826,20 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
         album_rows: Sequence[Mapping[str, str]],
         **_extra: Any,
     ) -> None:
+        """Write the run's report, then queue the finished run.
+
+        The report is serialised on the run's own thread; every widget write
+        is the poller's.  A failed write is queued as a message rather than
+        raised, because the audio work is already done.
+        """
         logger.info(
-            f"_on_complete called: total={total}, processed={processed}, "
-            f"succeeded={succeeded}, skipped={skipped}, errors={errors}"
+            "_on_complete called: total=%s, processed=%s, succeeded=%s, "
+            "skipped=%s, errors=%s",
+            total,
+            processed,
+            succeeded,
+            skipped,
+            errors,
         )
         try:
             Path(self._log_path).parent.mkdir(parents=True, exist_ok=True)
@@ -897,86 +853,38 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
                     from .core.models import AUTO_STAGES
 
                     chosen = [s for s in AUTO_STAGES if s in auto_stages]
-                    mode = "DRY RUN" if self.run_mode.get() == "Dry Run" else "LIVE"
+                    mode = "DRY RUN" if self._run_was_dry_run else "LIVE"
                     fh.write(
                         f"Mode: {mode} - BEST AUDIO: {len(chosen)} of "
                         f"{len(AUTO_STAGES)} stages ({', '.join(chosen)})\n"
                     )
                 fh.writelines(log_entries)
                 fh.write("=" * 50 + "\n")
+                # Changed in 2.9.0: the marker every suite report carries, so
+                # the run-report lock reads this file like its peers' (C1).
+                fh.write("SUMMARY:\n")
                 fh.write(
                     f"Total: {total}  Processed: {processed}  "
                     f"Succeeded: {succeeded}  Skipped: {skipped}  Errors: {errors}  "
                     f"Time: {duration_secs:.1f}s\n"
                 )
-        except PermissionError as exc:
-            messagebox.showerror(
-                "Permission Denied",
-                f"Cannot write log file:\n{self._log_path}\n\n"
-                f"Please check file permissions and try again.\n\n{str(exc)}",
-            )
-        except OSError as exc:
-            messagebox.showerror(
-                "Log Write Error",
-                f"Failed to write log file:\n{self._log_path}\n\n{str(exc)}",
-            )
-        except Exception as exc:
-            mapped = map_to_audio_error(exc)
-            logger.error("Unexpected Error: %s", mapped, exc_info=True)
-            messagebox.showerror(
-                "Unexpected Error",
-                f"An error occurred while saving log:\n{user_message_for(mapped)}",
-            )
-
-        def _update() -> None:
-            mins, secs = divmod(int(duration_secs), 60)
-            time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
-
-            self._completion_label.config(
-                text=f"Refinery Complete — {succeeded} file(s) processed"
-            )
-            self._time_label.config(text=f"Total time: {time_str}")
-            self._show_album_rows(album_rows)
-            # Changed in 2.9.0: a run that measured its own parameters opens the
-            # results with level matching ticked, because the difference a
-            # measured run makes is mostly a level difference.  The shipped
-            # switch is unchanged and the user can untick it; a manual run's
-            # default is exactly what it was.
-            level_match = getattr(self, "_level_match_var", None)
-            auto_stages = getattr(getattr(self, "config", None), "auto_stages", ())
-            if auto_stages and level_match is not None:
-                level_match.set(True)
-            self.notebook.select(self._tab_results)
-            self.start_btn.config(state="normal")
-            self.overall_status.set("Complete")
-
-            if self._run_was_dry_run:
-                # Nothing was written — the captured original is what exists on
-                # disk, so only Play Original is meaningful.
-                self.set_audition_state(
-                    self._audition_original,
-                    None,
-                    "Dry Run — nothing written. Play Result is unavailable.",
+        # BLE001 boundary: the audio work is done; the write is best effort.
+        except Exception as exc:  # noqa: BLE001
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error("Could not write the run report: %s", mapped, exc_info=True)
+            self._ui_updates.put(
+                (
+                    "report_error",
+                    "The run finished, but its report could not be written:\n"
+                    f"{self._log_path}\n\n{user_message_for(mapped)}",
                 )
-            elif (
-                self._audition_original is not None
-                and self._audition_result is not None
-            ):
-                name = Path(self._audition_result).name
-                self.set_audition_state(
-                    self._audition_original,
-                    self._audition_result,
-                    f"Audition ready — {name} (original vs result)",
-                )
-            else:
-                self.set_audition_state(
-                    None, None, "No supported audio file found for audition."
-                )
+            )
 
-            if self.auto_end_var.get():
-                self.root.after(1500, self.root.destroy)
+        self._ui_updates.put(("complete", succeeded, album_rows, duration_secs))
 
-        self.root.after(0, _update)
+    def _on_error(self, message: str) -> None:
+        """Queue a fatal run error for the shell's poller."""
+        self._ui_updates.put(("error", message))
 
     def _show_album_rows(self, rows: Sequence[Mapping[str, str]]) -> None:
         """Fill the album table, or hide it when the run planned no album.
@@ -1002,13 +910,68 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin, FileDiscoveryMixin):
             )
         self._album_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-    def _on_error(self, message: str) -> None:
-        def _update() -> None:
-            messagebox.showerror("Pipeline Error", message)
-            self.start_btn.config(state="normal")
-            self.overall_status.set("Error")
+    # ── Rendering (Tk thread: one queued message at a time) ──────────────────
 
-        self.root.after(0, _update)
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued message on the Tk thread."""
+        kind = message[0]
+        if kind == "progress":
+            _, processed, total, succeeded, skipped, errors, display_text = message
+            self._render_progress_standard(processed, total, display_text)
+            self.overall_status.set(
+                f"Processing… {processed}/{total}  ✓{succeeded}  ⊘{skipped}  ✗{errors}"
+            )
+        elif kind == "complete":
+            _, succeeded, album_rows, duration_secs = message
+            self._render_complete(succeeded, album_rows, duration_secs)
+        elif kind == "error":
+            super()._on_error(message[1])
+            self.overall_status.set("Error")
+        elif kind == "report_error":
+            messagebox.showerror("Report Not Written", message[1])
+
+    def _render_complete(
+        self,
+        succeeded: int,
+        album_rows: Sequence[Mapping[str, str]],
+        duration_secs: float,
+    ) -> None:
+        """Show the finished run (Tk thread only)."""
+        self._show_album_rows(album_rows)
+        # Changed in 2.9.0: a run that measured its own parameters opens the
+        # results with level matching ticked, because the difference a measured
+        # run makes is mostly a level difference.  The shipped switch is
+        # unchanged and the user can untick it.
+        level_match = getattr(self, "_level_match_var", None)
+        auto_stages = getattr(getattr(self, "config", None), "auto_stages", ())
+        if auto_stages and level_match is not None:
+            level_match.set(True)
+        self.overall_status.set("Complete")
+        self.completion_text = f"Refinery Complete — {succeeded} file(s) processed"
+        self.render_completion(duration_secs=duration_secs, output_dir=self._out_dir)
+
+        if self._run_was_dry_run:
+            # Nothing was written - the captured original is what exists on
+            # disk, so only Play Original is meaningful.
+            self.set_audition_state(
+                self._audition_original,
+                None,
+                "Dry Run — nothing written. Play Result is unavailable.",
+            )
+        elif self._audition_original is not None and self._audition_result is not None:
+            name = Path(self._audition_result).name
+            self.set_audition_state(
+                self._audition_original,
+                self._audition_result,
+                f"Audition ready — {name} (original vs result)",
+            )
+        else:
+            self.set_audition_state(
+                None, None, "No supported audio file found for audition."
+            )
+
+        if self.auto_end_var.get():
+            self.root.after(1500, self.root.destroy)
 
     # ── CLI integration ───────────────────────────────────────────────────────
 

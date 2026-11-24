@@ -18,6 +18,18 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Audio Refinery is the twenty-first window on `SuiteApp`.** The shell
+  builds the Help bar, the notebook and the Processing and Results tabs, and
+  the refinery's worker pool is built before `super().__init__` so the shell
+  renders the Active Workers grid from it; `ui/processing_tab.py` is deleted.
+  The album table is the one Results-tab widget the shell does not own, so the
+  window adds it to the tab the shell built, and `ui/results_tab.py` keeps
+  only that table. The run's three callbacks queue their payload for the
+  shell's poller instead of calling `root.after` from the worker thread - the
+  report-write failure included, which used to open a dialog off the Tk thread
+  and read the run mode off it too. The report keeps its own header and footer
+  and gains the `SUMMARY:` marker the suite's report lock reads.
+
 - **The Album Genre Tagger migration's three leftovers are cut.** Its
   Processing list opens with the `PHASE 1` header the run report already
   wrote (the migration had dropped the space), the class no longer declares

@@ -352,6 +352,7 @@ Audio Refinery - Processing Log
     [Dynamics] Max 8.9 dB reduction (mean 4.1 dB), -20.6 LUFS / -7.4 dBTP
     [Normalise] Would adjust loudness from -20.8 to -14.0 LUFS
 ==================================================
+SUMMARY:
 Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 1.1s
 ```
 
@@ -373,6 +374,7 @@ Audio Refinery - Processing Log
     [Dynamics] Max 8.9 dB reduction (mean 4.1 dB), -20.6 LUFS / -7.4 dBTP
     [Normalise] Adjusted loudness from -20.8 to -14.0 LUFS for playlist consistency
 ==================================================
+SUMMARY:
 Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 3.7s
 ```
 

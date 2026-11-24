@@ -11,6 +11,10 @@ Changed in 2.8.0: the neural broadband engine's three app-side seams are
 locked - the start-time install offer, the Driver/panel re-sync, and the run
 report line the Results tab opens (noise-reduction amalgamation).
 Changed in 2.9.0: the progress tick is the shared mixin helper (C1).
+Changed in 2.9.0: the window composes ``SuiteApp`` (C1 stage 3).  The three
+callbacks queue their payload for the shell's poller, so a run reaches its
+widgets through ``_dispatch_ui_message`` and ``start_processing`` hands the
+work to ``_start_worker``; the Processing and Results widgets are the shell's.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 from pathlib import Path
-from queue import Queue
+from queue import Queue, SimpleQueue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -140,14 +144,19 @@ class TestAuditionOnComplete:
         app = object.__new__(AudioRefineryApp)
         app.root = root
         app._log_path = str(tmp_path / "refinery_log.txt")
-        app._completion_label = MagicMock()
-        app._time_label = MagicMock()
+        app._out_dir = str(tmp_path)
+        app._ui_updates = SimpleQueue()
+        app.completion_label = MagicMock()
+        app.time_label = MagicMock()
         app._album_frame = MagicMock()
         app._album_tree = MagicMock()
         app._album_tree.get_children.return_value = ()
         app.notebook = MagicMock()
-        app._tab_results = MagicMock()
+        app.results_frame = MagicMock()
         app.start_btn = MagicMock()
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
+        app.stats_label = MagicMock()
         app.overall_status = MagicMock()
         app.auto_end_var = tk.BooleanVar(value=False)
         app._run_was_dry_run = False
@@ -156,8 +165,7 @@ class TestAuditionOnComplete:
         return app
 
     def _complete(self, app: AudioRefineryApp) -> None:
-        scheduled: list[Any] = []
-        app.root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+        """Finish a run through the handler and the shell's dispatch."""
         app._on_complete(
             total=1,
             processed=1,
@@ -168,8 +176,7 @@ class TestAuditionOnComplete:
             log_entries=[],
             album_rows=(),
         )
-        if scheduled:
-            scheduled[0]()
+        app._dispatch_ui_message(app._ui_updates.get_nowait())
 
     def test_dry_run_schedules_result_disabled(self, app: AudioRefineryApp) -> None:
         app._run_was_dry_run = True
@@ -209,10 +216,10 @@ class TestStartProcessingStageValidation:
         app._registry = MagicMock()
         app._last_source_dir = str(tmp_path)
         app.start_btn = MagicMock()
-        app._file_listbox = MagicMock()
-        app._progress_bar = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
         app.notebook = MagicMock()
-        app._tab_processing = MagicMock()
+        app.processing_frame = MagicMock()
         app.overall_status = MagicMock()
         return app
 
@@ -229,10 +236,10 @@ class TestStartProcessingStageValidation:
             patch("audio_refinery.app.save_settings"),
             patch("audio_refinery.app.suite_config.save_last_directory"),
             patch.object(AudioRefineryApp, "prepare_in_place_audition"),
-            patch("audio_refinery.app.threading.Thread") as thread_cls,
+            patch.object(AudioRefineryApp, "_start_worker") as start_worker,
         ):
             app.start_processing()
-        mb._thread_cls = thread_cls
+        mb._start_worker = start_worker
         return mb
 
     def test_reduce_noise_only_passes_stage_validation(
@@ -250,8 +257,7 @@ class TestStartProcessingStageValidation:
         )
         titles = [c.args[0] for c in mb.showerror.call_args_list]
         assert "No Stages Selected" not in titles
-        mb._thread_cls.assert_called_once()
-        mb._thread_cls.return_value.start.assert_called_once()
+        mb._start_worker.assert_called_once()
 
     def test_all_stages_disabled_shows_no_stages_selected(
         self, app: AudioRefineryApp, audio_dir: Path
@@ -268,7 +274,7 @@ class TestStartProcessingStageValidation:
         )
         titles = [c.args[0] for c in mb.showerror.call_args_list]
         assert "No Stages Selected" in titles
-        mb._thread_cls.assert_not_called()
+        mb._start_worker.assert_not_called()
 
     def test_a_missing_model_offers_the_install_instead_of_starting(
         self,
@@ -303,7 +309,7 @@ class TestStartProcessingStageValidation:
             patch("audio_refinery.app.save_settings"),
             patch("audio_refinery.app.suite_config.save_last_directory"),
             patch("audio_refinery.app.ui_common.install_optional_dependency") as offer,
-            patch("audio_refinery.app.threading.Thread") as thread_cls,
+            patch.object(AudioRefineryApp, "_start_worker") as start_worker,
         ):
             app.start_processing()
 
@@ -312,7 +318,7 @@ class TestStartProcessingStageValidation:
         assert parent is app.root
         assert requirement is optional_deps.RNNOISE
         assert offer.call_args.kwargs["on_ready"] == app.start_processing
-        thread_cls.assert_not_called()
+        start_worker.assert_not_called()
         assert [c.args[0] for c in mb.showerror.call_args_list] == []
 
     def test_eq_only_passes_stage_validation(
@@ -332,7 +338,7 @@ class TestStartProcessingStageValidation:
         )
         titles = [c.args[0] for c in mb.showerror.call_args_list]
         assert "No Stages Selected" not in titles
-        mb._thread_cls.assert_called_once()
+        mb._start_worker.assert_called_once()
 
 
 @pytest.fixture()
@@ -621,9 +627,9 @@ class TestStartGuardsD3:
         app.overall_status = MagicMock()
         app.notebook = MagicMock()
         app.start_btn = MagicMock()
-        app._tab_processing = MagicMock()
-        app._file_listbox = MagicMock()
-        app._progress_bar = MagicMock()
+        app.processing_frame = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
         app._registry = None
         app._last_source_dir = ""
         app._in_place = False
@@ -654,8 +660,8 @@ class TestStartGuardsD3:
         from audio_refinery.core.models import StageConfig
         from audio_refinery.core.registry import CompletionRegistry
 
-        fake_threading = MagicMock()
-        monkeypatch.setattr("audio_refinery.app.threading", fake_threading)
+        start_worker = MagicMock()
+        monkeypatch.setattr(AudioRefineryApp, "_start_worker", start_worker)
         monkeypatch.setattr("audio_refinery.app.messagebox", MagicMock())
         monkeypatch.setattr(
             "audio_refinery.app.suite_config.save_last_directory", MagicMock()
@@ -683,7 +689,7 @@ class TestStartGuardsD3:
 
         assert app._run_was_dry_run is True
         assert app.config.dry_run is True
-        assert fake_threading.Thread.call_args.kwargs["target"] == app._run
+        start_worker.assert_called_once_with(app._run, (tmp_path, out_dir))
 
     def test_nonexistent_source_shows_error(
         self, monkeypatch: pytest.MonkeyPatch
@@ -757,8 +763,8 @@ class TestStartGuardsD3:
     def test_valid_start_threads_pipeline_with_audition(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        fake_threading = MagicMock()
-        monkeypatch.setattr("audio_refinery.app.threading", fake_threading)
+        start_worker = MagicMock()
+        monkeypatch.setattr(AudioRefineryApp, "_start_worker", start_worker)
         monkeypatch.setattr("audio_refinery.app.messagebox", MagicMock())
         monkeypatch.setattr(
             "audio_refinery.app.suite_config.save_last_directory", MagicMock()
@@ -788,8 +794,8 @@ class TestStartGuardsD3:
 
         app.start_processing()
 
-        thread = fake_threading.Thread.call_args
-        assert thread.kwargs["target"].__name__ == "_run"
+        args, _kwargs = start_worker.call_args
+        assert args[0].__name__ == "_run"
         assert app._run_was_dry_run is True
         assert app._in_place is False, "output dir is a separate folder"
         app.clear_audition.assert_called_once_with()
@@ -801,10 +807,6 @@ class TestRunThreadD3:
     ) -> None:
         app = object.__new__(AudioRefineryApp)
         app.root = MagicMock()
-        app._file_listbox = MagicMock()
-        app._progress_bar = MagicMock()
-        app.progress = app._progress_bar
-        app.file_listbox = app._file_listbox
         calls: dict[str, Any] = {}
 
         def fake_run_pipeline(**kwargs: Any) -> None:
@@ -832,23 +834,22 @@ class TestRunThreadD3:
 
 
 class TestProgressD3:
-    def test_on_progress_schedules_update(self) -> None:
+    def test_on_progress_queues_its_tick(self) -> None:
         app = object.__new__(AudioRefineryApp)
         app.root = MagicMock()
-        app._file_listbox = MagicMock()
-        app._progress_bar = MagicMock()
-        app.progress = app._progress_bar
-        app.file_listbox = app._file_listbox
+        app._ui_updates = SimpleQueue()
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
         app.stats_label = MagicMock()
         app.overall_status = MagicMock()
 
         app._on_progress(3, 10, 2, 1, 1, "song.wav", "log")
 
-        assert app.root.after.call_args.args[0] == 0
-        update_fn = app.root.after.call_args.args[1]
-        update_fn()
-        assert app._progress_bar.__setitem__("value", 3)
-        assert app._file_listbox.insert.call_args.args[1] == "song.wav"
+        app.root.after.assert_not_called()
+        app._dispatch_ui_message(app._ui_updates.get_nowait())
+        assert app.progress.__setitem__("value", 3)
+        assert app.file_listbox.insert.call_args.args[1] == "song.wav"
+        app.overall_status.set.assert_called_once_with("Processing… 3/10  ✓2  ⊘1  ✗1")
 
 
 # ---------------------------------------------------------------------------
@@ -862,18 +863,24 @@ def _completion_shell(tmp_path: Path) -> Any:
     app = object.__new__(AudioRefineryApp)
     app.root = MagicMock()
     app._log_path = str(tmp_path / "refinery_log.txt")
+    app._out_dir = str(tmp_path)
     app._run_was_dry_run = True
     app._audition_original = None
     app._audition_result = None
-    app._completion_label = MagicMock()
-    app._time_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.time_label = MagicMock()
     app._album_frame = MagicMock()
     app._album_tree = MagicMock()
     app._album_tree.get_children.return_value = ()
     app.overall_status = MagicMock()
     app.notebook = MagicMock()
-    app._tab_results = MagicMock()
+    app.results_frame = MagicMock()
     app.start_btn = MagicMock()
+    app.progress = MagicMock()
+    app.file_listbox = MagicMock()
+    app.stats_label = MagicMock()
+    app.config = StageConfig()
+    app._ui_updates = SimpleQueue()
     app.auto_end_var = MagicMock()
     app.auto_end_var.get.return_value = False
     return app
@@ -1279,6 +1286,7 @@ class TestAlbumTable:
     def _complete(app: AudioRefineryApp, rows: Any, tmp_path: Path) -> None:
         """Run the real completion handler into the window's own widgets."""
         app._log_path = str(tmp_path / "refinery_log.txt")
+        app._ui_updates = SimpleQueue()
         app._on_complete(
             total=2,
             processed=2,
@@ -1289,6 +1297,7 @@ class TestAlbumTable:
             log_entries=[],
             album_rows=rows,
         )
+        app._poll_ui_updates()
 
     def test_the_album_table_shows_the_runs_tracks(
         self, real_app: Any, app_root: tk.Toplevel, tmp_path: Path

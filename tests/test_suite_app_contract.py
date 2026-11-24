@@ -80,6 +80,8 @@ locked (C1 stage 2, D34).
 Changed in 2.9.0: Album Genre Tagger opens stage 3, so the table is twenty,
 the consolidator gains a report drive through its completion handler, and the
 label its own writer prints is locked in the same drive (C1 stage 3, D50).
+Changed in 2.9.0: Audio Refinery follows it, so the table is twenty-one and the
+refinery gains a report drive through its completion handler (C1 stage 3).
 
 
 Changed in 2.9.0: the module destroys the window it builds. ``SuiteApp``
@@ -119,6 +121,10 @@ from audio_fingerprinter.core.models import (
     FingerprintStatus,
 )
 from audio_fingerprinter.utils.cli_args import FingerprintArgs
+from audio_refinery import app as audio_refinery_app
+from audio_refinery.app import AudioRefineryApp
+from audio_refinery.core.models import StageConfig as RefineryStageConfig
+from audio_refinery.utils.cli_args import RefineryArgs
 from audio_suite_shared import suite_app
 from audio_suite_shared.cli_dataclasses import LyricsArgs
 from bpm_analyzer import app as bpm_analyzer_app
@@ -185,6 +191,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     TagFieldUpdaterApp,
     RestorationApp,
     GenreConsolidatorApp,
+    AudioRefineryApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -421,6 +428,14 @@ def _stub_album_genre_tagger_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_audio_refinery_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the refinery's launcher parse and its persisted stage settings."""
+    monkeypatch.setattr(audio_refinery_app, "parse_cli", lambda: RefineryArgs())
+    monkeypatch.setattr(
+        audio_refinery_app, "load_settings", lambda: RefineryStageConfig()
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -442,6 +457,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     TagFieldUpdaterApp: _stub_tag_field_updater_edges,
     RestorationApp: _stub_restoration_edges,
     GenreConsolidatorApp: _stub_album_genre_tagger_edges,
+    AudioRefineryApp: _stub_audio_refinery_edges,
 }
 
 
@@ -865,6 +881,32 @@ def _complete_album_genre_tagger_run(app: GenreConsolidatorApp, tmp_path: Path) 
     app._poll_ui_updates()
 
 
+def _complete_audio_refinery_run(app: AudioRefineryApp, tmp_path: Path) -> None:
+    """Drive the refinery's completion: the window writes ``refinery_log.txt``.
+
+    ``_on_complete`` is the handler ``run_pipeline`` is bound to and the report
+    writer itself, so the drive hands it the payload the pipeline publishes and
+    drains the window's queue, which is what renders the Results tab.  The
+    folder and the dry-run snapshot are the state ``start_processing`` sets.
+    """
+    app._log_path = str(tmp_path / "refinery_log.txt")
+    app._out_dir = str(tmp_path)
+    app._run_was_dry_run = True
+    app._ui_updates = SimpleQueue()
+    app._on_complete(
+        total=1,
+        processed=1,
+        succeeded=1,
+        skipped=0,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["[DONE] a.wav\n"],
+        album_rows=(),
+    )
+    # The completion is queued for the Tk poller; drain it now.
+    app._poll_ui_updates()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -887,6 +929,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     TagFieldUpdaterApp: _complete_tag_field_updater_run,
     RestorationApp: _complete_restoration_run,
     GenreConsolidatorApp: _complete_album_genre_tagger_run,
+    AudioRefineryApp: _complete_audio_refinery_run,
 }
 
 #: The label line each adopter that writes through
@@ -1168,6 +1211,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "TagFieldUpdaterApp",
         "RestorationApp",
         "GenreConsolidatorApp",
+        "AudioRefineryApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

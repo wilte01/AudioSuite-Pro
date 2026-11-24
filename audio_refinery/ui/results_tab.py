@@ -1,20 +1,22 @@
 """
 ui/results_tab.py
-Delegates to audio_suite_shared.ui_common, then adds the album report table.
+The Results tab's album report table.
 
 Changed in 2.7.0: the tab shows the album plan's per-track table, the same rows
 ``refinery_album.csv`` records, so a run's numbers can be read without leaving
 the window (F-S6).  The table is built here rather than in the shared builder
 because it is the Refinery's own: no other tool plans an album.
+Changed in 2.9.0: the shared Results tab is the shell's, so this module keeps
+only the album table and the window adds it to the tab the shell built (C1).
 """
 
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Callable, Optional
+from typing import Any
 
-from audio_suite_shared import styles, ui_common
+from audio_suite_shared import styles
 
 #: The album table's columns, in the order ``refinery_album.csv`` writes them.
 ALBUM_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -28,7 +30,7 @@ ALBUM_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _build_album_table(parent: tk.Frame) -> dict[str, Any]:
+def build_album_table(parent: tk.Frame) -> dict[str, Any]:
     """Build the album report table under the standard results widgets.
 
     Args:
@@ -77,35 +79,3 @@ def _build_album_table(parent: tk.Frame) -> dict[str, Any]:
     scroll.pack(side=tk.RIGHT, fill="y")
 
     return {"album_frame": panel, "album_tree": tree, "album_caption": caption}
-
-
-def build(
-    parent: tk.Frame,
-    on_open_log: Callable[..., Any],
-    on_open_folder: Callable[..., Any],
-    on_play_original: Optional[Callable[[], None]] = None,
-    on_play_result: Optional[Callable[[], None]] = None,
-) -> dict[str, Any]:
-    """
-    Populate the Results tab.
-
-    Returns
-    -------
-    dict with keys:
-        completion_label : tk.Label
-        time_label       : tk.Label
-        summary_label    : tk.Label
-        album_frame      : tk.Frame       (unpacked until a run has rows)
-        album_tree       : ttk.Treeview
-        album_caption    : tk.Label
-    """
-    widgets = ui_common.build_results_tab(
-        parent,
-        "Refinery Complete!",
-        on_open_log,
-        on_open_folder,
-        on_play_original=on_play_original,
-        on_play_result=on_play_result,
-    )
-    widgets.update(_build_album_table(parent))
-    return widgets
