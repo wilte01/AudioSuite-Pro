@@ -25,6 +25,8 @@ total as soon as the folder is read, then the applier's per-file ticks — so it
 no longer sits at zero for the whole run. A dry run writes nothing, so its line
 counts what the run examined (``Examined: N / N (dry run, nothing written)``)
 rather than claiming files were processed.
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window keeps only its own settings mapping (D58).
 """
 
 import json
@@ -81,6 +83,17 @@ class AudioSuiteV6(SuiteApp):
     # The labels this window has always shown; the shell does not renumber.
     tab_labels = (" Setup ", " Processing ", " Results ")
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = ("run_mode", "size_var", "purge_var")
+    #: This window's saved keys are not its variables' names.
+    PRESET_ALIASES = {
+        "execution_mode": "run_mode",
+        "embedded_resolution": "size_var",
+        "purge_hidden": "purge_var",
+    }
+
     def __init__(self, root: tk.Tk, pre_parsed: cli_args.ArtArgs | None = None) -> None:
         # Tk variables
         self.folder_path = tk.StringVar()
@@ -107,7 +120,7 @@ class AudioSuiteV6(SuiteApp):
 
         # Presets
         self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
+        self._migrate_legacy_presets()
 
         # Thread-safe picker dialog
         self._picker = PickerDialog(root)
@@ -142,10 +155,10 @@ class AudioSuiteV6(SuiteApp):
             on_start=self.start_thread,
             driver_locked=self._launched_from_driver,
             on_browse=self._browse_folder,
-            preset_names=list(self._load_presets().keys()),
+            preset_names=self._preset_names(),
             on_save_preset=self._on_save_preset,
             on_delete_preset=self._on_delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn = widgets["start_btn"]
         self._preset_combo = widgets["preset_combo"]
@@ -196,35 +209,6 @@ class AudioSuiteV6(SuiteApp):
 
     # ── Presets ───────────────────────────────────────────────────────────────
 
-    def _collect_settings(self) -> dict[str, str | bool]:
-        return {
-            "execution_mode": self.run_mode.get(),
-            "embedded_resolution": self.size_var.get(),
-            "purge_hidden": self.purge_var.get(),
-        }
-
-    def _load_presets(self) -> dict[str, dict[str, Any]]:
-        """Return every saved preset for this tool, keyed by name.
-
-        Presets live in the shared ``audio_suite_config.json`` under the
-        suite's ``presets`` block, the same store every other tool uses, so a
-        tool-local JSON file no longer exists to drift from it.
-        """
-        self._migrate_legacy_presets()
-        presets: dict[str, dict[str, Any]] = {}
-        for name in suite_config.list_presets(TOOL_ID):
-            settings = suite_config.load_preset(TOOL_ID, name)
-            if settings is not None:
-                presets[name] = settings
-        return presets
-
-    def _save_presets(self, presets: dict[str, dict[str, Any]]) -> None:
-        """Write *presets* to the shared store and prune names it no longer holds."""
-        for name, settings in presets.items():
-            suite_config.save_preset(TOOL_ID, name, settings)
-        for stale in set(suite_config.list_presets(TOOL_ID)) - set(presets):
-            suite_config.delete_preset(TOOL_ID, stale)
-
     def _migrate_legacy_presets(self) -> None:
         """Import a pre-2.5.0 ``presets.json`` once, then rename it.
 
@@ -259,52 +243,17 @@ class AudioSuiteV6(SuiteApp):
             legacy,
         )
 
-    def _refresh_preset_dropdown(self) -> None:
-        presets = self._load_presets()
-        if self._refresh_preset_list:
-            self._refresh_preset_list(list(presets))
-
     def _on_save_preset(self) -> None:
         """Ask for a name with the shared dialog and store the current settings."""
         if self._preset_combo is None:
             return
-        save_preset_dialog(self._preset_combo, self._store_preset)
-
-    def _store_preset(self, name: str) -> None:
-        """Persist the current settings under *name* and refresh the list."""
-        presets = self._load_presets()
-        presets[name] = self._collect_settings()
-        self._save_presets(presets)
-        self._refresh_preset_dropdown()
+        save_preset_dialog(self._preset_combo, self.store_preset)
 
     def _on_delete_preset(self) -> None:
         """Confirm with the shared prompt and remove the selected preset."""
         if self._preset_combo is None:
             return
-        delete_preset_action(self._preset_combo, self._delete_preset)
-
-    def _delete_preset(self, name: str) -> None:
-        """Remove *name* from the store when it is there, then refresh the list."""
-        presets = self._load_presets()
-        if name not in presets:
-            return
-        del presets[name]
-        self._save_presets(presets)
-        self._refresh_preset_dropdown()
-
-    def _on_preset_selected(self, preset_name: str) -> None:
-        presets = self._load_presets()
-        settings = presets.get(preset_name)
-        if settings is not None:
-            self._apply_preset(settings)
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "execution_mode" in settings:
-            self.run_mode.set(str(settings["execution_mode"]))
-        if "embedded_resolution" in settings:
-            self.size_var.set(str(settings["embedded_resolution"]))
-        if "purge_hidden" in settings:
-            self.purge_var.set(bool(settings["purge_hidden"]))
+        delete_preset_action(self._preset_combo, self.remove_preset)
 
     # ── User actions ──────────────────────────────────────────────────────────
 
