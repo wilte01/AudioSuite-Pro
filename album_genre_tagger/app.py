@@ -16,15 +16,19 @@ Processing and Results tabs and the report's View Log; the run's four callbacks
 queue their payload for the shell's poller instead of marshalling with
 ``root.after``, and the coverage check's failure is a completion of its own that
 leaves the run's report behind.
+
+Changed in 2.9.0: the migration's three vestiges are cut - the processing list
+keeps the ``PHASE 1`` header spelling the run report already wrote, the class
+no longer declares an unused ``TOOL_ID``, and the run's queue is seeded only by
+the shell (D51).
 """
 
 from __future__ import annotations
 
 import os
 import tkinter as tk
-from queue import SimpleQueue
 from tkinter import messagebox, ttk
-from typing import Any, ClassVar
+from typing import Any
 
 from audio_suite_shared import suite_config
 from audio_suite_shared.batch_undo import active_batch
@@ -47,7 +51,7 @@ TOOL_ID = "album_genre_tagger"
 LOG_NAME = "AlbumGenre_Tagger_Log.txt"
 
 #: The Processing tab's first list line, posted before the read phase runs.
-PHASE1_HEADER = "=== PHASE1: READING TITLEGENRE TAGS ==="
+PHASE1_HEADER = "=== PHASE 1: READING TITLEGENRE TAGS ==="
 
 DRY_RUN = "Dry Run"
 LIVE_UPDATE = "Live Update"
@@ -69,9 +73,6 @@ class GenreConsolidatorApp(SuiteApp):
     result_extra_labels = ("genre_label",)
     #: Built by the shell from ``result_extra_labels`` and published here.
     genre_label: tk.Label
-
-    #: The manifest id the window has always declared.
-    TOOL_ID: ClassVar[str] = TOOL_ID
 
     def __init__(
         self, root: tk.Tk, cli_args_parsed: GenreTaggerArgs | None = None
@@ -107,10 +108,6 @@ class GenreConsolidatorApp(SuiteApp):
         self._min_coverage: int = 50
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
-        #: A run's messages; ``_start_worker`` replaces it, and a direct caller
-        #: (tests, a hand-built shell) finds one ready.
-        self._ui_updates = SimpleQueue()
-
         super().__init__(root)
 
         self._apply_cli_args()

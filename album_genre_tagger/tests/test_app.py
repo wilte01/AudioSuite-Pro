@@ -13,6 +13,9 @@ main-thread helper with ``root.after``, the coverage check's failure is a queued
 completion of its own, and the notebook, the Processing tab and the Results tab
 are the shell's — so the tests drive ``_dispatch_ui_message`` and read the
 shell's frames instead of the two deleted tab delegates.
+
+Changed in 2.9.0: the list header's constant keeps the ``PHASE 1`` spelling
+the run report writes (D51).
 """
 
 import os
@@ -25,7 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 #: The Processing tab's first list line, posted before the read phase runs.
-PHASE1_HEADER = "=== PHASE1: READING TITLEGENRE TAGS ==="
+PHASE1_HEADER = "=== PHASE 1: READING TITLEGENRE TAGS ==="
 
 
 def _make_shell_app(parsed):

@@ -18,6 +18,12 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The Album Genre Tagger migration's three leftovers are cut.** Its
+  Processing list opens with the `PHASE 1` header the run report already
+  wrote (the migration had dropped the space), the class no longer declares
+  an unused `TOOL_ID` alias of the module constant, and the run's message
+  queue is seeded only by the shell instead of by the window as well.
+
 - **Album Genre Tagger is the twentieth window on `SuiteApp`.** Its two
   one-line tab delegates are gone and the shell builds the notebook, the
   Processing tab and the Results tab, with the consolidated genre string
