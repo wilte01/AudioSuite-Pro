@@ -23,6 +23,8 @@ no longer declares an unused ``TOOL_ID``, and the run's queue is seeded only by
 the shell (D51).
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window declares the settings a preset carries and keeps only that (D58).
+Changed in 2.9.0: Auto End is the shell's marker, status sentence and close,
+armed by either the driver's flag or the Setup tab's checkbox (D60).
 """
 
 from __future__ import annotations
@@ -437,10 +439,9 @@ class GenreConsolidatorApp(SuiteApp):
         self._schedule_auto_end()
 
     def _schedule_auto_end(self) -> None:
-        """Close the window when the driver asked it to (Tk thread only)."""
-        if self.auto_end_var.get():
-            self.overall_status.set("Auto End enabled - closing in 2 seconds...")
-            self.root.after(2000, self.root.destroy)
+        """Close the window when Auto End is armed (Tk thread only)."""
+        if self.auto_end_requested():
+            self.close_for_auto_end(status=self.overall_status)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

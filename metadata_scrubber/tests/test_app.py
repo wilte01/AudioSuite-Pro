@@ -11,6 +11,8 @@ Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the stubs carry
 the shell's ``processing_frame``/``results_frame`` and a real app drains the
 queued render with ``root.update()`` before the widgets are read back.
+Changed in 2.9.0: covers the shell's Auto End close - the marker it writes,
+the status sentence it shows, and a checkbox-only launch (D60).
 """
 
 import sys
@@ -740,7 +742,31 @@ class TestOnCompleteLogWrite:
         app.root.update_idletasks.assert_called_once()
         app.root.after.assert_any_call(2000, app.root.destroy)
 
-    def test_auto_end_rewrite_failure_warns(
+    def test_auto_end_checkbox_alone_appends_and_closes(self, tmp_path: Path) -> None:
+        """A standalone launch arms Auto End from the Setup checkbox (D60)."""
+        app = self._shell()
+        app._log_path = str(tmp_path / "log.txt")
+        app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": True})
+        app.root = MagicMock()
+
+        app._on_complete(
+            header=["R\n"],
+            is_live=False,
+            preserve_list=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=["entry\n"],
+        )
+
+        text = Path(app._log_path).read_text(encoding="utf-8")
+        assert "[Auto End enabled - closing in 2 seconds...]" in text
+        app.root.after.assert_any_call(2000, app.root.destroy)
+
+    def test_auto_end_append_failure_is_logged_not_raised(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         app = self._shell()
@@ -748,16 +774,16 @@ class TestOnCompleteLogWrite:
         app.auto_end = True
         app.root = MagicMock()
         logger = MagicMock()
-        monkeypatch.setattr("metadata_scrubber.app.logger", logger)
+        monkeypatch.setattr("audio_suite_shared.suite_app.logger", logger)
         real_open = open
         count = {"n": 0}
 
         def _flaky_open(file: Any, *args: Any, **kwargs: Any) -> Any:
-            # First write succeeds; the auto-end rewrite fails.
+            # The report write succeeds; the shell's marker append fails.
             count["n"] += 1
             if count["n"] <= 1:
                 return real_open(file, *args, **kwargs)
-            raise OSError("rewrite denied")
+            raise OSError("append denied")
 
         monkeypatch.setattr("builtins.open", _flaky_open)
 
@@ -775,6 +801,8 @@ class TestOnCompleteLogWrite:
 
         logger.warning.assert_called_once()
         app.root.after.assert_any_call(2000, app.root.destroy)
+        text = Path(app._log_path).read_text(encoding="utf-8")
+        assert "[Auto End enabled" not in text
 
 
 # ---------------------------------------------------------------------------

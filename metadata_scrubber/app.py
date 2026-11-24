@@ -30,6 +30,8 @@ Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 every window writes with (D36).
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window declares the settings a preset carries and keeps only that (D58).
+Changed in 2.9.0: Auto End is the shell's marker, status sentence and close,
+armed by either the driver's flag or the Setup tab's checkbox (D60).
 """
 
 import logging
@@ -363,10 +365,9 @@ class MetadataScrubberApp(SuiteApp):
             duration_secs,
         )
 
-        if self.auto_end:
-            self._append_auto_end_note()
+        if self.auto_end_requested():
             self.root.update_idletasks()
-            self.root.after(2000, self.root.destroy)
+            self.close_for_auto_end()
 
     def _write_run_report(
         self,
@@ -402,15 +403,6 @@ class MetadataScrubberApp(SuiteApp):
                 "Error",
                 f"Could not write log file:\n{user_message_for(mapped)}",
             )
-
-    def _append_auto_end_note(self) -> None:
-        """Append the auto-end line to the report; a failed rewrite only warns."""
-        self._log_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
-        try:
-            with open(self._log_path, "w", encoding="utf-8") as f:
-                f.writelines(self._log_entries)
-        except OSError as exc:
-            logger.warning("Could not rewrite log for auto-end: %s", exc, exc_info=True)
 
     def _update_ui_on_complete(
         self,

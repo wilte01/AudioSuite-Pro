@@ -14,6 +14,8 @@ the error handler is the shell's, and the completion shell carries the shell's
 results frame.
 Changed in 2.9.0: ``start_processing`` snapshots the run's folder and mode on
 the main thread, so the worker reads those instead of the Tk variables.
+Changed in 2.9.0: covers the shell's Auto End close - the marker it writes,
+the status sentence it shows, and a checkbox-only launch (D60).
 """
 
 from pathlib import Path
@@ -282,6 +284,33 @@ class TestGenreSetterAppCallbacks:
             log_content = (tmp_path / "genre_sync_log.txt").read_text(encoding="utf-8")
             assert "Auto End" in log_content
             mock_tk_app.root.after.assert_called()
+
+    def test_auto_end_checkbox_alone_marks_and_closes(self, mock_tk_app, tmp_path):
+        """A standalone launch arms Auto End from the Setup checkbox (D60)."""
+        mock_tk_app._dir_path = str(tmp_path)
+        mock_tk_app._log_path = str(tmp_path / "genre_sync_log.txt")
+        mock_tk_app.run_mode.set("Dry Run")
+        mock_tk_app.auto_end = False
+        mock_tk_app.auto_end_var = MagicMock()
+        mock_tk_app.auto_end_var.get.return_value = True
+
+        with patch("genre_sync.app.log_builder.build_log_lines") as mock_build:
+            mock_build.return_value = ["line1\n"]
+            mock_tk_app._on_complete(
+                total=1,
+                updated=1,
+                skipped=0,
+                no_genre=0,
+                errors=0,
+                duration_secs=1.0,
+                log_updated=[],
+                log_skipped=[],
+                log_no_genre=[],
+                log_errors=[],
+            )
+            log_content = (tmp_path / "genre_sync_log.txt").read_text(encoding="utf-8")
+            assert "[Auto End enabled - closing in 2 seconds...]" in log_content
+            mock_tk_app.root.after.assert_any_call(2000, mock_tk_app.root.destroy)
 
     def test_completion_writes_the_report_then_schedules_the_render(self, tmp_path):
         """The report is written on the worker; the widgets are Tk-thread writes."""

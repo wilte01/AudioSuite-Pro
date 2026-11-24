@@ -36,6 +36,8 @@ Changed in 2.9.0: the window is a ``SuiteApp`` (C1 stage 2), so the completion
 renders through the shell's results frame, the error handler is the shell's,
 and the run's inputs are the snapshot ``start_processing`` takes on the main
 thread.
+Changed in 2.9.0: covers the shell's Auto End close - the marker it writes,
+the status sentence it shows, and a checkbox-only launch (D60).
 """
 
 from __future__ import annotations
@@ -77,6 +79,7 @@ class TestOnComplete:
         app._run_mode = "Dry Run"
         app._run_path = str(tmp_path)
         app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": False})
         return app
 
     def _run(self, app: TempoAnalyzerApp, **kwargs: object) -> None:
@@ -143,6 +146,21 @@ class TestOnComplete:
 
     def test_auto_end_schedules_root_destroy(self, app: TempoAnalyzerApp) -> None:
         app.auto_end = True
+        app._scheduled.clear()
+        self._run(app, total=1, processed=1)
+        destroy_calls = [
+            c
+            for c in app.root.after.call_args_list
+            if len(c[0]) >= 2 and c[0][1] == app.root.destroy
+        ]
+        assert len(destroy_calls) == 1
+
+    def test_auto_end_checkbox_alone_schedules_root_destroy(
+        self, app: TempoAnalyzerApp
+    ) -> None:
+        """A standalone launch arms Auto End from the Setup checkbox (D60)."""
+        app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": True})
         app._scheduled.clear()
         self._run(app, total=1, processed=1)
         destroy_calls = [

@@ -17,6 +17,8 @@ shells with ``object.__new__`` instead of mocking a whole hand-built window, the
 completion renders through the shell's results frame, the error handler is the
 shell's, and the run's inputs are the snapshot ``start_processing`` takes on the
 main thread.
+Changed in 2.9.0: covers the shell's Auto End close - the marker it writes,
+the status sentence it shows, and a checkbox-only launch (D60).
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ def _completion_shell(log_path: Path) -> ReplayGainAnalyzerApp:
     app.results_frame = MagicMock()
     app.start_btn = MagicMock()
     app.auto_end = False
+    app.auto_end_var = MagicMock(**{"get.return_value": False})
     app._log_path = str(log_path)
     return app
 
@@ -220,6 +223,32 @@ class TestCompletionRender:
             if len(call.args) >= 2 and call.args[1] == app.root.destroy
         ]
         assert len(destroy_calls) == 1
+
+    def test_auto_end_checkbox_alone_closes_the_window(self, tmp_path: Path) -> None:
+        """A standalone launch arms Auto End from the Setup checkbox (D60)."""
+        app = _completion_shell(tmp_path / "log.txt")
+        app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": True})
+
+        app._on_complete(
+            header=["REPORT\n"],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+        _flush(app.root)
+
+        destroy_calls = [
+            call
+            for call in app.root.after.call_args_list
+            if len(call.args) >= 2 and call.args[1] == app.root.destroy
+        ]
+        assert len(destroy_calls) == 1
+        text = (tmp_path / "log.txt").read_text(encoding="utf-8")
+        assert "[Auto End enabled - closing in 2 seconds...]" in text
 
     def test_a_failed_report_write_is_logged_not_raised(self, tmp_path: Path) -> None:
         app = _completion_shell(tmp_path / "log.txt")

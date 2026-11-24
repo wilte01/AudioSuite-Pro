@@ -23,6 +23,8 @@ Changed in 2.9.0: the run's folder and mode are read once in
 on a Tk variable off the Tk thread.
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window declares the settings a preset carries and keeps only that (D58).
+Changed in 2.9.0: the Auto End marker and its close are the shell's, and
+the Setup tab's checkbox arms it exactly as the driver's flag does (D60).
 """
 
 import logging
@@ -335,14 +337,8 @@ class GenreSetterApp(SuiteApp):
             duration_secs,
         )
 
-        if self.auto_end:
-            log_lines.append("\n[Auto End enabled - closing in 2 seconds...]\n")
-            try:
-                with open(self._log_path, "w", encoding="utf-8") as f:
-                    f.writelines(log_lines)
-            except Exception as _exc:  # noqa: BLE001 - log rewrite before close
-                logger.warning("Swallowed exception: %s", _exc, exc_info=True)
-            self.root.after(2000, self.root.destroy)
+        if self.auto_end_requested():
+            self.close_for_auto_end()
 
     def _render_completion_ui(
         self,

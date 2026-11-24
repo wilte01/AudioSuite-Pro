@@ -34,6 +34,8 @@ Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 every window writes with (D36).
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window declares the settings a preset carries and keeps only that (D58).
+Changed in 2.9.0: Auto End is the shell's marker, status sentence and close,
+armed by either the driver's flag or the Setup tab's checkbox (D60).
 """
 
 import logging
@@ -400,16 +402,8 @@ class TempoAnalyzerApp(SuiteApp):
             duration_secs,
         )
 
-        if self.auto_end:
-            all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
-            try:
-                with open(self._log_path, "w", encoding="utf-8") as f:
-                    f.writelines(all_entries)
-            except Exception as _exc:  # noqa: BLE001 - log rewrite before close
-                logger.warning(
-                    "Could not rewrite log after auto-end: %s", _exc, exc_info=True
-                )
-            self.root.after(2000, self.root.destroy)
+        if self.auto_end_requested():
+            self.close_for_auto_end()
 
     def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
         """Record the tracks this run could not derive a tempo marking for.

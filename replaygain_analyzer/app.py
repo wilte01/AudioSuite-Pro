@@ -29,6 +29,8 @@ Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 every window writes with (D36).
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window declares the settings a preset carries and keeps only that (D58).
+Changed in 2.9.0: Auto End is the shell's marker, status sentence and close,
+armed by either the driver's flag or the Setup tab's checkbox (D60).
 """
 
 import argparse
@@ -372,8 +374,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
             duration_secs=duration_secs,
         )
         all_entries = header + log_entries + summary
-        if self.auto_end:
-            all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
 
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:
@@ -418,5 +418,5 @@ class ReplayGainAnalyzerApp(SuiteApp):
         )
         self.render_completion(duration_secs=duration_secs, output_dir=self._run_path)
 
-        if self.auto_end:
-            self.root.after(2000, self.root.destroy)
+        if self.auto_end_requested():
+            self.close_for_auto_end()

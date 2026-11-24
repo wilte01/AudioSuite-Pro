@@ -25,6 +25,8 @@ the ``audio_suite_config`` key builder, the driver's argv mirror,
 ``SuiteApp``; this window supplies its parser, its ``_run``, its per-tick
 stats line and the run note, and the only Auto End decision left here is
 which of the two sources asked for the close.
+Changed in 2.9.0: the Auto End condition is the shell's ``auto_end_requested``,
+which reads both the driver's flag and the checkbox (D60).
 """
 
 from __future__ import annotations
@@ -334,8 +336,7 @@ class MoodAnalyzerApp(SuiteApp):
 
         # Auto End is honoured from *either* source: the driver-issued flag, or
         # the Setup-tab checkbox, which is editable on a standalone launch.
-        # Consulting only the flag left the checkbox inert there.
-        if self.auto_end_var.get() or self.auto_end:
+        if self.auto_end_requested():
             self.close_for_auto_end()
 
 
