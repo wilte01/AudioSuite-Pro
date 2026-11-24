@@ -12,6 +12,10 @@ the scaffold's file (D37).
 
 Changed in 2.9.0: pins the total-label wording and lists the three reports
 that word their first counter differently (D39).
+
+Changed in 2.9.0: ``AnalysisAppBase`` is deleted with Mood Analyzer, so the
+writer list drops it and the shell's writer is the analysis pair's only one
+(C1 stage 3, D54).
 """
 
 from __future__ import annotations
@@ -165,7 +169,6 @@ class TestEveryWriterUsesIt:
     """Every report writer must call the helper, not rebuild the block."""
 
     WRITERS = (
-        "audio_suite_shared/analysis_app_base.py",
         "audio_suite_shared/suite_app.py",
         "album_art_normalizer/app.py",
         "bpm_analyzer/app.py",

@@ -486,8 +486,8 @@ Log** opens exactly one of them: the run report.
   `<TOOL> REPORT`, `Mode: DRY RUN` / `LIVE UPDATE`, that run's settings, a
   `=`×60 rule, one line per file (resolved path, `SKIPPED (...)`, error), then
   `SUMMARY:` with the counters and `Time: MM:SS`. The reference implementation
-  is BPM Analyzer's `_run_analysis` plus the shared
-  `AnalysisAppBase`/`ToolAppBase` `_on_complete`; `file_reorganizer/app.py`
+  is BPM Analyzer's `_run_analysis` plus the shell's
+  `SuiteApp._write_run_report_standard`; `file_reorganizer/app.py`
   carries the standalone version (`_begin_run`/`_write_run_log`).
 - **`logs/<program>.log` is the diagnostic log** `configure_logging` writes for
   triage. It is never what View Log opens.

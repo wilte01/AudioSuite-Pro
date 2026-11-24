@@ -69,10 +69,6 @@ _CANONICAL_SIZES = frozenset(
 #: (module, grid size expression).
 _SHARED_BASES: dict[str, tuple[str, str]] = {
     "BaseSuiteApp": ("audio_suite_shared/app_bootstrap.py", "self.num_workers"),
-    "AnalysisAppBase": (
-        "audio_suite_shared/analysis_app_base.py",
-        "WORKER_SLOT_COUNT",
-    ),
 }
 
 _SKIP_PARTS = frozenset({".venv", "__pycache__", "build", "dist", "tests"})
@@ -356,19 +352,6 @@ def _own_grid_tools() -> dict[str, Path]:
     }
 
 
-def _base_grid_tools() -> dict[str, str]:
-    """Manifest tools backed by a shared grid: ``tool_id -> base class name``."""
-    result: dict[str, str] = {}
-    for tool_id, entry in _manifest_tools().items():
-        if entry.resolve() in _grid_sites():
-            continue
-        for base in _app_bases(entry):
-            if base in _SHARED_BASES:
-                result[tool_id] = base
-                break
-    return result
-
-
 #: The one legitimate worker-named Tk variable outside a tool's GUI: the
 #: Master Driver's per-tool *launch arguments*, not a slot-grid field.
 _DRIVER_WORKER_VARS = "master_driver/state/app_state.py"
@@ -502,7 +485,9 @@ class TestTypedWorkerCountIsCapped:
             path.name for path in sites
         )
         names = {path.relative_to(_REPO_ROOT).as_posix() for path in sites}
-        assert "audio_suite_shared/analysis_app_base.py" in names, names
+        # Changed in 2.9.0: the last shared analysis base is gone, so a
+        # tool's own window stands in for it (D54).
+        assert "key_detector/app.py" in names, names
 
         owned = {entry.resolve() for entry in _manifest_tools().values()}
         shared = {
@@ -585,32 +570,3 @@ class TestGridMatchesProcessorDefault:
                 f"{tool_id}: {class_name} resolves {processor.max_workers} workers "
                 f"for {grid_size} display slots"
             )
-
-    @pytest.mark.parametrize("tool_id", sorted(_base_grid_tools()))
-    def test_base_provided_grid_resolves_the_default(self, tool_id: str) -> None:
-        base_name = _base_grid_tools()[tool_id]
-        module_path, symbol = _SHARED_BASES[base_name]
-
-        if base_name == "BaseSuiteApp":
-            from audio_suite_shared.app_bootstrap import BaseSuiteApp
-
-            parameters = inspect.signature(BaseSuiteApp.__init__).parameters
-            assert parameters["num_workers"].default is None, (
-                f"{tool_id}: {base_name} must resolve num_workers at construction "
-                "so its grid is not frozen at an earlier CPU count"
-            )
-            return
-
-        module_name = module_path.removesuffix(".py").replace("/", ".")
-        module = importlib.import_module(module_name)
-        grid_size = getattr(module, symbol)
-        assert grid_size == default_max_workers(), (
-            f"{tool_id}: {base_name}.{symbol}={grid_size} does not track "
-            f"default_max_workers()={default_max_workers()}"
-        )
-
-    def test_shared_analysis_grid_tracks_the_default(self) -> None:
-        import audio_suite_shared.analysis_app_base as base
-
-        assert base.WORKER_SLOT_COUNT == base.DEFAULT_MAX_WORKERS
-        assert base.WORKER_SLOT_COUNT == default_max_workers()

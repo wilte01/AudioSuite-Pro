@@ -1,5 +1,9 @@
 """
 setup_tab.py - Setup tab for Mood Analyzer.
+
+Changed in 2.9.0: the heading is the window's title (``Mood Analyzer & Tagger``),
+so the shared shell's "title shown once" lock reads it like every other
+adopter's (C1 stage 3, D54).
 """
 
 import tkinter as tk
@@ -45,7 +49,7 @@ def build(
     """
     frame = AnalysisSetupFrame(
         parent,
-        title="Mood Analyzer",
+        title="Mood Analyzer & Tagger",
         start_text="BEGIN MOOD DETECTION",
         on_start=on_start,
         folder_path=folder_path,

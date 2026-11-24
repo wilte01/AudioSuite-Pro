@@ -13,13 +13,17 @@ more of the track (D140).  BPM's 20/30/90 s measurements are D139's.
 Changed in 2.6.0: new lock for the single key/mood analysis window (D140).
 Changed in 2.9.0: Key Detector owns its duration widget, so the lock follows the
 widget onto the window (C1, D53).
+Changed in 2.9.0: Mood Analyzer follows it off the shared base, so both windows
+are checked the same way (C1 stage 3, D54).
 """
 
 from __future__ import annotations
 
+import importlib
 import inspect
 
-from audio_suite_shared.analysis_app_base import AnalysisAppBase
+import pytest
+
 from audio_suite_shared.constants import (
     DEFAULT_ANALYSIS_SECONDS,
     DEFAULT_BPM_ANALYSIS_SECONDS,
@@ -82,28 +86,28 @@ class TestEveryEntryPointUsesIt:
                 f"default than it applies: {help_text!r}"
             )
 
-    def test_the_gui_widget_starts_at_the_shared_value(self) -> None:
-        """Both tools inherit this widget, so one literal served two tools."""
-        source = inspect.getsource(AnalysisAppBase.__init__)
+    @pytest.mark.parametrize(
+        ("module", "window"),
+        [
+            ("key_detector.app", "KeyDetectorApp"),
+            ("mood_analyzer.app", "MoodAnalyzerApp"),
+        ],
+    )
+    def test_each_window_owns_its_duration_widget(
+        self, module: str, window: str
+    ) -> None:
+        """No tool is on the scaffold now, so each window is checked."""
+        app_module = importlib.import_module(module)
+        cls = getattr(app_module, window)
+
+        source = inspect.getsource(cls.__init__)
         assert "DEFAULT_ANALYSIS_SECONDS" in source, (
-            "the shared GUI duration widget no longer reads the constant, so "
-            "Key Detector and Mood Analyzer can drift apart again"
+            f"the {window} duration widget no longer reads the shared constant"
         )
         assert "value=90" not in source, (
-            "the shared GUI duration widget is a bare 90 again instead of the "
-            "shared constant"
+            f"the {window} duration widget is a bare 90 again instead of "
+            "the shared constant"
         )
-
-    def test_the_key_window_owns_its_widget_now(self) -> None:
-        """Key Detector left the scaffold, so its own widget reads the constant."""
-        from key_detector.app import KeyDetectorApp
-
-        source = inspect.getsource(KeyDetectorApp.__init__)
-        assert "DEFAULT_ANALYSIS_SECONDS" in source, (
-            "the Key Detector window's duration widget no longer reads the "
-            "shared constant"
-        )
-        assert "value=90" not in source
 
     def test_the_driver_variables_start_at_the_shared_value(self) -> None:
         source = inspect.getsource(AppState.__init__)

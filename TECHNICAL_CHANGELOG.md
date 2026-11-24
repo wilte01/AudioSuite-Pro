@@ -18,6 +18,25 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Mood Analyzer is the twenty-third window on `SuiteApp`, and the last
+  one off `AnalysisAppBase`, which is deleted with it.** The shell builds
+  the Help bar, the notebook and both tabs, so its two one-line tab
+  delegates are deleted; the window keeps its settings panel, its run,
+  the `record_caveats` run note the Master Driver reads, and three things
+  the shell does not supply: the per-tick stats line, the Auto End
+  marker, and the driver-issued Auto End flag beside the Setup-tab
+  checkbox. The settings are snapshotted on the Tk thread, so the worker
+  reads no Tk variable and no widget, and the three callbacks queue for
+  the shell's poller instead of calling `root.after` from the base's own
+  worker thread. The report is the shell's writer with this tool's own
+  skipped word ("Skipped (undecodable/silent)"). Its Setup heading now names
+  the window's title, `Mood Analyzer & Tagger`, like every other adopter's,
+  which is what the contract's title-once lock reads. The base's suite goes
+  with it, and the grid lock drops its row now that every typed worker
+  count lives in a tool's own `app.py`. Two Key Detector vestiges are cut
+  in the same pass: its copy of the shell's default `tab_labels`, and the
+  pre-run Results heading, which returns to "Key Detection Complete!".
+
 - **Key Detector is the twenty-second window on `SuiteApp`, and the first
   off `AnalysisAppBase`.** The shell builds the Help bar, the notebook and
   both tabs, so its two one-line tab delegates are deleted; the window keeps

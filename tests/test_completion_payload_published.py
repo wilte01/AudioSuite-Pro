@@ -81,6 +81,8 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "audio_joiner": "audio_joiner.core.join.run_join",
     "audio_refinery": "audio_refinery.core.file_processor.run_pipeline",
     "key_detector": "key_detector.core.file_processor.run_analysis",
+    # Changed in 2.9.0: mood analyzer closes the AnalysisAppBase pair (D54).
+    "mood_analyzer": "mood_analyzer.core.file_processor.run_analysis",
     "bpm_analyzer": "bpm_analyzer.core.file_processor.run_analysis",
     "channel_tools": "channel_tools.core.processor.run_channels",
     "duplicate_finder": ("duplicate_finder.core.file_processor.run_duplicate_scan"),

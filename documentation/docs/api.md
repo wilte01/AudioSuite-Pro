@@ -384,10 +384,6 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
-```{automodule} audio_suite_shared.analysis_app_base
-:members:
-```
-
 ```{automodule} audio_suite_shared.run_report
 :members:
 ```

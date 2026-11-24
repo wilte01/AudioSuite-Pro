@@ -67,6 +67,10 @@ Changed in 2.7.0: ``PitchTimeApp`` joins the required-field table (F-S4).
 Changed in 2.9.0: ``RestorationApp`` joins it with the payload the shared
 in-place batch publishes, because the window now binds its handlers by
 keyword instead of through local closures (C1 stage 2, D34).
+
+Changed in 2.9.0: ``MoodAnalyzerApp`` joins it with the same seven fields Key
+Detector's handler requires, so the table covers the last window off
+``AnalysisAppBase`` (C1 stage 3, D54).
 """
 
 from __future__ import annotations
@@ -84,6 +88,19 @@ from tests.test_callback_payload_contract import REPO_ROOT, WIRINGS
 #: Keyed by the class that wires the callbacks.
 EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
     "KeyDetectorApp": frozenset(
+        {
+            "header",
+            "total",
+            "processed",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+        }
+    ),
+    # Changed in 2.9.0: the mood analyzer's window, the last off the
+    # base (C1 stage 3, D54).
+    "MoodAnalyzerApp": frozenset(
         {
             "header",
             "total",
@@ -363,7 +380,9 @@ def test_the_seam_table_covers_every_gui_tool() -> None:
     # joins the table (C1 stage 2, D34).
     # Changed in 2.9.0: 23; the Key Detector window moved onto the shell and
     # binds its handlers by keyword (C1 stage 3).
-    assert len(COMPLETION_WIRINGS) == 23
+    # Changed in 2.9.0: 24; the Mood Analyzer window follows it off the base
+    # (C1 stage 3, D54).
+    assert len(COMPLETION_WIRINGS) == 24
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

@@ -120,6 +120,9 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("audio_refinery/app.py", "AudioRefineryApp"),
         # Changed in 2.9.0: the key detector's window (C1 stage 3).
         ("key_detector/app.py", "KeyDetectorApp"),
+        # Changed in 2.9.0: the mood analyzer's window, the last off the
+        # base (C1 stage 3, D54).
+        ("mood_analyzer/app.py", "MoodAnalyzerApp"),
         ("bpm_analyzer/app.py", "BPMAnalyzerApp"),
         # Changed in 2.5.0: the channel utility's window (F-E6).
         ("channel_tools/app.py", "ChannelToolsApp"),

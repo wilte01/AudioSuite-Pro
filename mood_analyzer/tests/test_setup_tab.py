@@ -11,6 +11,8 @@ tool-specific string or default, these tests fail.
 Changed in 2.9.0: ``parent`` is the test's own frame on the shared root
 and the fixture destroys it after each test, so the module no longer declares
 ``clean_shared_root``.
+Changed in 2.9.0: the heading is the window's title, so the shared shell's
+"title shown once" lock reads it like every other adopter's (C1 stage 3, D54).
 """
 
 import tkinter as tk
@@ -97,7 +99,7 @@ class TestDistinctToolsurfaces:
     def test_title_and_option_labels(self, parent: tk.Frame) -> None:
         _, _ = _build(parent)
         texts = _descendant_texts(parent)
-        assert "Mood Analyzer" in texts
+        assert "Mood Analyzer & Tagger" in texts
         assert "Analysis Duration (seconds):" in texts
         assert "(Lower values = faster processing, less accuracy)" in texts
         assert "How Mood Is Determined:" in texts

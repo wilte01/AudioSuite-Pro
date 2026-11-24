@@ -73,9 +73,9 @@ class KeyDetectorApp(SuiteApp):
     SKIPPED_LABEL = "Skipped (already tagged)"
     LIVE_COMPLETION_TEXT: ClassVar[str] = "Key Tagging Complete!"
     DRY_RUN_COMPLETION_TEXT: ClassVar[str] = "Analysis Complete!"
-    completion_text = DRY_RUN_COMPLETION_TEXT
-    #: The window's own tab captions, unchanged by the migration.
-    tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
+    #: The heading the Results tab shows before the first run; a finished run
+    #: replaces it with the dry/live text above.
+    completion_text = "Key Detection Complete!"
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
     _launched_from_driver: bool = False

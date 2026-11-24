@@ -82,6 +82,9 @@ the consolidator gains a report drive through its completion handler, and the
 label its own writer prints is locked in the same drive (C1 stage 3, D50).
 Changed in 2.9.0: Audio Refinery follows it, so the table is twenty-one and the
 refinery gains a report drive through its completion handler (C1 stage 3).
+Changed in 2.9.0: Mood Analyzer closes stage 3, so the table is twenty-three and
+the analyzer gains a report drive, its skipped word and its run note (C1 stage 3,
+D54).
 
 
 Changed in 2.9.0: the module destroys the window it builds. ``SuiteApp``
@@ -152,6 +155,9 @@ from mood_analysis_batch_tagger import app as mood_app
 from mood_analysis_batch_tagger.app import MoodAnalysisBatchTaggerApp
 from mood_analysis_batch_tagger.core import batch_analysis_engine
 from mood_analysis_batch_tagger.utils.cli_args import MoodAnalysisBatchTaggerArgs
+from mood_analyzer import app as mood_analyzer_app
+from mood_analyzer.app import MoodAnalyzerApp
+from mood_analyzer.utils.cli_args import MoodAnalyzerArgs
 from music_format_converter import app as converter_app
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
@@ -196,6 +202,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     GenreConsolidatorApp,
     AudioRefineryApp,
     KeyDetectorApp,
+    MoodAnalyzerApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -452,6 +459,20 @@ def _stub_key_detector_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(key_detector_app.suite_config, "list_presets", lambda _tool: [])
 
 
+def _stub_mood_analyzer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the analyzer's launcher handshake and its persisted settings."""
+    monkeypatch.setattr(mood_analyzer_app, "parse_cli", lambda: MoodAnalyzerArgs())
+    monkeypatch.setattr(mood_analyzer_app, "was_launched_from_driver", lambda: False)
+    monkeypatch.setattr(
+        mood_analyzer_app.suite_config,
+        "load_value",
+        lambda _key, default: default,
+    )
+    monkeypatch.setattr(
+        mood_analyzer_app.suite_config, "list_presets", lambda _tool: []
+    )
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -475,6 +496,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     GenreConsolidatorApp: _stub_album_genre_tagger_edges,
     AudioRefineryApp: _stub_audio_refinery_edges,
     KeyDetectorApp: _stub_key_detector_edges,
+    MoodAnalyzerApp: _stub_mood_analyzer_edges,
 }
 
 
@@ -950,6 +972,30 @@ def _complete_key_detector_run(app: KeyDetectorApp, tmp_path: Path) -> None:
     app._poll_ui_updates()
 
 
+def _complete_mood_analyzer_run(app: MoodAnalyzerApp, tmp_path: Path) -> None:
+    """Drive the analyzer's completion: it writes ``mood_dry_run_log.txt``.
+
+    ``_on_complete`` records the run note, writes the report and queues the
+    Results render for the shell's poller, which is drained here.  The folder
+    and the dry-run snapshot are the state ``start_processing`` takes on the Tk
+    thread.
+    """
+    app._dir_path = str(tmp_path)
+    app._is_dry_run = True
+    app._log_path = str(tmp_path / "mood_dry_run_log.txt")
+    app._ui_updates = SimpleQueue()
+    app._on_complete(
+        header=["MOOD DETECTION REPORT\n"],
+        total=2,
+        processed=2,
+        skipped=1,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["a.mp3 -> Energetic;Bright\n"],
+    )
+    app._poll_ui_updates()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -974,6 +1020,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     GenreConsolidatorApp: _complete_album_genre_tagger_run,
     AudioRefineryApp: _complete_audio_refinery_run,
     KeyDetectorApp: _complete_key_detector_run,
+    MoodAnalyzerApp: _complete_mood_analyzer_run,
 }
 
 #: The label line each adopter that writes through
@@ -986,6 +1033,7 @@ SHELL_REPORT_LABELS: dict[type[suite_app.SuiteApp], str] = {
     TagFieldUpdaterApp: "Files read: 1",
     RestorationApp: "Repaired: 1",
     KeyDetectorApp: "Tagged/Analyzed: 1",
+    MoodAnalyzerApp: "Tagged/Analyzed: 1",
 }
 
 #: The skipped word each adopter that writes through the shell's writer must
@@ -993,6 +1041,7 @@ SHELL_REPORT_LABELS: dict[type[suite_app.SuiteApp], str] = {
 #: ``SKIPPED_LABEL``; the shell's fallback is the plain ``Skipped``.
 SHELL_SKIPPED_LABELS: dict[type[suite_app.SuiteApp], str] = {
     KeyDetectorApp: "Skipped (already tagged): 1",
+    MoodAnalyzerApp: "Skipped (undecodable/silent): 1",
 }
 
 
@@ -1238,6 +1287,7 @@ def test_every_shell_written_report_has_its_label_locked() -> None:
         TagFieldUpdaterApp,
         RestorationApp,
         KeyDetectorApp,
+        MoodAnalyzerApp,
     }
 
 
@@ -1267,7 +1317,7 @@ def test_a_shell_written_report_labels_its_skipped_count(
 
 def test_every_shell_written_report_has_its_skipped_label_locked() -> None:
     """A tool that needs a skipped word declares it here, deliberately."""
-    assert set(SHELL_SKIPPED_LABELS) == {KeyDetectorApp}
+    assert set(SHELL_SKIPPED_LABELS) == {KeyDetectorApp, MoodAnalyzerApp}
 
 
 def test_the_migrated_table_is_frozen() -> None:
@@ -1295,6 +1345,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "GenreConsolidatorApp",
         "AudioRefineryApp",
         "KeyDetectorApp",
+        "MoodAnalyzerApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)
