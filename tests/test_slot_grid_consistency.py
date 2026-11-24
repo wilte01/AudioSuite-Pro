@@ -192,6 +192,10 @@ _WORKER_VAR_FACTORIES = frozenset({"IntVar", "StringVar", "DoubleVar"})
 #: The one GUI helper allowed to clamp a typed count.
 _CAP_HELPER = "cap_typed_workers"
 
+#: The shell whose ``start_processing`` caps a typed count for the windows that
+#: inherit it.
+_SHARED_START = _REPO_ROOT / "audio_suite_shared" / "suite_app.py"
+
 
 def _last_name(expr: ast.expr) -> str:
     """Return the final component of a call target (``tk.IntVar`` -> ``IntVar``)."""
@@ -246,10 +250,19 @@ def _typed_worker_problems(path: Path) -> list[str]:
         if isinstance(node, ast.Call) and _last_name(node.func) == _CAP_HELPER
     ]
     if not caps:
+        if _takes_the_shared_start(path):
+            if _typed_worker_problems(_SHARED_START):
+                return [
+                    f"{relative}: relies on the shell's start for the typed "
+                    f"worker count, but {_SHARED_START.name} no longer caps it "
+                    "before persisting (D66)"
+                ]
+            return []
         return [
             f"{relative}: builds a typed worker count but never calls "
-            f"{_CAP_HELPER}() — a count above the slot grid would silently run "
-            "at the grid size with no warning and be saved uncapped (D66)"
+            f"{_CAP_HELPER}() and does not take ``SuiteApp.start_processing`` — "
+            "a count above the slot grid would silently run at the grid size "
+            "with no warning and be saved uncapped (D66)"
         ]
 
     problems: list[str] = []
@@ -340,6 +353,29 @@ def _app_bases(path: Path) -> list[str]:
         if isinstance(node, ast.ClassDef)
         for base in node.bases
     ]
+
+
+def _takes_the_shared_start(path: Path) -> bool:
+    """True when *path* defines a ``SuiteApp`` window that keeps its start.
+
+    A window that inherits ``SuiteApp.start_processing`` gets the shared cap, so
+    the file does not have to call it; a window that overrides the start has to
+    call the cap itself and is therefore not covered here.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases = {ast.unparse(base).split(".")[-1] for base in node.bases}
+        if "SuiteApp" not in bases:
+            continue
+        if not any(
+            isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
+            and item.name == "start_processing"
+            for item in node.body
+        ):
+            return True
+    return False
 
 
 def _own_grid_tools() -> dict[str, Path]:
@@ -487,6 +523,10 @@ class TestTypedWorkerCountIsCapped:
         names = {path.relative_to(_REPO_ROOT).as_posix() for path in sites}
         # Changed in 2.9.0: the last shared analysis base is gone, so a
         # tool's own window stands in for it (D54).
+        # Changed in 2.9.0: the typed-worker cap follows the count onto
+        # ``SuiteApp.start_processing``, so a window that inherits that start is
+        # covered by the shell's own cap (which this lock also checks), and only
+        # a window that overrides the start must call the helper itself (D56).
         assert "key_detector/app.py" in names, names
 
         owned = {entry.resolve() for entry in _manifest_tools().values()}

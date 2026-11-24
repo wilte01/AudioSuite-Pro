@@ -16,6 +16,9 @@ Changed in 2.9.0: covers ``_write_run_report_standard``, the report three
 adopters had written for themselves (D32).
 Changed in 2.9.0: covers the writer creating its report's folder, and a write
 failure the folder creation cannot repair (D33).
+Changed in 2.9.0: covers the run controls a preset-carrying window shares -
+the config key, the preset trio, the driver's argv mirror, the analysis start
+- and the Auto End marker (D56).
 
 """
 
@@ -30,6 +33,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from audio_suite_shared import suite_config
 from audio_suite_shared.event_pump import DEFAULT_POLL_MS
 from audio_suite_shared.suite_app import SuiteApp
 
@@ -259,3 +263,162 @@ class TestWriteRunReport:
         )
 
         assert Path(app._log_path).is_file()
+
+
+class _ControlsWindow(_Window):
+    """A shell with the run controls a preset-carrying analysis window has."""
+
+    SETTINGS_PREFIX = "probe"
+    TOOL_ID = "probe"
+    STARTING_STATUS = "Probing..."
+
+    started: bool = False
+
+    def _start_run(self) -> None:
+        self.started = True
+
+
+def _controls_window() -> _ControlsWindow:
+    """Return a controls shell with stub Tk variables and a stub start button.
+
+    Returns:
+        The window, with one stub variable per preset field.
+    """
+    app = object.__new__(_ControlsWindow)
+    app.root = MagicMock()
+    app.rendered = []
+    for name in _ControlsWindow.PRESET_FIELDS:
+        setattr(app, name, MagicMock(**{"get.return_value": f"{name}-value"}))
+    app.auto_start_var = MagicMock()
+    app.auto_end_var = MagicMock()
+    app.clear_logs_var = MagicMock()
+    app.parallel_var = MagicMock()
+    app.auto_end = False
+    app.start_btn = MagicMock()
+    app.file_listbox = MagicMock()
+    app.progress = {}
+    app.notebook = MagicMock()
+    app.processing_frame = MagicMock()
+    app.overall_status = MagicMock()
+    app._refresh_preset_list = MagicMock()
+    app.slot_vars = [MagicMock() for _ in range(6)]
+    return app
+
+
+class TestRunControls:
+    def test_a_preset_carries_every_declared_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _controls_window()
+        saved: dict[str, Any] = {}
+
+        def _save(_tool: str, _name: str, settings: dict[str, Any]) -> None:
+            saved.update(settings)
+
+        monkeypatch.setattr(suite_config, "save_preset", _save)
+        monkeypatch.setattr(suite_config, "list_presets", lambda _tool: ["One"])
+
+        app.store_preset("One")
+
+        assert saved == {
+            name: f"{name}-value" for name in _ControlsWindow.PRESET_FIELDS
+        }
+        app._refresh_preset_list.assert_called_once_with(["One"])
+
+    def test_selecting_a_preset_restores_only_what_it_carries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _controls_window()
+
+        def _load(_tool: str, _name: str) -> dict[str, Any]:
+            return {"run_mode": "Live Update"}
+
+        monkeypatch.setattr(suite_config, "load_preset", _load)
+
+        app.use_preset("One")
+
+        app.run_mode.set.assert_called_once_with("Live Update")
+        app.max_workers.set.assert_not_called()
+
+    def test_deleting_a_preset_refreshes_the_combo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _controls_window()
+        deleted: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            suite_config,
+            "delete_preset",
+            lambda tool, name: deleted.append((tool, name)),
+        )
+        monkeypatch.setattr(suite_config, "list_presets", lambda _tool: [])
+
+        app.remove_preset("One")
+
+        assert deleted == [("probe", "One")]
+        app._refresh_preset_list.assert_called_once_with([])
+
+    def test_a_driver_launch_mirrors_the_handshake_and_auto_starts(self) -> None:
+        app = _controls_window()
+        parsed = MagicMock(
+            folder_path="C:/music",
+            live_mode=True,
+            auto_start=True,
+            auto_end=True,
+            clear_logs=True,
+            parallel_run=True,
+            analysis_duration=45,
+            parallel_mode=False,
+            max_workers=2,
+        )
+
+        app._mirror_cli_args(parsed)
+
+        app.folder_path.set.assert_called_once_with("C:/music")
+        app.run_mode.set.assert_called_once_with("Live Update")
+        app.analysis_duration.set.assert_called_once_with(45)
+        assert app.auto_end is True
+        app.root.after.assert_called_once_with(1500, app.start_processing)
+
+    def test_start_processing_snapshots_and_starts_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = _controls_window()
+        folder = str(tmp_path)
+        app.folder_path = MagicMock(**{"get.return_value": folder})
+        app.run_mode = MagicMock(**{"get.return_value": "Live Update"})
+        app.analysis_duration = MagicMock(**{"get.return_value": 45})
+        app.parallel_mode = MagicMock(**{"get.return_value": True})
+        app.max_workers = MagicMock(**{"get.return_value": 6})
+        app.slot_vars = [MagicMock() for _ in range(4)]
+        app._launched_from_driver = True
+        saved: dict[str, object] = {}
+        monkeypatch.setattr(
+            suite_config,
+            "save_value",
+            lambda key, value: saved.update({key: value}),
+        )
+
+        app.start_processing()
+
+        assert saved == {"probe_parallel_mode": True, "probe_max_workers": 4}
+        assert app._dir_path == folder
+        assert app._is_dry_run is False
+        assert app._analysis_seconds == 45
+        assert app._parallel is True
+        assert app._workers == 4
+        assert app.started is True
+        app.overall_status.set.assert_called_once_with("Probing...")
+
+    def test_auto_end_marks_the_report_and_schedules_the_close(
+        self, tmp_path: Path
+    ) -> None:
+        app = _controls_window()
+        app._log_path = str(tmp_path / "probe_log.txt")
+        Path(app._log_path).write_text("PROBE REPORT\n", encoding="utf-8")
+
+        app.close_for_auto_end()
+
+        text = Path(app._log_path).read_text(encoding="utf-8")
+        assert text.startswith("PROBE REPORT\n")
+        assert text.endswith("\n[Auto End enabled - closing in 2 seconds...]\n")
+        app.root.after.assert_called_once_with(2000, app.root.destroy)

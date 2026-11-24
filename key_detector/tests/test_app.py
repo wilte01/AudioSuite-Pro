@@ -5,9 +5,9 @@ completion report and Auto End.
 Uses the object.__new__ + MagicMock shell pattern so no real display or
 bootstrap is needed.  The shell this window composes is covered once, in
 ``tests/test_suite_app_contract.py``; what is asserted here is Key Detector's
-own wiring: its literals, its file_processor call, and the three things the
-shell does not supply — the per-tick stats line, the Auto End marker and the
-driver-issued flag behind it.
+own wiring: its literals, its file_processor call, its per-tick stats line,
+and the Auto End condition, which is this window's own even though the marker
+and the close are the shell's (D56).
 
 Changed in 1.4.0: the worker-slot pool expectations are derived from
 ``default_max_workers()`` instead of a literal pool of four (PLAN D56).
@@ -22,6 +22,10 @@ name the shell's widgets and poller.  The Auto End and skipped-label cases go
 through the ``on_complete`` the run hands to ``run_analysis`` rather than
 calling a handler directly, so the same test holds across the migration and
 fails if the port drops either behaviour.
+
+Changed in 2.9.0: ``start_processing`` is the shell's (D56), so the two
+validation cases patch ``messagebox`` where the shell reads it; the
+``os.path.isdir`` case needs no move because both modules see one ``os``.
 """
 
 import tkinter as tk
@@ -515,15 +519,15 @@ class TestStartProcessingValidation:
     def test_no_folder_warns(self):
         app = object.__new__(KeyDetectorApp)
         app.folder_path = MagicMock(**{"get.return_value": ""})
-        with patch("key_detector.app.messagebox") as mock_box:
+        with patch("audio_suite_shared.suite_app.messagebox") as mock_box:
             app.start_processing()
         mock_box.showwarning.assert_called_once()
 
     def test_invalid_path_errors(self):
         app = object.__new__(KeyDetectorApp)
         app.folder_path = MagicMock(**{"get.return_value": "C:/nope"})
-        with patch("key_detector.app.os.path.isdir", return_value=False):
-            with patch("key_detector.app.messagebox") as mock_box:
+        with patch("audio_suite_shared.suite_app.os.path.isdir", return_value=False):
+            with patch("audio_suite_shared.suite_app.messagebox") as mock_box:
                 app.start_processing()
         mock_box.showerror.assert_called_once()
 

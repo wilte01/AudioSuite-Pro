@@ -18,6 +18,18 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The shell owns the run controls the preset-carrying windows duplicate.**
+  `SuiteApp` now writes `_setting_key`, the preset trio
+  (`use_preset` / `store_preset` / `remove_preset`) and
+  the settings snapshot they carry, the driver's argv mirror,
+  `start_processing` and the Auto End marker, so Key Detector and
+  Mood Analyzer keep only their parser, their `_run`, their per-tick stats
+  line and (for Mood) the run note. Every literal is unchanged - the same
+  five preset fields in the same order, the same two validation sentences,
+  the same 1500 ms auto-start and 2000 ms close, and the marker byte for
+  byte - so each report reads exactly as it did, and the other
+  preset-carrying windows can drop their copies onto the same methods
+  without a literal changing (C1 follow-on, D56).
 - **The review of the Mood Analyzer port cuts three leftovers and fixes one
   stale reference.** The deleted base's `_record_run_note` hook had one
   caller left, so the note is recorded inline in `_on_complete` before the

@@ -14,19 +14,21 @@ callbacks queue their payload for the shell's poller instead of calling
 ``root.after`` from the worker thread, and the run's settings are snapshotted on
 the Tk thread before that thread starts, so the worker reads no widget and no
 Tk variable.  The report is the shell's writer with this tool's two counter
-words.  Three things stay the window's own because the shell has no equivalent:
-the per-tick stats line, the Auto End marker and the driver-issued flag behind
-it, and the launcher handshake.  The base's `_preset_combo` field, written
-here and read nowhere, goes with the base.
+words.
+
+Changed in 2.9.0: the run controls are the shell's (D56).  The preset trio,
+the ``audio_suite_config`` key builder, the driver's argv mirror,
+``start_processing`` and the Auto End marker have one implementation in
+``SuiteApp``; this window supplies its parser, its ``_run`` and its per-tick
+stats line, and the only Auto End decision left here is which of the two
+sources asked for the close.
 """
 
 from __future__ import annotations
 
-import logging
 import os
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox
 from typing import Any, ClassVar
 
 from audio_suite_shared import suite_config
@@ -39,17 +41,11 @@ from audio_suite_shared.constants import (
 from audio_suite_shared.exceptions import handle_audio_errors
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_common import cap_typed_workers
 
 from .core import file_processor
 from .ui import setup_tab
 from .utils.cli_args import parse as parse_cli
 from .utils.cli_args import was_launched_from_driver
-
-logger = logging.getLogger(__name__)
-
-#: The line a run appends to its report when the window is closing itself.
-_AUTO_END_MARKER = "\n[Auto End enabled - closing in 2 seconds...]\n"
 
 
 class KeyDetectorApp(SuiteApp):
@@ -77,9 +73,6 @@ class KeyDetectorApp(SuiteApp):
     #: The heading the Results tab shows before the first run; a finished run
     #: replaces it with the dry/live text above.
     completion_text = "Key Detection Complete!"
-    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
-    #: test shell on the interactive (modal-warning) path.
-    _launched_from_driver: bool = False
 
     def __init__(self, root: tk.Tk) -> None:
         # ── Tk variables ──────────────────────────────────────────────────────
@@ -114,8 +107,6 @@ class KeyDetectorApp(SuiteApp):
         #: The driver's Auto End flag.  The Setup-tab checkbox is the other half:
         #: either one closes the window, because a driver launch cannot click it.
         self.auto_end: bool = False
-
-        self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
         # Built before super().__init__: the shell renders the grid from it.
@@ -157,75 +148,19 @@ class KeyDetectorApp(SuiteApp):
             parallel_mode=self.parallel_mode,
             max_workers=self.max_workers,
             preset_names=suite_config.list_presets(self.TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn: tk.Button = widgets["start_btn"]
         self.controls_panel = widgets["controls_panel"]
         self._refresh_preset_list = widgets.get("refresh_preset_list")
 
-    # ── Presets and settings ──────────────────────────────────────────────────
-
-    def _setting_key(self, name: str) -> str:
-        """Return this tool's ``audio_suite_config.json`` key for *name*."""
-        return f"{self.SETTINGS_PREFIX}_{name}"
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {
-            "folder_path": self.folder_path.get(),
-            "run_mode": self.run_mode.get(),
-            "analysis_duration": self.analysis_duration.get(),
-            "parallel_mode": self.parallel_mode.get(),
-            "max_workers": self.max_workers.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "folder_path" in settings:
-            self.folder_path.set(settings["folder_path"])
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-        if "analysis_duration" in settings:
-            self.analysis_duration.set(settings["analysis_duration"])
-        if "parallel_mode" in settings:
-            self.parallel_mode.set(settings["parallel_mode"])
-        if "max_workers" in settings:
-            self.max_workers.set(settings["max_workers"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(self.TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(self.TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(self.TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(self.TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(self.TOOL_ID))
-
     # ── Launcher handshake ────────────────────────────────────────────────────
 
     def _apply_cli_args(self) -> None:
         """Mirror the Master Driver's handshake onto the Setup tab."""
-        parsed = parse_cli()
-        if not parsed.folder_path:
-            return
-
-        self.folder_path.set(parsed.folder_path)
-        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
-        self.auto_start_var.set(parsed.auto_start)
-        self.auto_end_var.set(parsed.auto_end)
-        self.clear_logs_var.set(parsed.clear_logs)
-        self.parallel_var.set(parsed.parallel_run)
-        self.analysis_duration.set(parsed.analysis_duration)
-        self.parallel_mode.set(parsed.parallel_mode)
-        self.max_workers.set(parsed.max_workers)
-        self.auto_end = parsed.auto_end
-
-        if parsed.auto_start:
-            self.root.after(1500, self.start_processing)
+        self._mirror_cli_args(parse_cli())
 
     # ── User actions ──────────────────────────────────────────────────────────
 
@@ -240,43 +175,8 @@ class KeyDetectorApp(SuiteApp):
         """Open the source folder, since this tool processes files in-place."""
         self._open_source_folder_standard()
 
-    def start_processing(self) -> None:
-        """Validate the inputs, snapshot the run's settings and start it."""
-        folder = self.folder_path.get()
-        if not folder:
-            messagebox.showwarning("Warning", "Please select a music directory first.")
-            return
-        if not os.path.isdir(folder):
-            messagebox.showerror("Error", "Selected path is not a valid directory.")
-            return
-
-        # A typed worker count can exceed the fixed slot grid; cap it on the
-        # main thread (with a visible warning) before anything is persisted,
-        # so the saved setting matches the run that actually happens (D66).
-        workers = cap_typed_workers(
-            self.max_workers,
-            self._safe_slot_vars,
-            unattended=self._launched_from_driver,
-        )
-        suite_config.save_value(
-            self._setting_key("parallel_mode"), self.parallel_mode.get()
-        )
-        suite_config.save_value(self._setting_key("max_workers"), workers)
-
-        # Snapshot on the Tk thread: the worker reads no widget and no Tk
-        # variable (AGENTS.md, GUI callback contract).
-        self._dir_path = folder
-        self._is_dry_run = self.run_mode.get() == "Dry Run"
-        self._analysis_seconds = self.analysis_duration.get()
-        self._parallel = self.parallel_mode.get()
-        self._workers = workers
-
-        self.start_btn.config(state="disabled")
-        self.file_listbox.delete(0, tk.END)
-        self.progress["value"] = 0
-        self.notebook.select(self.processing_frame)
-        self.overall_status.set(self.STARTING_STATUS)
-
+    def _start_run(self) -> None:
+        """Start the run ``start_processing`` snapshot on the shell's thread."""
         self._start_worker(self._run, ())
 
     # ── Background thread ─────────────────────────────────────────────────────
@@ -414,22 +314,7 @@ class KeyDetectorApp(SuiteApp):
         # the Setup-tab checkbox, which is editable on a standalone launch.
         # Consulting only the flag left the checkbox inert there.
         if self.auto_end_var.get() or self.auto_end:
-            self._mark_auto_end()
-            self.root.after(2000, self.root.destroy)
-
-    def _mark_auto_end(self) -> None:
-        """Append the Auto End marker to the run's report (best effort).
-
-        The marker is the window's own, not the shell's: it records that this
-        run asked to close itself, which only a tool honouring the driver's flag
-        knows.  The audio work is already done and the window is about to close,
-        so a report that cannot be appended to is a log line, never a dialog.
-        """
-        try:
-            with open(self._log_path, "a", encoding="utf-8") as handle:
-                handle.write(_AUTO_END_MARKER)
-        except OSError as exc:
-            logger.warning("Could not append the Auto End marker: %s", exc)
+            self.close_for_auto_end()
 
 
 def main() -> None:

@@ -23,7 +23,13 @@ What the shell owns:
   ``event_pump.pump_events`` poller, so a tool supplies only its
   ``_dispatch_ui_message``;
 - the run report: one writer for the ``SUMMARY:`` block every tool's View Log
-  reads, so a tool supplies its header, its per-file lines and its own rows.
+  reads, so a tool supplies its header, its per-file lines and its own rows;
+- the run controls a preset-carrying window shares: its
+  ``audio_suite_config`` keys, its preset trio, the driver's argv mirror and
+  the start every analysis window takes, so the window supplies its parser
+  and its run and nothing about the panel around them;
+- the Auto End marker a finished run appends to its report before the window
+  closes itself.
 
 What a tool supplies:
 
@@ -87,30 +93,49 @@ tool's last capability is the shell's instead of a base class of its own
 Changed in 2.9.0: ``SKIPPED_LABEL`` names the report's skipped count, so a
 tool whose skips mean something specific (Key Detector's already-tagged
 files) keeps its own word instead of the shell's fallback (C1 stage 3).
+Changed in 2.9.0: the shell owns the run controls a preset-carrying window
+needs - ``_setting_key``, ``_collect_settings``/``_apply_preset``, the preset
+trio, ``_mirror_cli_args`` and ``start_processing`` - so Key Detector and
+Mood Analyzer stop carrying them twice, byte for byte, and the fourteen
+other preset-carrying windows can drop their copies onto the same methods
+without changing a literal (D56).
+Changed in 2.9.0: ``close_for_auto_end`` gives the Auto End marker and its
+close delay one home; the pair had become the marker's sixth and seventh
+copies (D56).
 
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
 from queue import SimpleQueue
 from tkinter import messagebox, ttk
-from typing import Any
+from typing import Any, ClassVar
 
-from . import styles
+from . import styles, suite_config
 from .app_bootstrap import bootstrap_tool_app
 from .event_pump import pump_events
 from .exceptions import map_to_audio_error
 from .run_report import summary_lines
 from .ui_audition import AuditionMixin
-from .ui_common import build_processing_tab, build_results_tab
+from .ui_common import (
+    build_processing_tab,
+    build_results_tab,
+    cap_typed_workers,
+)
 from .ui_helpers import UIHelperMixin
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
+
+#: The line a run appends to its report when the window closes itself.
+_AUTO_END_MARKER = "\n[Auto End enabled - closing in 2 seconds...]\n"
+#: How long a finished window stays readable before Auto End closes it.
+_AUTO_END_CLOSE_MS = 2000
 
 #: Emits one tab's widgets into the frame the shell created for it.
 TabBuilder = Callable[[tk.Frame], Any]
@@ -184,6 +209,42 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
     #: The run report's label for its skipped count.  A tool whose skips mean
     #: something specific (Key Detector's already-tagged files) names its own.
     SKIPPED_LABEL: str = "Skipped"
+    #: Prefix of this tool's ``audio_suite_config.json`` keys and of its
+    #: report file names (``key_parallel_mode``, ``key_dry_run_log.txt``).
+    SETTINGS_PREFIX: ClassVar[str] = ""
+    #: The status line a run shows while it works.
+    STARTING_STATUS: ClassVar[str] = "Processing..."
+    #: The settings a preset carries, by the name of the Tk variable holding
+    #: each one.  A tool with other settings overrides ``_collect_settings``
+    #: and ``_apply_preset``, which one loop over this tuple implements.
+    PRESET_FIELDS: ClassVar[tuple[str, ...]] = (
+        "folder_path",
+        "run_mode",
+        "analysis_duration",
+        "parallel_mode",
+        "max_workers",
+    )
+    #: Set from argv by a window that arms its Setup controls for a driver
+    #: launch; the default keeps an ``object.__new__`` test shell on the
+    #: interactive (modal-warning) path.
+    _launched_from_driver: bool = False
+    #: The Setup tab's run controls, set in the tool's ``__init__``.
+    folder_path: tk.StringVar
+    run_mode: tk.StringVar
+    analysis_duration: tk.IntVar
+    parallel_mode: tk.BooleanVar
+    max_workers: tk.IntVar
+    auto_start_var: tk.BooleanVar
+    auto_end_var: tk.BooleanVar
+    clear_logs_var: tk.BooleanVar
+    parallel_var: tk.BooleanVar
+    #: The driver's Auto End flag, mirrored from argv by ``_mirror_cli_args``.
+    auto_end: bool = False
+    #: The tool's start button, published by its Setup builder.
+    start_btn: tk.Button
+    #: The Setup tab's preset-combo refresher, published by that builder.
+    _refresh_preset_list: Callable[[list[str]], None] | None = None
+
     #: Messages the run's thread queues for the Tk poller; built per run by
     #: ``_start_worker``.
     _ui_updates: SimpleQueue[tuple[Any, ...]]
@@ -316,6 +377,174 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
     def _open_folder(self) -> None:
         """Open the folder the last run wrote to."""
         self._open_folder_standard()
+
+    # ── Run controls ──────────────────────────────────────────────────────────
+
+    def _setting_key(self, name: str) -> str:
+        """Return this tool's ``audio_suite_config.json`` key for *name*.
+
+        Args:
+            name: The setting's bare name (``parallel_mode``).
+
+        Returns:
+            ``<SETTINGS_PREFIX>_<name>``.
+        """
+        return f"{self.SETTINGS_PREFIX}_{name}"
+
+    def _collect_settings(self) -> dict[str, Any]:
+        """Snapshot the settings a preset carries.
+
+        Returns:
+            One entry per :attr:`PRESET_FIELDS` name, read from its Tk variable.
+        """
+        return {name: getattr(self, name).get() for name in self.PRESET_FIELDS}
+
+    def _apply_preset(self, settings: dict[str, Any]) -> None:
+        """Restore the settings a preset carries.
+
+        A name the preset does not carry keeps its current value, so an older
+        preset still applies to a window that has gained a setting.
+
+        Args:
+            settings: The preset's stored mapping.
+        """
+        for name in self.PRESET_FIELDS:
+            if name in settings:
+                getattr(self, name).set(settings[name])
+
+    def _preset_tool_id(self) -> str:
+        """Return the key this tool's presets live under.
+
+        Adopters disagree on the shape of ``TOOL_ID`` - a class attribute
+        for most, an assignment in ``__init__`` for the four grid tools -
+        so the shell reads it by name rather than declaring a type over
+        both.
+        """
+        tool_id: str = getattr(self, "TOOL_ID")
+        return tool_id
+
+    def use_preset(self, name: str) -> None:
+        """Apply the named preset to the Setup tab."""
+        settings = suite_config.load_preset(self._preset_tool_id(), name)
+        if settings:
+            self._apply_preset(settings)
+
+    def store_preset(self, name: str) -> None:
+        """Store the Setup tab's current settings under *name*."""
+        suite_config.save_preset(self._preset_tool_id(), name, self._collect_settings())
+        self._refresh_preset_names()
+
+    def remove_preset(self, name: str) -> None:
+        """Delete the named preset and refresh the combo."""
+        suite_config.delete_preset(self._preset_tool_id(), name)
+        self._refresh_preset_names()
+
+    def _refresh_preset_names(self) -> None:
+        """Re-read this tool's preset names into its Setup-tab combo."""
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list(suite_config.list_presets(self._preset_tool_id()))
+
+    def _mirror_cli_args(self, parsed: Any) -> None:
+        """Mirror the Master Driver's handshake onto the Setup tab.
+
+        A standalone launch passes no folder, and then nothing is touched: the
+        window keeps the settings its own ``__init__`` restored.
+
+        Args:
+            parsed: The tool's parsed argv.
+        """
+        if not parsed.folder_path:
+            return
+
+        self.folder_path.set(parsed.folder_path)
+        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
+        self.analysis_duration.set(parsed.analysis_duration)
+        self.parallel_mode.set(parsed.parallel_mode)
+        self.max_workers.set(parsed.max_workers)
+        self.auto_end = parsed.auto_end
+
+        if parsed.auto_start:
+            self.root.after(1500, self.start_processing)
+
+    def start_processing(self) -> None:
+        """Validate the inputs, snapshot the run's settings and start the run.
+
+        The settings the run reads are snapshotted here, on the Tk thread, so
+        the worker and the completion read no widget and no Tk variable
+        (``AGENTS.md``, GUI callback contract).  A window whose run needs more
+        settings overrides this and keeps :meth:`_start_run` as its entry
+        point.
+        """
+        folder = self.folder_path.get()
+        if not folder:
+            messagebox.showwarning("Warning", "Please select a music directory first.")
+            return
+        if not os.path.isdir(folder):
+            messagebox.showerror("Error", "Selected path is not a valid directory.")
+            return
+
+        # A typed worker count can exceed the fixed slot grid; cap it on the
+        # main thread (with a visible warning) before anything is persisted,
+        # so the saved setting matches the run that actually happens (D66).
+        workers = cap_typed_workers(
+            self.max_workers,
+            getattr(self, "slot_vars", None),
+            unattended=self._launched_from_driver,
+        )
+        suite_config.save_value(
+            self._setting_key("parallel_mode"), self.parallel_mode.get()
+        )
+        suite_config.save_value(self._setting_key("max_workers"), workers)
+
+        self._dir_path = folder
+        self._is_dry_run = self.run_mode.get() == "Dry Run"
+        self._analysis_seconds = self.analysis_duration.get()
+        self._parallel = self.parallel_mode.get()
+        self._workers = workers
+
+        self.start_btn.config(state="disabled")
+        self.file_listbox.delete(0, tk.END)
+        self.progress["value"] = 0
+        self.notebook.select(self.processing_frame)
+        self.overall_status.set(self.STARTING_STATUS)
+
+        self._start_run()
+
+    def _start_run(self) -> None:
+        """Start the run ``start_processing`` snapshot, on the shell's thread.
+
+        Raises:
+            NotImplementedError: Always, in the base class: the run is the
+                tool's own.
+        """
+        raise NotImplementedError(f"{type(self).__name__} must implement _start_run()")
+
+    # ── Auto End ──────────────────────────────────────────────────────────────
+
+    def close_for_auto_end(self) -> None:
+        """Mark the run's report and close the window (Tk thread only).
+
+        Called from the completion render, so the report the marker is appended
+        to is the one the run just wrote.
+        """
+        self._mark_auto_end()
+        self.root.after(_AUTO_END_CLOSE_MS, self.root.destroy)
+
+    def _mark_auto_end(self) -> None:
+        """Append the Auto End marker to the run's report (best effort).
+
+        The audio work is already done and the window is about to close, so a
+        report that cannot be appended to is a log line, never a dialog.
+        """
+        try:
+            with open(self._log_path, "a", encoding="utf-8") as handle:
+                handle.write(_AUTO_END_MARKER)
+        except OSError as exc:
+            logger.warning("Could not append the Auto End marker: %s", exc)
 
     # ── Worker protocol ───────────────────────────────────────────────────────
 
