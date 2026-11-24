@@ -107,6 +107,9 @@ trio serve every preset-carrying window: a window whose saved key is not its
 variable's name maps the two, and a window whose presets still live under the
 older ``<prefix>_preset_<name>`` keys keeps reading them, so no adoption
 renames a preset a user already saved (D58).
+Changed in 2.9.0: ``auto_end_requested`` is the one Auto End condition and
+``close_for_auto_end`` the one marker plus close; ``status`` lets a window
+whose run is read from its status line show the same sentence (D60).
 
 """
 
@@ -143,8 +146,10 @@ from .ui_presets import (
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
+#: The sentence an Auto End window shows (its report marker is bracketed).
+_AUTO_END_TEXT = "Auto End enabled - closing in 2 seconds..."
 #: The line a run appends to its report when the window closes itself.
-_AUTO_END_MARKER = "\n[Auto End enabled - closing in 2 seconds...]\n"
+_AUTO_END_MARKER = f"\n[{_AUTO_END_TEXT}]\n"
 #: How long a finished window stays readable before Auto End closes it.
 _AUTO_END_CLOSE_MS = 2000
 
@@ -596,13 +601,30 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
 
     # ── Auto End ──────────────────────────────────────────────────────────────
 
-    def close_for_auto_end(self) -> None:
-        """Mark the run's report and close the window (Tk thread only).
+    def auto_end_requested(self) -> bool:
+        """Whether either Auto End source is armed (Tk thread only).
+
+        The driver's flag and the Setup tab's checkbox are independent: a
+        standalone launch can tick the box, and a driver launch can pass
+        ``--end`` with the box left clear. A shell built without its Tk
+        variables (the tests' ``object.__new__`` stand-ins) has only the flag.
+        """
+        variable = getattr(self, "auto_end_var", None)
+        return bool(self.auto_end or (variable is not None and variable.get()))
+
+    def close_for_auto_end(self, *, status: tk.StringVar | None = None) -> None:
+        """Mark the run's report, close the window (Tk thread only).
 
         Called from the completion render, so the report the marker is appended
         to is the one the run just wrote.
+
+        Args:
+            status: A status variable to show the marker's sentence in, for a
+                window whose completed run is read from its status line.
         """
         self._mark_auto_end()
+        if status is not None:
+            status.set(_AUTO_END_TEXT)
         self.root.after(_AUTO_END_CLOSE_MS, self.root.destroy)
 
     def _mark_auto_end(self) -> None:

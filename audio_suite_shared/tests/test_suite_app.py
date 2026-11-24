@@ -23,6 +23,8 @@ Changed in 2.9.0: covers the two adopters the plain trio could not serve - a
 window whose saved key differs from its variable's name, and one whose
 presets still live under the older per-tool keys (D58).
 
+Changed in 2.9.0: covers the shell's Auto End close - the marker it writes,
+the status sentence it shows, and a checkbox-only launch (D60).
 """
 
 from __future__ import annotations
@@ -520,4 +522,42 @@ class TestRunControls:
         text = Path(app._log_path).read_text(encoding="utf-8")
         assert text.startswith("PROBE REPORT\n")
         assert text.endswith("\n[Auto End enabled - closing in 2 seconds...]\n")
+        app.root.after.assert_called_once_with(2000, app.root.destroy)
+
+    def test_auto_end_reads_the_flag_or_the_checkbox(self) -> None:
+        app = _controls_window()
+        app.auto_end_var = MagicMock(**{"get.return_value": False})
+        app.auto_end = False
+        assert app.auto_end_requested() is False
+
+        app.auto_end_var.get.return_value = True
+        assert app.auto_end_requested() is True
+
+        app.auto_end_var.get.return_value = False
+        app.auto_end = True
+        assert app.auto_end_requested() is True
+
+    def test_a_shell_without_its_checkbox_reads_the_flag(self) -> None:
+        app = object.__new__(suite_app.SuiteApp)
+        app.auto_end = False
+        assert app.auto_end_requested() is False
+        app.auto_end = True
+        assert app.auto_end_requested() is True
+
+    def test_close_for_auto_end_shows_the_sentence_in_a_status_line(
+        self, tmp_path: Path
+    ) -> None:
+        app = _controls_window()
+        app._log_path = str(tmp_path / "probe_log.txt")
+        Path(app._log_path).write_text("PROBE REPORT\n", encoding="utf-8")
+        status = MagicMock()
+
+        app.close_for_auto_end(status=status)
+
+        status.set.assert_called_once_with("Auto End enabled - closing in 2 seconds...")
+        assert (
+            Path(app._log_path)
+            .read_text(encoding="utf-8")
+            .endswith("\n[Auto End enabled - closing in 2 seconds...]\n")
+        )
         app.root.after.assert_called_once_with(2000, app.root.destroy)
