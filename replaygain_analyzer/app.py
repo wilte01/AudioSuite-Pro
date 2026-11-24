@@ -27,6 +27,8 @@ a Tk variable off the Tk thread.
 Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 ``audio_suite_shared.run_report.summary_lines``, the one implementation
 every window writes with (D36).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 import argparse
@@ -35,7 +37,7 @@ import os
 import threading
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any, cast
 
 from audio_suite_shared import suite_config
@@ -75,6 +77,11 @@ class ReplayGainAnalyzerApp(SuiteApp):
     # The counters this tool reports; a run overwrites the line from its ticks.
     processing_stats_text = "Processed: 0 | Errors: 0"
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = ("target_lufs", "run_mode")
+
     def __init__(self, root: tk.Tk) -> None:
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
@@ -109,10 +116,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
-        # ── Preset UI placeholders ────────────────────────────────────────────
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
-
         super().__init__(root)
 
         # ── Apply CLI arguments ───────────────────────────────────────────────
@@ -142,12 +145,11 @@ class ReplayGainAnalyzerApp(SuiteApp):
             on_start=self.start_processing,
             driver_locked=self._launched_from_driver,
             presets=suite_config.list_presets(TOOL_ID),
-            on_preset_selected=self._on_preset_selected,
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
+            on_preset_selected=self.use_preset,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
         )
         self.start_btn = widgets["start_btn"]
-        self._preset_combo = widgets["preset_combo"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
         self.controls_panel = widgets["controls_panel"]
 
@@ -181,30 +183,6 @@ class ReplayGainAnalyzerApp(SuiteApp):
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)
-
-    # ── Preset support ────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {"target_lufs": self.target_lufs.get(), "run_mode": self.run_mode.get()}
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "target_lufs" in settings:
-            self.target_lufs.set(settings["target_lufs"])
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── User actions ──────────────────────────────────────────────────────────
 

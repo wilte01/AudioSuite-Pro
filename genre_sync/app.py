@@ -21,6 +21,8 @@ now do their file I/O there and hand every widget write to the Tk thread.
 Changed in 2.9.0: the run's folder and mode are read once in
 ``start_processing``, so neither the worker nor the completion calls ``.get()``
 on a Tk variable off the Tk thread.
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 import logging
@@ -28,7 +30,7 @@ import os
 import threading
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any
 
 from audio_suite_shared import suite_config
@@ -65,6 +67,11 @@ class GenreSetterApp(SuiteApp):
     # The counters this tool reports; a run overwrites the line from its ticks.
     processing_stats_text = "Processed: 0 | Updated: 0 | Skipped: 0 | Errors: 0"
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = ("run_mode",)
+
     def __init__(self, root: tk.Tk):
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
@@ -83,8 +90,6 @@ class GenreSetterApp(SuiteApp):
         self._run_path: str = ""
         self._run_mode: str = ""
         self.auto_end: bool = False
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
         # Built before super().__init__: the shell renders the grid from it.
@@ -123,38 +128,13 @@ class GenreSetterApp(SuiteApp):
             on_start=self.start_processing,
             driver_locked=self._launched_from_driver,
             preset_names=suite_config.list_presets(TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn = widgets["start_btn"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
-        self._preset_combo = widgets["preset_combo"]
         self.controls_panel = widgets["controls_panel"]
-
-    # ── Presets ───────────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {
-            "run_mode": self.run_mode.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 

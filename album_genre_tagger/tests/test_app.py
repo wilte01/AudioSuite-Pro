@@ -400,9 +400,9 @@ class TestApplyPreset:
 
 
 class TestOnPresetSelected:
-    """_on_preset_selected loads a preset via suite_config and applies it."""
+    """use_preset loads a preset via suite_config and applies it."""
 
-    @patch("album_genre_tagger.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_loads_and_applies_when_found(self, mock_sc):
         app, _, _ = _make_shell_app(None)
         mock_sc.load_preset.return_value = {
@@ -410,18 +410,18 @@ class TestOnPresetSelected:
             "min_coverage": 65,
         }
 
-        app._on_preset_selected("My Preset")
+        app.use_preset("My Preset")
 
         mock_sc.load_preset.assert_called_once_with("album_genre_tagger", "My Preset")
         app.run_mode.set.assert_called_once_with("Live Update")
         app.min_coverage.set.assert_called_once_with(65)
 
-    @patch("album_genre_tagger.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_empty_settings_does_not_apply(self, mock_sc):
         app, _, _ = _make_shell_app(None)
         mock_sc.load_preset.return_value = {}
 
-        app._on_preset_selected("Empty Preset")
+        app.use_preset("Empty Preset")
 
         mock_sc.load_preset.assert_called_once_with(
             "album_genre_tagger", "Empty Preset"
@@ -429,12 +429,12 @@ class TestOnPresetSelected:
         app.run_mode.set.assert_not_called()
         app.min_coverage.set.assert_not_called()
 
-    @patch("album_genre_tagger.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_none_return_does_not_apply(self, mock_sc):
         app, _, _ = _make_shell_app(None)
         mock_sc.load_preset.return_value = None
 
-        app._on_preset_selected("Missing Preset")
+        app.use_preset("Missing Preset")
 
         mock_sc.load_preset.assert_called_once_with(
             "album_genre_tagger", "Missing Preset"
@@ -444,9 +444,9 @@ class TestOnPresetSelected:
 
 
 class TestSaveCurrentAsPreset:
-    """_save_current_as_preset saves collected settings then refreshes."""
+    """store_preset saves collected settings then refreshes."""
 
-    @patch("album_genre_tagger.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_saves_and_refreshes(self, mock_sc):
         app, _, _ = _make_shell_app(None)
         app.run_mode.get.return_value = "Dry Run"
@@ -454,7 +454,7 @@ class TestSaveCurrentAsPreset:
         app._refresh_preset_list = MagicMock()
         mock_sc.list_presets.return_value = ["Preset A", "New Preset"]
 
-        app._save_current_as_preset("New Preset")
+        app.store_preset("New Preset")
 
         mock_sc.save_preset.assert_called_once_with(
             "album_genre_tagger",
@@ -466,15 +466,15 @@ class TestSaveCurrentAsPreset:
 
 
 class TestDeletePreset:
-    """_delete_preset deletes then refreshes the list."""
+    """remove_preset deletes then refreshes the list."""
 
-    @patch("album_genre_tagger.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_deletes_and_refreshes(self, mock_sc):
         app, _, _ = _make_shell_app(None)
         app._refresh_preset_list = MagicMock()
         mock_sc.list_presets.return_value = ["Remaining"]
 
-        app._delete_preset("Old Preset")
+        app.remove_preset("Old Preset")
 
         mock_sc.delete_preset.assert_called_once_with(
             "album_genre_tagger", "Old Preset"

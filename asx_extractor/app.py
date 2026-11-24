@@ -13,6 +13,8 @@ when the run starts, so View Log is the shell's report opener instead of a
 button this window enabled by hand. The run's folder, mode and subfolder choice
 are passed to the worker as arguments, so it never reads a Tk variable off the
 Tk thread.
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 import logging
@@ -20,7 +22,7 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any
 
 from audio_suite_shared import suite_config
@@ -69,6 +71,13 @@ class ASXExtractorTool(SuiteApp):
     #: Set by ``_run``; the Results tab's Open Folder target.
     _dir_path: str = ""
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = ("asx_action_mode",)
+    #: This window's saved keys are not its variables' names.
+    PRESET_ALIASES = {"run_mode": "asx_action_mode"}
+
     def __init__(
         self,
         root: tk.Tk,
@@ -101,9 +110,6 @@ class ASXExtractorTool(SuiteApp):
         # The run's mode, snapshotted by start_extraction on the Tk thread.
         self._run_mode: str = ""
 
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
-
         # ── Restore last-used directory (if not set by caller) ───────────────
         if not self.current_folder.get():
             last = suite_config.load_last_directory()
@@ -132,44 +138,14 @@ class ASXExtractorTool(SuiteApp):
             on_browse=self._browse_folder,
             on_start=self.start_extraction,
             preset_names=suite_config.list_presets(TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
             driver_locked=self._launched_from_driver,
         )
         self.start_btn = widgets["start_btn"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
-        self._preset_combo = widgets["preset_combo"]
         self.controls_panel = widgets["controls_panel"]
-
-    # ── Presets ───────────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        """Collect current UI settings into a dict for preset storage."""
-        return {
-            "run_mode": self.asx_action_mode.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        """Apply a preset dict to the UI variables."""
-        if "run_mode" in settings:
-            self.asx_action_mode.set(settings["run_mode"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        """Load a named preset and apply its settings."""
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        """Save the current settings as a named preset."""
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        """Delete a named preset."""
-        suite_config.delete_preset(TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── User actions ─────────────────────────────────────────────────────────
 

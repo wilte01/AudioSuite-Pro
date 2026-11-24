@@ -15,6 +15,9 @@ Changed in 2.4.3: ``_make_app_stub`` builds a real (uninitialised) app instance
 with mocked widgets instead of a bare ``MagicMock``, because the completion
 handler now calls the shared shell's tail and ``super()``-style binding needs an
 instance of the class.  No assertion changed.
+Changed in 2.9.0: the preset trio is the shell's, so the preset cases patch
+``audio_suite_shared.suite_app.suite_config`` and the trio's methods where
+they now live (D58).
 """
 
 import os
@@ -47,6 +50,14 @@ class _FakeVar:
 
     def set(self, value):
         self._value = value
+
+
+class _PresetStub(MusicFormatConverterApp):
+    """A window stand-in carrying only the preset's Tk variables."""
+
+    def __init__(self, **values):
+        for name in self.PRESET_FIELDS:
+            setattr(self, name, _FakeVar(values.get(name)))
 
 
 def _make_cli_stub():
@@ -611,15 +622,16 @@ class TestApplyCliArgsSampleRateAndBitDepth:
 
 class TestPresetSampleRateAndBitDepth:
     def test_settings_collected(self):
-        stub = MagicMock()
-        stub.sample_rate = _FakeVar("48000")
-        stub.bit_depth = _FakeVar("24")
-        stub.output_format = _FakeVar("mp3")
-        stub.quality_preset = _FakeVar("high")
-        stub.delete_originals = _FakeVar(False)
-        stub.normalize_mp3 = _FakeVar(True)
-        stub.target_lufs = _FakeVar(-14.0)
-        stub.run_mode = _FakeVar("Live Update")
+        stub = _PresetStub(
+            sample_rate="48000",
+            bit_depth="24",
+            output_format="mp3",
+            quality_preset="high",
+            delete_originals=False,
+            normalize_mp3=True,
+            target_lufs=-14.0,
+            run_mode="Live Update",
+        )
         settings = MusicFormatConverterApp._collect_settings(stub)
         assert settings["sample_rate"] == "48000"
         assert settings["bit_depth"] == "24"
@@ -627,18 +639,7 @@ class TestPresetSampleRateAndBitDepth:
         assert settings["target_lufs"] == -14.0
 
     def test_preset_applied(self):
-        stub = MagicMock()
-        for attr in (
-            "output_format",
-            "quality_preset",
-            "sample_rate",
-            "bit_depth",
-            "delete_originals",
-            "normalize_mp3",
-            "target_lufs",
-            "run_mode",
-        ):
-            setattr(stub, attr, _FakeVar())
+        stub = _PresetStub()
         MusicFormatConverterApp._apply_preset(
             stub,
             {
@@ -661,7 +662,6 @@ class TestDitherWiring:
 
     @staticmethod
     def _stub(**values):
-        stub = MagicMock()
         defaults = {
             "output_format": "wav",
             "quality_preset": "highest",
@@ -674,9 +674,7 @@ class TestDitherWiring:
             "run_mode": "Live Update",
         }
         defaults.update(values)
-        for attr, value in defaults.items():
-            setattr(stub, attr, _FakeVar(value))
-        return stub
+        return _PresetStub(**defaults)
 
     def test_default_is_on(self):
         """The GUI ships with dither enabled; it is an opt-out, not an opt-in."""

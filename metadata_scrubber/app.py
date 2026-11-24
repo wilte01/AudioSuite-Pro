@@ -28,6 +28,8 @@ shell after ``_on_complete`` has written the report on the worker thread.
 Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 ``audio_suite_shared.run_report.summary_lines``, the one implementation
 every window writes with (D36).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 import logging
@@ -77,6 +79,16 @@ class MetadataScrubberApp(SuiteApp):
     # The labels this window has always shown; the shell does not renumber.
     tab_labels = (" 1. Setup ", " 2. Processing ", " 3. Results ")
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = (
+        "run_mode",
+        "preserve_lyrics",
+        "preserve_album_artist",
+        "preserve_embedded_art",
+    )
+
     def __init__(self, root: tk.Tk) -> None:
         # Tk variables
         self.folder_path = tk.StringVar()
@@ -111,7 +123,6 @@ class MetadataScrubberApp(SuiteApp):
         # the window, so it has to exist before the shell runs.
         self.cli_handler = UniversalCLIHandler(self)
 
-        self._refresh_preset_list: Any = None
         self._dir_path = ""
 
         super().__init__(root)
@@ -143,46 +154,13 @@ class MetadataScrubberApp(SuiteApp):
             on_start=self.start_processing,
             driver_locked=self._launched_from_driver,
             preset_names=suite_config.list_presets(TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn = self._setup_tab.start_btn
         self.controls_panel = self._setup_tab.controls_panel
         self._refresh_preset_list = self._setup_tab.refresh_preset_list
-
-    # ── Presets ───────────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {
-            "run_mode": self.run_mode.get(),
-            "preserve_lyrics": self.preserve_lyrics.get(),
-            "preserve_album_artist": self.preserve_album_artist.get(),
-            "preserve_embedded_art": self.preserve_embedded_art.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-        if "preserve_lyrics" in settings:
-            self.preserve_lyrics.set(settings["preserve_lyrics"])
-        if "preserve_album_artist" in settings:
-            self.preserve_album_artist.set(settings["preserve_album_artist"])
-        if "preserve_embedded_art" in settings:
-            self.preserve_embedded_art.set(settings["preserve_embedded_art"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 

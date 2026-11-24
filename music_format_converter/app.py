@@ -24,6 +24,8 @@ line changed.
 Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 ``audio_suite_shared.run_report.summary_lines``, the one implementation
 every window writes with (D36).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 import logging
@@ -31,7 +33,7 @@ import os
 import threading
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any
 
 from audio_suite_shared import suite_config
@@ -81,6 +83,21 @@ class MusicFormatConverterApp(SuiteApp):
     guide_name = HELP_GUIDE
     completion_text = "Conversion Complete!"
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = (
+        "output_format",
+        "quality_preset",
+        "sample_rate",
+        "bit_depth",
+        "delete_originals",
+        "normalize_mp3",
+        "target_lufs",
+        "dither",
+        "run_mode",
+    )
+
     def __init__(self, root: tk.Tk):
         self.root = root
 
@@ -112,8 +129,6 @@ class MusicFormatConverterApp(SuiteApp):
         self._out_dir: str = ""
         self._available_formats: list[Any] = list(ALL_FORMATS)
         self.ffmpeg_available: bool = check_ffmpeg()
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
         self.slot_vars = [
@@ -166,9 +181,9 @@ class MusicFormatConverterApp(SuiteApp):
             driver_locked=self._launched_from_driver,
             on_folder_change=self._on_folder_change,
             preset_names=suite_config.list_presets(TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn = widgets["start_btn"]
         self.controls_panel = widgets["controls_panel"]
@@ -176,57 +191,6 @@ class MusicFormatConverterApp(SuiteApp):
         self._update_format_menu = widgets["update_format_menu"]
         self._update_format_info = widgets["update_format_info"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
-        self._preset_combo = widgets["preset_combo"]
-
-    # ── Presets ───────────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {
-            "output_format": self.output_format.get(),
-            "quality_preset": self.quality_preset.get(),
-            "sample_rate": self.sample_rate.get(),
-            "bit_depth": self.bit_depth.get(),
-            "delete_originals": self.delete_originals.get(),
-            "normalize_mp3": self.normalize_mp3.get(),
-            "target_lufs": self.target_lufs.get(),
-            "dither": self.dither.get(),
-            "run_mode": self.run_mode.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "output_format" in settings:
-            self.output_format.set(settings["output_format"])
-        if "quality_preset" in settings:
-            self.quality_preset.set(settings["quality_preset"])
-        if "sample_rate" in settings:
-            self.sample_rate.set(settings["sample_rate"])
-        if "bit_depth" in settings:
-            self.bit_depth.set(settings["bit_depth"])
-        if "delete_originals" in settings:
-            self.delete_originals.set(settings["delete_originals"])
-        if "normalize_mp3" in settings:
-            self.normalize_mp3.set(settings["normalize_mp3"])
-        if "target_lufs" in settings:
-            self.target_lufs.set(settings["target_lufs"])
-        # Absent from older presets: leave the dither default in place rather
-        # than silently switching it off when an old preset is loaded.
-        if "dither" in settings:
-            self.dither.set(settings["dither"])
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 

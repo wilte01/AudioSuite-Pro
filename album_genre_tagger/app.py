@@ -21,13 +21,15 @@ Changed in 2.9.0: the migration's three vestiges are cut - the processing list
 keeps the ``PHASE 1`` header spelling the run report already wrote, the class
 no longer declares an unused ``TOOL_ID``, and the run's queue is seeded only by
 the shell (D51).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any
 
 from audio_suite_shared import suite_config
@@ -74,6 +76,11 @@ class GenreConsolidatorApp(SuiteApp):
     #: Built by the shell from ``result_extra_labels`` and published here.
     genre_label: tk.Label
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = ("run_mode", "min_coverage")
+
     def __init__(
         self, root: tk.Tk, cli_args_parsed: GenreTaggerArgs | None = None
     ) -> None:
@@ -106,8 +113,6 @@ class GenreConsolidatorApp(SuiteApp):
         # these, never the Tk vars.
         self._is_dry_run: bool = True
         self._min_coverage: int = 50
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
         super().__init__(root)
 
         self._apply_cli_args()
@@ -134,41 +139,13 @@ class GenreConsolidatorApp(SuiteApp):
             on_start=self.start_processing,
             driver_locked=self._launched_from_driver,
             preset_names=suite_config.list_presets(TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn = widgets["start_btn"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
-        self._preset_combo = widgets["preset_combo"]
         self.controls_panel = widgets["controls_panel"]
-
-    # ── Presets ───────────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {
-            "run_mode": self.run_mode.get(),
-            "min_coverage": self.min_coverage.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-        if "min_coverage" in settings:
-            self.min_coverage.set(settings["min_coverage"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── CLI handling ──────────────────────────────────────────────────────────
 

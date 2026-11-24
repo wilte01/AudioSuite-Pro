@@ -138,44 +138,44 @@ class TestApplyPreset:
 
 
 class TestOnPresetSelected:
-    @patch("asx_extractor.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_loads_and_applies_when_settings_nonempty(self, mock_sc: MagicMock) -> None:
         mock_sc.load_preset.return_value = {
             "run_mode": "Execute Extraction (Permanent)"
         }
         tool = _make_tool()
-        tool._on_preset_selected("my_preset")
+        tool.use_preset("my_preset")
 
         mock_sc.load_preset.assert_called_once_with(TOOL_ID, "my_preset")
         tool.asx_action_mode.set.assert_called_once_with(
             "Execute Extraction (Permanent)"
         )
 
-    @patch("asx_extractor.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_does_not_apply_when_settings_empty(self, mock_sc: MagicMock) -> None:
         mock_sc.load_preset.return_value = {}
         tool = _make_tool()
-        tool._on_preset_selected("empty_preset")
+        tool.use_preset("empty_preset")
 
         mock_sc.load_preset.assert_called_once_with(TOOL_ID, "empty_preset")
         tool.asx_action_mode.set.assert_not_called()
 
-    @patch("asx_extractor.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_does_not_apply_when_settings_none(self, mock_sc: MagicMock) -> None:
         mock_sc.load_preset.return_value = None
         tool = _make_tool()
-        tool._on_preset_selected("missing_preset")
+        tool.use_preset("missing_preset")
 
         mock_sc.load_preset.assert_called_once_with(TOOL_ID, "missing_preset")
         tool.asx_action_mode.set.assert_not_called()
 
 
 class TestSaveCurrentAsPreset:
-    @patch("asx_extractor.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_saves_collected_settings_and_refreshes(self, mock_sc: MagicMock) -> None:
         mock_sc.list_presets.return_value = ["a", "b"]
         tool = _make_tool(mode="Dry Run (Simulated)")
-        tool._save_current_as_preset("my_preset")
+        tool.store_preset("my_preset")
 
         mock_sc.save_preset.assert_called_once_with(
             TOOL_ID, "my_preset", {"run_mode": "Dry Run (Simulated)"}
@@ -185,23 +185,23 @@ class TestSaveCurrentAsPreset:
 
 
 class TestDeletePreset:
-    @patch("asx_extractor.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_deletes_and_refreshes(self, mock_sc: MagicMock) -> None:
         mock_sc.list_presets.return_value = ["remaining"]
         tool = _make_tool()
-        tool._delete_preset("old_preset")
+        tool.remove_preset("old_preset")
 
         mock_sc.delete_preset.assert_called_once_with(TOOL_ID, "old_preset")
         mock_sc.list_presets.assert_called_once_with(TOOL_ID)
         tool._refresh_preset_list.assert_called_once_with(["remaining"])
 
-    @patch("asx_extractor.app.suite_config")
+    @patch("audio_suite_shared.suite_app.suite_config")
     def test_refresh_shows_empty_list_after_last_delete(
         self, mock_sc: MagicMock
     ) -> None:
         mock_sc.list_presets.return_value = []
         tool = _make_tool()
-        tool._delete_preset("only_preset")
+        tool.remove_preset("only_preset")
 
         tool._refresh_preset_list.assert_called_once_with([])
 

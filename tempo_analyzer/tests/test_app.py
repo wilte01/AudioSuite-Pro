@@ -412,7 +412,7 @@ class TestApplyCliArgsStandalone:
 
 
 class TestPresetCRUD:
-    """_on_preset_selected, _save_current_as_preset, _delete_preset."""
+    """The shell preset trio, driven through this window."""
 
     @staticmethod
     @pytest.fixture
@@ -426,26 +426,26 @@ class TestPresetCRUD:
 
     def test_on_preset_selected_applies_settings(self, app: TempoAnalyzerApp) -> None:
         preset = {"tempo_scheme": "English", "run_mode": "Live Update"}
-        with patch("tempo_analyzer.app.suite_config") as mock_cfg:
+        with patch("audio_suite_shared.suite_app.suite_config") as mock_cfg:
             mock_cfg.load_preset.return_value = preset
-            app._on_preset_selected("my_preset")
+            app.use_preset("my_preset")
         app.tempo_scheme.set.assert_called_once_with("English")
         app.run_mode.set.assert_called_once_with("Live Update")
 
     def test_on_preset_selected_empty_preset_does_nothing(
         self, app: TempoAnalyzerApp
     ) -> None:
-        with patch("tempo_analyzer.app.suite_config") as mock_cfg:
+        with patch("audio_suite_shared.suite_app.suite_config") as mock_cfg:
             mock_cfg.load_preset.return_value = {}
-            app._on_preset_selected("empty_preset")
+            app.use_preset("empty_preset")
         mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "empty_preset")
         app.tempo_scheme.set.assert_not_called()
         app.run_mode.set.assert_not_called()
 
     def test_on_preset_selected_none_does_nothing(self, app: TempoAnalyzerApp) -> None:
-        with patch("tempo_analyzer.app.suite_config") as mock_cfg:
+        with patch("audio_suite_shared.suite_app.suite_config") as mock_cfg:
             mock_cfg.load_preset.return_value = None
-            app._on_preset_selected("missing")
+            app.use_preset("missing")
         mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "missing")
         app.tempo_scheme.set.assert_not_called()
 
@@ -454,9 +454,9 @@ class TestPresetCRUD:
     ) -> None:
         app.tempo_scheme.get.return_value = "Italian"
         app.run_mode.get.return_value = "Dry Run"
-        with patch("tempo_analyzer.app.suite_config") as mock_cfg:
+        with patch("audio_suite_shared.suite_app.suite_config") as mock_cfg:
             mock_cfg.list_presets.return_value = ["old", "new_preset"]
-            app._save_current_as_preset("new_preset")
+            app.store_preset("new_preset")
         mock_cfg.save_preset.assert_called_once_with(
             "tempo_analyzer",
             "new_preset",
@@ -466,9 +466,9 @@ class TestPresetCRUD:
         app._refresh_preset_list.assert_called_once_with(["old", "new_preset"])
 
     def test_delete_preset_calls_suite_config(self, app: TempoAnalyzerApp) -> None:
-        with patch("tempo_analyzer.app.suite_config") as mock_cfg:
+        with patch("audio_suite_shared.suite_app.suite_config") as mock_cfg:
             mock_cfg.list_presets.return_value = ["remaining"]
-            app._delete_preset("to_delete")
+            app.remove_preset("to_delete")
         mock_cfg.delete_preset.assert_called_once_with("tempo_analyzer", "to_delete")
         mock_cfg.list_presets.assert_called_once_with("tempo_analyzer")
         app._refresh_preset_list.assert_called_once_with(["remaining"])

@@ -30,6 +30,8 @@ tabs and this tool keeps its Setup panel, its
 poller keeps its queue, but its widget writes go to the shell's widgets, the
 completion renders through ``render_completion``, and View Log is the shell's
 report opener, so it opens the path the engine reports for the run.
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window declares the settings a preset carries and keeps only that (D58).
 """
 
 from __future__ import annotations
@@ -40,7 +42,6 @@ import threading
 import time
 import tkinter as tk
 from queue import Empty, Queue
-from tkinter import ttk
 from typing import Any
 
 from audio_suite_shared import platform_utils, suite_config
@@ -91,6 +92,17 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
     #: ``object.__new__`` test shell on the interactive (warning) path.
     _launched_from_driver: bool = False
 
+    #: The key these presets live under in the shared store.
+    TOOL_ID = TOOL_ID
+    #: The settings a preset carries, in the order it has always stored them.
+    PRESET_FIELDS = (
+        "root_path",
+        "run_mode",
+        "analysis_duration",
+        "parallel_mode",
+        "max_workers",
+    )
+
     def __init__(self, root: tk.Tk) -> None:
         # ── Tk variables ──────────────────────────────────────────────────────
         saved_mode = load_run_mode()
@@ -117,8 +129,6 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
         self._launched_from_driver = cli_args.was_launched_from_driver()
 
         # ── Processing state ─────────────────────────────────────────────────
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
 
         self._queue: Queue[Any] = Queue()
         self._running: bool = False
@@ -160,13 +170,12 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
             parallel_mode=self.parallel_mode,
             max_workers=self.max_workers,
             preset_names=suite_config.list_presets(TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
         )
         self.start_btn = widgets["start_btn"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
-        self._preset_combo = widgets["preset_combo"]
         self.controls_panel = widgets["controls_panel"]
 
         self.analysis_duration.trace_add(
@@ -213,44 +222,6 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
 
         if parsed.auto_start:
             self.root.after(1500, self._on_start)
-
-    # ── Presets ───────────────────────────────────────────────────────────────
-
-    def _collect_settings(self) -> dict[str, Any]:
-        return {
-            "root_path": self.root_path.get(),
-            "run_mode": self.run_mode.get(),
-            "analysis_duration": self.analysis_duration.get(),
-            "parallel_mode": self.parallel_mode.get(),
-            "max_workers": self.max_workers.get(),
-        }
-
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        if "root_path" in settings:
-            self.root_path.set(settings["root_path"])
-        if "run_mode" in settings:
-            self.run_mode.set(settings["run_mode"])
-        if "analysis_duration" in settings:
-            self.analysis_duration.set(settings["analysis_duration"])
-        if "parallel_mode" in settings:
-            self.parallel_mode.set(settings["parallel_mode"])
-        if "max_workers" in settings:
-            self.max_workers.set(settings["max_workers"])
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(TOOL_ID, name, self._collect_settings())
-        if self._refresh_preset_list:
-            self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(TOOL_ID, name)
-        if self._refresh_preset_list:
-            self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
     # ── User actions ──────────────────────────────────────────────────────────
 

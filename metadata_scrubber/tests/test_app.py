@@ -627,7 +627,7 @@ class TestPresetHandlers:
             lambda _tool, _name: {"run_mode": "Live Update"},
         )
 
-        app._on_preset_selected("My Preset")
+        app.use_preset("My Preset")
 
         app._apply_preset.assert_called_once_with({"run_mode": "Live Update"})
 
@@ -642,7 +642,7 @@ class TestPresetHandlers:
             lambda _tool: ["Saved"],
         )
 
-        app._save_current_as_preset("Saved")
+        app.store_preset("Saved")
 
         save.assert_called_once_with(
             "metadata_scrubber", "Saved", {"run_mode": "Dry Run"}
@@ -658,7 +658,7 @@ class TestPresetHandlers:
             "metadata_scrubber.app.suite_config.list_presets", lambda _tool: []
         )
 
-        app._delete_preset("Old")
+        app.remove_preset("Old")
 
         delete.assert_called_once_with("metadata_scrubber", "Old")
         app._refresh_preset_list.assert_called_once_with([])
