@@ -18,6 +18,23 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The review of the Mood Analyzer port cuts three leftovers and fixes one
+  stale reference.** The deleted base's `_record_run_note` hook had one
+  caller left, so the note is recorded inline in `_on_complete` before the
+  report rather than behind a hook no shared code reaches; `_preset_combo`,
+  written by both `AnalysisAppBase` windows and read by nothing, goes from
+  Key Detector and Mood Analyzer and takes the `ttk` import only it needed
+  (the shell's Setup builder still builds the combo); and Mood Analyzer's own
+  results-heading case goes, because the shell contract already asserts every
+  adopter's pre-run heading and the identity case pins the mood wording. The
+  module docstring no longer points at a base that is gone, and the plan's
+  intro no longer calls the bases live. The pair's per-window glue - presets,
+  CLI mirroring, `start_processing` and the Auto End marker with its close -
+  is still two copies of what the base held, and the marker literal is now
+  its sixth and seventh copy across the windows; that wants a shell
+  capability the ten preset-carrying windows can share, so it is the next
+  cut, not this one.
+
 - **Mood Analyzer is the twenty-third window on `SuiteApp`, and the last
   one off `AnalysisAppBase`, which is deleted with it.** The shell builds
   the Help bar, the notebook and both tabs, so its two one-line tab

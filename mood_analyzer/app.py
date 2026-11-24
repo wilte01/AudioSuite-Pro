@@ -14,7 +14,7 @@ batch report says so instead of only the tool's own log.
 
 Changed in 2.9.0: the window composes ``SuiteApp`` (C1 stage 3, D54).  The three
 callbacks queue their payload for the shell's poller instead of calling
-``root.after`` from the base's own worker thread, and the run's settings are
+``root.after`` from the run's thread, and the run's settings are
 snapshotted on the Tk thread before that thread starts, so the worker reads no
 widget and no Tk variable.  The report is the shell's writer with this tool's
 two counter words, and the run note is recorded before it.  Two things stay the
@@ -28,7 +28,7 @@ import logging
 import os
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any, ClassVar
 
 from audio_suite_shared import suite_config
@@ -123,7 +123,6 @@ class MoodAnalyzerApp(SuiteApp):
         #: either one closes the window, because a driver launch cannot click it.
         self.auto_end: bool = False
 
-        self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
@@ -172,7 +171,6 @@ class MoodAnalyzerApp(SuiteApp):
         )
         self.start_btn: tk.Button = widgets["start_btn"]
         self.controls_panel = widgets["controls_panel"]
-        self._preset_combo = widgets.get("preset_combo")
         self._refresh_preset_list = widgets.get("refresh_preset_list")
 
     # ── Presets and settings ──────────────────────────────────────────────────
@@ -354,13 +352,23 @@ class MoodAnalyzerApp(SuiteApp):
     ) -> None:
         """Record the run's note, write its report, then queue the finished run.
 
-        The note comes first, as it did on the base: a damaged Tk or an
-        unwritable report must not suppress what the Master Driver reads.  The
+        The note is recorded before the report, so a damaged Tk or an
+        unwritable log cannot suppress what the Master Driver reads.  The
         report is serialised on the run's own thread; every widget write is the
         poller's.  ``analysed`` is what the run handled without skipping or
         erroring, which is the count the report and the Results tab show.
         """
-        self._record_run_note(total=total, skipped=skipped, errors=errors)
+        record_caveats(
+            DRIVER_TOOL_ID,
+            shortfall(
+                skipped, total, "track", "had no usable audio (undecodable or silent)"
+            )
+            if skipped
+            else "",
+            shortfall(errors, total, "track", "could not be analyzed")
+            if errors
+            else "",
+        )
         analysed = processed - skipped - errors
         self._write_run_report_standard(
             header=header,
@@ -381,34 +389,6 @@ class MoodAnalyzerApp(SuiteApp):
         self._ui_updates.put(("error", message))
 
     # ── Rendering (Tk thread: one queued message at a time) ──────────────────
-
-    def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
-        """Record the tracks this run could not produce a mood for.
-
-        Called by the completion path before it writes the report, so a damaged
-        Tk or an unwritable log cannot suppress the note the Master Driver
-        reads.  Surfacing the skipped count is the point: the Results summary
-        already labels it "Skipped (undecodable/silent)", and that is exactly
-        what a batch operator needs to know about a track the run finished
-        without tagging.  A clean run records nothing, which clears any earlier
-        note.
-
-        Args:
-            total: Files the run attempted.
-            skipped: Files skipped as undecodable or near-silent.
-            errors: Files whose analysis or tag write failed unexpectedly.
-        """
-        record_caveats(
-            DRIVER_TOOL_ID,
-            shortfall(
-                skipped, total, "track", "had no usable audio (undecodable or silent)"
-            )
-            if skipped
-            else "",
-            shortfall(errors, total, "track", "could not be analyzed")
-            if errors
-            else "",
-        )
 
     def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
         """Render one queued message on the Tk thread."""

@@ -644,10 +644,6 @@ class TestRealConstruction:
         assert isinstance(app.summary_label, tk.Label)
         assert app.controls_panel is not None
 
-    def test_the_results_tab_opens_on_the_mood_heading(self, real_app, root) -> None:
-        app = real_app()
-        assert str(app.completion_label.cget("text")) == "Mood Analysis Complete!"
-
     def test_worker_slot_pool_starts_idle_and_full(self, real_app, root) -> None:
         app = real_app()
         workers = default_max_workers()

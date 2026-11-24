@@ -16,7 +16,8 @@ the Tk thread before that thread starts, so the worker reads no widget and no
 Tk variable.  The report is the shell's writer with this tool's two counter
 words.  Three things stay the window's own because the shell has no equivalent:
 the per-tick stats line, the Auto End marker and the driver-issued flag behind
-it, and the launcher handshake.
+it, and the launcher handshake.  The base's `_preset_combo` field, written
+here and read nowhere, goes with the base.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import logging
 import os
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Any, ClassVar
 
 from audio_suite_shared import suite_config
@@ -114,7 +115,6 @@ class KeyDetectorApp(SuiteApp):
         #: either one closes the window, because a driver launch cannot click it.
         self.auto_end: bool = False
 
-        self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
@@ -163,7 +163,6 @@ class KeyDetectorApp(SuiteApp):
         )
         self.start_btn: tk.Button = widgets["start_btn"]
         self.controls_panel = widgets["controls_panel"]
-        self._preset_combo = widgets.get("preset_combo")
         self._refresh_preset_list = widgets.get("refresh_preset_list")
 
     # ── Presets and settings ──────────────────────────────────────────────────
