@@ -18,6 +18,20 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Every preset-carrying window uses the shell's preset trio.** The fifteen
+  windows that still defined their own select/save/delete methods drop them, and
+  `SuiteApp` keeps every stored key and store untouched through two declarations
+  beside `PRESET_FIELDS`: `PRESET_ALIASES` for a window whose saved key is not
+  its Tk variable's name, and `PRESET_KEY_PREFIX` for the older per-tool keys
+  (`bpm`, `lyrics`, `duplicate_finder`, `restoration`), so a preset a user has
+  already saved loads exactly as before. Nine windows also drop their
+  `_collect_settings`/`_apply_preset`; six keep their own mapping and override
+  only those two. The move fixes two combos that listed the shared store while
+  saving to the legacy one (Duplicate Finder and Restoration), and Album Art
+  Sync's legacy-preset import now runs when the window is built rather than
+  inside a loader the shell no longer calls. `tests/test_preset_trio.py` freezes
+  each adoption's store and stored keys (C1 follow-on, D58).
+
 - **The shell owns the run controls the preset-carrying windows duplicate.**
   `SuiteApp` now writes `_setting_key`, the preset trio
   (`use_preset` / `store_preset` / `remove_preset`) and
