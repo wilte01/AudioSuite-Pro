@@ -11,6 +11,8 @@ window-calibrated refusal gate, and both engines' features gain context from
 more of the track (D140).  BPM's 20/30/90 s measurements are D139's.
 
 Changed in 2.6.0: new lock for the single key/mood analysis window (D140).
+Changed in 2.9.0: Key Detector owns its duration widget, so the lock follows the
+widget onto the window (C1, D53).
 """
 
 from __future__ import annotations
@@ -91,6 +93,17 @@ class TestEveryEntryPointUsesIt:
             "the shared GUI duration widget is a bare 90 again instead of the "
             "shared constant"
         )
+
+    def test_the_key_window_owns_its_widget_now(self) -> None:
+        """Key Detector left the scaffold, so its own widget reads the constant."""
+        from key_detector.app import KeyDetectorApp
+
+        source = inspect.getsource(KeyDetectorApp.__init__)
+        assert "DEFAULT_ANALYSIS_SECONDS" in source, (
+            "the Key Detector window's duration widget no longer reads the "
+            "shared constant"
+        )
+        assert "value=90" not in source
 
     def test_the_driver_variables_start_at_the_shared_value(self) -> None:
         source = inspect.getsource(AppState.__init__)

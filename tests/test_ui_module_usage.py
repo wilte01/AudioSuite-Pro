@@ -32,6 +32,8 @@ Changed in 2.9.0: the floor is 82, for the Restoration window's two deleted
 delegates (C1 stage 2, wave 3).
 Changed in 2.9.0: the floor is 81, for the Audio Refinery's deleted Processing
 delegate (C1 stage 3); its Results module stays for the album table.
+Changed in 2.9.0: the floor is 79, for Key Detector's two deleted delegates
+(C1 stage 3).
 """
 
 from __future__ import annotations
@@ -167,7 +169,7 @@ class TestTheScanIsReal:
         # windows deletes a pair of one-line tab delegates, so this only has to
         # catch a scan that found nothing (or a handful).  The per-module
         # reachability test below is the real lock.
-        assert len(UI_MODULES) >= 81, sorted(UI_MODULES)[:5]
+        assert len(UI_MODULES) >= 79, sorted(UI_MODULES)[:5]
         assert {
             "bpm_analyzer.ui.setup_tab",
             "master_driver.ui.cards.bpm_card",

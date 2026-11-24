@@ -84,6 +84,9 @@ Changed in 2.9.0: ``audition_row`` gives the shared Results tab the
 before/after audition row and binds ``AuditionMixin``, so an in-place repair
 tool's last capability is the shell's instead of a base class of its own
 (C1 stage 2, D34).
+Changed in 2.9.0: ``SKIPPED_LABEL`` names the report's skipped count, so a
+tool whose skips mean something specific (Key Detector's already-tagged
+files) keeps its own word instead of the shell's fallback (C1 stage 3).
 
 """
 
@@ -178,6 +181,9 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
     #: The run report's label for its handled count.  A tool whose runs count
     #: something else (``Files read``, ``Files scanned``) names its own.
     TAGGED_LABEL: str = "Tagged"
+    #: The run report's label for its skipped count.  A tool whose skips mean
+    #: something specific (Key Detector's already-tagged files) names its own.
+    SKIPPED_LABEL: str = "Skipped"
     #: Messages the run's thread queues for the Tk poller; built per run by
     #: ``_start_worker``.
     _ui_updates: SimpleQueue[tuple[Any, ...]]
@@ -401,6 +407,7 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
             total=total,
             tagged=tagged,
             tagged_label=self.TAGGED_LABEL,
+            skipped_label=self.SKIPPED_LABEL,
             skipped=skipped,
             errors=errors,
             duration_secs=duration_secs,

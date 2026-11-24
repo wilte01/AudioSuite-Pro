@@ -83,6 +83,17 @@ from tests.test_callback_payload_contract import REPO_ROOT, WIRINGS
 #: Fields each tool's completion handler must receive; dropping one raises.
 #: Keyed by the class that wires the callbacks.
 EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
+    "KeyDetectorApp": frozenset(
+        {
+            "header",
+            "total",
+            "processed",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+        }
+    ),
     "ArtNormalizerApp": frozenset(
         {"total", "processed", "skipped", "errors", "duration_secs", "log_entries"}
     ),
@@ -350,7 +361,9 @@ def test_the_seam_table_covers_every_gui_tool() -> None:
     # 21; the denoiser window is gone with its tool.
     # Changed in 2.9.0: 22; Restoration binds the shared batch by keyword and
     # joins the table (C1 stage 2, D34).
-    assert len(COMPLETION_WIRINGS) == 22
+    # Changed in 2.9.0: 23; the Key Detector window moved onto the shell and
+    # binds its handlers by keyword (C1 stage 3).
+    assert len(COMPLETION_WIRINGS) == 23
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

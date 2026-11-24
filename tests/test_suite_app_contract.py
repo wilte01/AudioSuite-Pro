@@ -138,6 +138,9 @@ from file_reorganizer.app import FileReorganizerApp
 from file_reorganizer.core.engine import ReorganizerStats
 from genre_sync import app as genre_sync_app
 from genre_sync.app import GenreSetterApp
+from key_detector import app as key_detector_app
+from key_detector.app import KeyDetectorApp
+from key_detector.utils.cli_args import KeyDetectorArgs
 from library_stats import app as library_stats_app
 from library_stats.app import LibraryStatsApp
 from library_stats.core.file_processor import StatsReport
@@ -192,6 +195,7 @@ MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     RestorationApp,
     GenreConsolidatorApp,
     AudioRefineryApp,
+    KeyDetectorApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -436,6 +440,18 @@ def _stub_audio_refinery_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_key_detector_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the scan tool's launcher handshake and its persisted settings."""
+    monkeypatch.setattr(key_detector_app, "parse_cli", lambda: KeyDetectorArgs())
+    monkeypatch.setattr(key_detector_app, "was_launched_from_driver", lambda: False)
+    monkeypatch.setattr(
+        key_detector_app.suite_config,
+        "load_value",
+        lambda _key, default: default,
+    )
+    monkeypatch.setattr(key_detector_app.suite_config, "list_presets", lambda _tool: [])
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
@@ -458,6 +474,7 @@ _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]
     RestorationApp: _stub_restoration_edges,
     GenreConsolidatorApp: _stub_album_genre_tagger_edges,
     AudioRefineryApp: _stub_audio_refinery_edges,
+    KeyDetectorApp: _stub_key_detector_edges,
 }
 
 
@@ -907,6 +924,32 @@ def _complete_audio_refinery_run(app: AudioRefineryApp, tmp_path: Path) -> None:
     app._poll_ui_updates()
 
 
+def _complete_key_detector_run(app: KeyDetectorApp, tmp_path: Path) -> None:
+    """Drive the detector's completion: the window writes ``key_dry_run_log.txt``.
+
+    ``_on_complete`` is the handler ``run_analysis`` is bound to and the
+    report writer itself, so the drive hands it the payload the processor
+    publishes and drains the window's queue, which is what renders the
+    Results tab.  The folder and the dry-run snapshot are the state
+    ``start_processing`` takes on the Tk thread.
+    """
+    app._dir_path = str(tmp_path)
+    app._is_dry_run = True
+    app._log_path = str(tmp_path / "key_dry_run_log.txt")
+    app._ui_updates = SimpleQueue()
+    app._on_complete(
+        header=["KEY DETECTION REPORT\n"],
+        total=2,
+        processed=2,
+        skipped=1,
+        errors=0,
+        duration_secs=1.0,
+        log_entries=["a.mp3 -> C\n"],
+    )
+    # The completion is queued for the Tk poller; drain it now.
+    app._poll_ui_updates()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
@@ -930,6 +973,7 @@ _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     RestorationApp: _complete_restoration_run,
     GenreConsolidatorApp: _complete_album_genre_tagger_run,
     AudioRefineryApp: _complete_audio_refinery_run,
+    KeyDetectorApp: _complete_key_detector_run,
 }
 
 #: The label line each adopter that writes through
@@ -941,6 +985,14 @@ SHELL_REPORT_LABELS: dict[type[suite_app.SuiteApp], str] = {
     TagEditorApp: "Files changed: 1",
     TagFieldUpdaterApp: "Files read: 1",
     RestorationApp: "Repaired: 1",
+    KeyDetectorApp: "Tagged/Analyzed: 1",
+}
+
+#: The skipped word each adopter that writes through the shell's writer must
+#: leave in its report.  A tool whose skips mean something else declares
+#: ``SKIPPED_LABEL``; the shell's fallback is the plain ``Skipped``.
+SHELL_SKIPPED_LABELS: dict[type[suite_app.SuiteApp], str] = {
+    KeyDetectorApp: "Skipped (already tagged): 1",
 }
 
 
@@ -1185,7 +1237,37 @@ def test_every_shell_written_report_has_its_label_locked() -> None:
         TagEditorApp,
         TagFieldUpdaterApp,
         RestorationApp,
+        KeyDetectorApp,
     }
+
+
+@pytest.mark.parametrize(
+    "window",
+    SHELL_SKIPPED_LABELS,
+    ids=[cls.__name__ for cls in SHELL_SKIPPED_LABELS],
+    indirect=True,
+)
+def test_a_shell_written_report_labels_its_skipped_count(
+    window: SimpleNamespace, tmp_path: Path
+) -> None:
+    """The report carries the tool's own word for a skip, read from the file.
+
+    ``_write_run_report_standard`` prints ``SKIPPED_LABEL``; a tool whose
+    skips mean something specific (Key Detector's are files already tagged)
+    declares one, and reading the line back proves it reached the report
+    rather than the shell's fallback.
+    """
+    drive = _RUN_REPORTS[window.cls]
+    drive(window.app, tmp_path)
+
+    report = Path(window.app._log_path).read_text(encoding="utf-8")
+
+    assert SHELL_SKIPPED_LABELS[window.cls] in report, report
+
+
+def test_every_shell_written_report_has_its_skipped_label_locked() -> None:
+    """A tool that needs a skipped word declares it here, deliberately."""
+    assert set(SHELL_SKIPPED_LABELS) == {KeyDetectorApp}
 
 
 def test_the_migrated_table_is_frozen() -> None:
@@ -1212,6 +1294,7 @@ def test_the_migrated_table_is_frozen() -> None:
         "RestorationApp",
         "GenreConsolidatorApp",
         "AudioRefineryApp",
+        "KeyDetectorApp",
     )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)

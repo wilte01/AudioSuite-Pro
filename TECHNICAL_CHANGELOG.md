@@ -18,6 +18,19 @@ used once, and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Key Detector is the twenty-second window on `SuiteApp`, and the first
+  off `AnalysisAppBase`.** The shell builds the Help bar, the notebook and
+  both tabs, so its two one-line tab delegates are deleted; the window keeps
+  its settings panel, its run, and three things the shell does not supply:
+  the per-tick stats line, the Auto End marker, and the driver-issued Auto
+  End flag beside the Setup-tab checkbox. The run's settings are snapshotted
+  on the Tk thread, so the worker reads no Tk variable and no widget, and the
+  three callbacks queue for the shell's poller instead of calling
+  `root.after` from the base's own worker thread. The report is the shell's
+  writer, which gains `SKIPPED_LABEL` so a tool's own word for a skip
+  ("Skipped (already tagged)") reaches the file rather than the shell's
+  fallback.
+
 - **Audio Refinery is the twenty-first window on `SuiteApp`.** The shell
   builds the Help bar, the notebook and the Processing and Results tabs, and
   the refinery's worker pool is built before `super().__init__` so the shell

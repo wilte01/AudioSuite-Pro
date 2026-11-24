@@ -118,6 +118,8 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("album_genre_tagger/app.py", "GenreConsolidatorApp"),
         ("audio_fingerprinter/app.py", "FingerprinterApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),
+        # Changed in 2.9.0: the key detector's window (C1 stage 3).
+        ("key_detector/app.py", "KeyDetectorApp"),
         ("bpm_analyzer/app.py", "BPMAnalyzerApp"),
         # Changed in 2.5.0: the channel utility's window (F-E6).
         ("channel_tools/app.py", "ChannelToolsApp"),
