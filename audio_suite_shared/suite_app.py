@@ -102,6 +102,11 @@ without changing a literal (D56).
 Changed in 2.9.0: ``close_for_auto_end`` gives the Auto End marker and its
 close delay one home; the pair had become the marker's sixth and seventh
 copies (D56).
+Changed in 2.9.0: ``PRESET_ALIASES`` and ``PRESET_KEY_PREFIX`` let one preset
+trio serve every preset-carrying window: a window whose saved key is not its
+variable's name maps the two, and a window whose presets still live under the
+older ``<prefix>_preset_<name>`` keys keeps reading them, so no adoption
+renames a preset a user already saved (D58).
 
 """
 
@@ -129,6 +134,12 @@ from .ui_common import (
     cap_typed_workers,
 )
 from .ui_helpers import UIHelperMixin
+from .ui_presets import (
+    delete_tool_preset,
+    load_preset_names,
+    load_tool_preset,
+    save_tool_preset,
+)
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -224,6 +235,12 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
         "parallel_mode",
         "max_workers",
     )
+    #: The older per-tool preset store's prefix (``bpm`` → ``bpm_preset_<name>``).
+    #: Empty means this window's presets live in the shared ``presets`` block.
+    PRESET_KEY_PREFIX: ClassVar[str] = ""
+    #: Stored preset key -> Tk variable name, for a window whose saved key is
+    #: not the variable's own name (``{"execution_mode": "run_mode"}``).
+    PRESET_ALIASES: ClassVar[dict[str, str]] = {}
     #: Set from argv by a window that arms its Setup controls for a driver
     #: launch; the default keeps an ``object.__new__`` test shell on the
     #: interactive (modal-warning) path.
@@ -395,9 +412,13 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
         """Snapshot the settings a preset carries.
 
         Returns:
-            One entry per :attr:`PRESET_FIELDS` name, read from its Tk variable.
+            One entry per :attr:`PRESET_FIELDS` field, read from its Tk
+            variable and keyed by :meth:`_preset_key`.
         """
-        return {name: getattr(self, name).get() for name in self.PRESET_FIELDS}
+        return {
+            self._preset_key(name): getattr(self, name).get()
+            for name in self.PRESET_FIELDS
+        }
 
     def _apply_preset(self, settings: dict[str, Any]) -> None:
         """Restore the settings a preset carries.
@@ -409,8 +430,9 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
             settings: The preset's stored mapping.
         """
         for name in self.PRESET_FIELDS:
-            if name in settings:
-                getattr(self, name).set(settings[name])
+            key = self._preset_key(name)
+            if key in settings:
+                getattr(self, name).set(settings[key])
 
     def _preset_tool_id(self) -> str:
         """Return the key this tool's presets live under.
@@ -423,26 +445,75 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
         tool_id: str = getattr(self, "TOOL_ID")
         return tool_id
 
+    def _preset_key(self, name: str) -> str:
+        """Return the stored key the *name* field is saved under.
+
+        Args:
+            name: The Tk variable's attribute name.
+
+        Returns:
+            The key :attr:`PRESET_ALIASES` maps it to, or *name* itself.
+        """
+        for key, attribute in self.PRESET_ALIASES.items():
+            if attribute == name:
+                return key
+        return name
+
+    def _read_preset(self, name: str) -> dict[str, Any] | None:
+        """Return the named preset's settings, or None when it is absent.
+
+        Args:
+            name: The preset's name as the user saved it.
+        """
+        if self.PRESET_KEY_PREFIX:
+            return load_tool_preset(self.PRESET_KEY_PREFIX, name)
+        return suite_config.load_preset(self._preset_tool_id(), name)
+
+    def _write_preset(self, name: str, settings: dict[str, Any]) -> None:
+        """Store *settings* under *name* in this window's preset store."""
+        if self.PRESET_KEY_PREFIX:
+            save_tool_preset(self.PRESET_KEY_PREFIX, name, settings)
+        else:
+            suite_config.save_preset(self._preset_tool_id(), name, settings)
+
+    def _drop_preset(self, name: str) -> None:
+        """Delete the named preset from this window's preset store."""
+        if self.PRESET_KEY_PREFIX:
+            delete_tool_preset(self.PRESET_KEY_PREFIX, name)
+        else:
+            suite_config.delete_preset(self._preset_tool_id(), name)
+
+    def _preset_names(self) -> list[str]:
+        """Return the names this window's preset store holds."""
+        if self.PRESET_KEY_PREFIX:
+            return load_preset_names(f"{self.PRESET_KEY_PREFIX}_presets_list")
+        return suite_config.list_presets(self._preset_tool_id())
+
     def use_preset(self, name: str) -> None:
-        """Apply the named preset to the Setup tab."""
-        settings = suite_config.load_preset(self._preset_tool_id(), name)
-        if settings:
+        """Apply the named preset to the Setup tab.
+
+        A missing preset is a no-op in both stores; one the store returns
+        whole is applied, so the older per-tool store keeps filling its own
+        defaults for a key an old preset does not carry.
+        """
+        settings = self._read_preset(name)
+        if settings is not None:
             self._apply_preset(settings)
 
     def store_preset(self, name: str) -> None:
         """Store the Setup tab's current settings under *name*."""
-        suite_config.save_preset(self._preset_tool_id(), name, self._collect_settings())
+        self._write_preset(name, self._collect_settings())
         self._refresh_preset_names()
 
     def remove_preset(self, name: str) -> None:
         """Delete the named preset and refresh the combo."""
-        suite_config.delete_preset(self._preset_tool_id(), name)
+        self._drop_preset(name)
         self._refresh_preset_names()
 
     def _refresh_preset_names(self) -> None:
-        """Re-read this tool's preset names into its Setup-tab combo."""
+        """Re-read this window's preset names into its Setup-tab combo."""
         if self._refresh_preset_list is not None:
-            self._refresh_preset_list(suite_config.list_presets(self._preset_tool_id()))
+            self._refresh_preset_list(self._preset_names())
 
     def _mirror_cli_args(self, parsed: Any) -> None:
         """Mirror the Master Driver's handshake onto the Setup tab.

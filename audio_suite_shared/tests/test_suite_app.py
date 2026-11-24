@@ -19,6 +19,9 @@ failure the folder creation cannot repair (D33).
 Changed in 2.9.0: covers the run controls a preset-carrying window shares -
 the config key, the preset trio, the driver's argv mirror, the analysis start
 - and the Auto End marker (D56).
+Changed in 2.9.0: covers the two adopters the plain trio could not serve - a
+window whose saved key differs from its variable's name, and one whose
+presets still live under the older per-tool keys (D58).
 
 """
 
@@ -33,7 +36,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from audio_suite_shared import suite_config
+from audio_suite_shared import suite_app, suite_config
 from audio_suite_shared.event_pump import DEFAULT_POLL_MS
 from audio_suite_shared.suite_app import SuiteApp
 
@@ -278,16 +281,37 @@ class _ControlsWindow(_Window):
         self.started = True
 
 
-def _controls_window() -> _ControlsWindow:
+class _AliasWindow(_ControlsWindow):
+    """A window whose saved preset keys are not its variables' names."""
+
+    PRESET_ALIASES = {"execution_mode": "run_mode"}
+
+
+class _LegacyWindow(_ControlsWindow):
+    """A window whose presets live under the older per-tool keys."""
+
+    PRESET_KEY_PREFIX = "legacy"
+
+    def _collect_settings(self) -> dict[str, Any]:
+        """Collect the one setting this window's presets carry."""
+        return {"threshold": 1.0}
+
+
+def _controls_window(
+    window_class: type[_ControlsWindow] = _ControlsWindow,
+) -> _ControlsWindow:
     """Return a controls shell with stub Tk variables and a stub start button.
+
+    Args:
+        window_class: The adopter whose preset fields seed the stubs.
 
     Returns:
         The window, with one stub variable per preset field.
     """
-    app = object.__new__(_ControlsWindow)
+    app = object.__new__(window_class)
     app.root = MagicMock()
     app.rendered = []
-    for name in _ControlsWindow.PRESET_FIELDS:
+    for name in window_class.PRESET_FIELDS:
         setattr(app, name, MagicMock(**{"get.return_value": f"{name}-value"}))
     app.auto_start_var = MagicMock()
     app.auto_end_var = MagicMock()
@@ -356,6 +380,81 @@ class TestRunControls:
 
         assert deleted == [("probe", "One")]
         app._refresh_preset_list.assert_called_once_with([])
+
+    def test_a_window_can_store_a_setting_under_another_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _controls_window(_AliasWindow)
+        saved: dict[str, Any] = {}
+        monkeypatch.setattr(
+            suite_config, "save_preset", lambda _tool, _name, s: saved.update(s)
+        )
+        monkeypatch.setattr(suite_config, "list_presets", lambda _tool: [])
+
+        app.store_preset("One")
+
+        assert saved["execution_mode"] == "run_mode-value"
+        assert "run_mode" not in saved
+
+        monkeypatch.setattr(
+            suite_config,
+            "load_preset",
+            lambda _tool, _name: {"execution_mode": "Live"},
+        )
+
+        app.use_preset("One")
+
+        app.run_mode.set.assert_called_once_with("Live")
+
+    def test_a_window_can_keep_the_older_per_tool_preset_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _controls_window(_LegacyWindow)
+        written: list[tuple[str, str, dict[str, Any]]] = []
+        dropped: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            suite_app,
+            "save_tool_preset",
+            lambda prefix, name, settings: written.append((prefix, name, settings)),
+        )
+        monkeypatch.setattr(
+            suite_app,
+            "delete_tool_preset",
+            lambda prefix, name: dropped.append((prefix, name)),
+        )
+        monkeypatch.setattr(suite_app, "load_preset_names", lambda _key: ["Old"])
+
+        app.store_preset("Old")
+        app.remove_preset("Old")
+
+        assert written == [("legacy", "Old", {"threshold": 1.0})]
+        assert dropped == [("legacy", "Old")]
+        assert app._refresh_preset_list.call_args_list == [
+            ((["Old"],), {}),
+            ((["Old"],), {}),
+        ]
+
+        monkeypatch.setattr(
+            suite_app,
+            "load_tool_preset",
+            lambda _prefix, _name: {"threshold": 2.0},
+        )
+        app._apply_preset = MagicMock()
+
+        app.use_preset("Old")
+
+        app._apply_preset.assert_called_once_with({"threshold": 2.0})
+
+    def test_a_missing_legacy_preset_applies_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = _controls_window(_LegacyWindow)
+        monkeypatch.setattr(suite_app, "load_tool_preset", lambda _prefix, _name: None)
+        app._apply_preset = MagicMock()
+
+        app.use_preset("Gone")
+
+        app._apply_preset.assert_not_called()
 
     def test_a_driver_launch_mirrors_the_handshake_and_auto_starts(self) -> None:
         app = _controls_window()
