@@ -49,6 +49,8 @@ Changed in 2.9.0: the Tk poller is the shared event_pump.pump_events (B1).
 Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 ``audio_suite_shared.run_report.summary_lines``, the one implementation
 every window writes with (D36).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window keeps only its own settings mapping (D58).
 """
 
 from __future__ import annotations
@@ -130,6 +132,9 @@ class FileReorganizerApp(SuiteApp):
     program_name = TOOL_ID
     guide_name = "File_Reorganizer_User_Guide.docx"
     completion_text = "Reorganization Complete!"
+
+    #: The key these presets live under in the shared store.
+    TOOL_ID = _TOOL_ID
 
     def __init__(
         self,
@@ -247,7 +252,7 @@ class FileReorganizerApp(SuiteApp):
         )
         combo["values"] = suite_config.list_presets(self._TOOL_ID) or []
         combo.pack(side=tk.LEFT, padx=(0, 5))
-        combo.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        combo.bind("<<ComboboxSelected>>", lambda _event: self.use_preset(combo.get()))
         self._preset_combo = combo
 
         def _refresh_preset_list(names: list[str]) -> None:
@@ -444,46 +449,19 @@ class FileReorganizerApp(SuiteApp):
             self.various_text.delete("1.0", tk.END)
             self.various_text.insert("1.0", settings["various_pattern"])
 
-    def _on_preset_selected(self, _event: tk.Event | None = None) -> None:
-        """Load and apply the preset picked in the combobox."""
-        combo = self._preset_combo
-        if combo is None:
-            return
-        name = combo.get()
-        if not name:
-            return
-        settings = suite_config.load_preset(self._TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        """Persist the current settings under *name* and refresh the list."""
-        suite_config.save_preset(self._TOOL_ID, name, self._collect_settings())
-        self._refresh_presets()
-
-    def _delete_preset(self, name: str) -> None:
-        """Delete the named preset and refresh the list."""
-        suite_config.delete_preset(self._TOOL_ID, name)
-        self._refresh_presets()
-
-    def _refresh_presets(self) -> None:
-        """Reload the preset names from the shared config."""
-        if self._refresh_preset_list is not None:
-            self._refresh_preset_list(suite_config.list_presets(self._TOOL_ID))
-
     def _save_preset_dialog(self) -> None:
         """Open the shared Save Preset dialog."""
         combo = self._preset_combo
         if combo is None:
             return
-        ui_common.save_preset_dialog(combo, self._save_current_as_preset)
+        ui_common.save_preset_dialog(combo, self.store_preset)
 
     def _delete_preset_action(self) -> None:
         """Confirm then delete the selected preset."""
         combo = self._preset_combo
         if combo is None:
             return
-        ui_common.delete_preset_action(combo, self._delete_preset)
+        ui_common.delete_preset_action(combo, self.remove_preset)
 
     # ── Source/destination seeding ────────────────────────────────────────────
 

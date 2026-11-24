@@ -631,33 +631,33 @@ class TestPresets:
         app._apply_preset = MagicMock()
         settings = {"provider": "lrclib", "max_workers": 4}
         with patch(
-            "lyrics_manager.app.load_tool_preset", return_value=settings
+            "audio_suite_shared.suite_app.load_tool_preset", return_value=settings
         ) as load:
-            app._on_preset_selected("My Preset")
+            app.use_preset("My Preset")
         load.assert_called_once_with("lyrics", "My Preset")
         app._apply_preset.assert_called_once_with(settings)
 
     def test_preset_selected_ignores_a_missing_preset(self):
         app = _make_shell_app()
         app._apply_preset = MagicMock()
-        with patch("lyrics_manager.app.load_tool_preset", return_value=None):
-            app._on_preset_selected("Broken")  # must not raise
+        with patch("audio_suite_shared.suite_app.load_tool_preset", return_value=None):
+            app.use_preset("Broken")  # must not raise
         app._apply_preset.assert_not_called()
 
     def test_save_current_as_preset_stores_the_settings(self):
         app = _make_shell_app()
         app._collect_settings = MagicMock(return_value={"provider": "lrclib"})
         app._refresh_preset_list = MagicMock()
-        with patch("lyrics_manager.app.save_tool_preset") as save:
-            app._save_current_as_preset("Night Mix")
+        with patch("audio_suite_shared.suite_app.save_tool_preset") as save:
+            app.store_preset("Night Mix")
         save.assert_called_once_with("lyrics", "Night Mix", {"provider": "lrclib"})
         app._refresh_preset_list.assert_called_once()
 
     def test_delete_preset_unlists_it(self):
         app = _make_shell_app()
         app._refresh_preset_list = MagicMock()
-        with patch("lyrics_manager.app.delete_tool_preset") as delete:
-            app._delete_preset("Old")
+        with patch("audio_suite_shared.suite_app.delete_tool_preset") as delete:
+            app.remove_preset("Old")
         delete.assert_called_once_with("lyrics", "Old")
         app._refresh_preset_list.assert_called_once()
 
@@ -742,7 +742,6 @@ class TestConstruction:
             assert app.slot_queue.qsize() == DEFAULT_MAX_WORKERS
             assert [v.get() for v in app.slot_vars] == ["IDLE"] * DEFAULT_MAX_WORKERS
             assert app._refresh_preset_list is not None
-            assert app._preset_combo is not None
             assert app.start_btn is not None
             assert app.overall_status is not None
             assert app.notebook.index("end") == 3

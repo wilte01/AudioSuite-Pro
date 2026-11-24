@@ -21,6 +21,8 @@ completion never reads a Tk variable off the Tk thread.
 Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 ``audio_suite_shared.run_report.summary_lines``, the one implementation
 every window writes with (D36).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window keeps only its own settings mapping (D58).
 """
 
 from __future__ import annotations
@@ -30,8 +32,8 @@ import os
 import threading
 import tkinter as tk
 from queue import Queue
-from tkinter import messagebox, ttk
-from typing import Any, cast
+from tkinter import messagebox
+from typing import Any, ClassVar, cast
 
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.audio_formats import is_supported_format
@@ -45,7 +47,6 @@ from audio_suite_shared.constants import (
     default_max_workers,
 )
 from audio_suite_shared.exceptions import (
-    AudioConfigurationError,
     handle_audio_errors,
     map_to_audio_error,
     user_message_for,
@@ -54,11 +55,6 @@ from audio_suite_shared.run_report import summary_lines
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_common import cap_typed_workers
-from audio_suite_shared.ui_presets import (
-    delete_tool_preset,
-    load_tool_preset,
-    save_tool_preset,
-)
 
 from .core import file_processor
 from .core.providers import get_provider
@@ -92,7 +88,7 @@ class LyricsManagerApp(SuiteApp):
     #: the wording for its mode, which starts here.
     completion_text: str = DRY_COMPLETE_LABEL
     #: The preset keys this tool has always written (``lyrics_preset_<name>``).
-    PRESET_KEY_PREFIX: str = "lyrics"
+    PRESET_KEY_PREFIX: ClassVar[str] = "lyrics"
 
     #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
     #: test shell on the interactive (modal-warning) path.
@@ -153,18 +149,9 @@ class LyricsManagerApp(SuiteApp):
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
-        # ── Preset support ────────────────────────────────────────────────────
-        self._preset_combo: ttk.Combobox | None = None
-        self._refresh_preset_list: Any = None
-
         super().__init__(root)
 
-        if self._refresh_preset_list is None:
-            raise AudioConfigurationError(
-                "Lyrics Manager UI initialisation failed: "
-                "_refresh_preset_list was not wired by _build_setup_tab()"
-            )
-        self._refresh_preset_list()
+        self._refresh_preset_names()
 
         # ── Apply CLI arguments ───────────────────────────────────────────────
         self._apply_cli_args()
@@ -199,12 +186,11 @@ class LyricsManagerApp(SuiteApp):
             driver_locked=self._launched_from_driver,
             parallel_mode=self.parallel_mode,
             max_workers=self.max_workers,
-            on_preset_selected=self._on_preset_selected,
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
+            on_preset_selected=self.use_preset,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
         )
         self.start_btn = widgets["start_btn"]
-        self._preset_combo = widgets["preset_combo"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
         self.controls_panel = widgets["controls_panel"]
 
@@ -640,19 +626,3 @@ class LyricsManagerApp(SuiteApp):
         self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
         self.max_workers.set(int(settings.get("max_workers", default_max_workers())))
         self.run_mode.set(str(settings.get("run_mode", "Dry Run")))
-
-    def _on_preset_selected(self, name: str) -> None:
-        """Load a named preset and apply its settings."""
-        settings = load_tool_preset(self.PRESET_KEY_PREFIX, name)
-        if settings is not None:
-            self._apply_preset(cast("dict[str, int | bool | str]", settings))
-
-    def _save_current_as_preset(self, name: str) -> None:
-        """Save the current settings as a named preset."""
-        save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
-        self._refresh_preset_list()
-
-    def _delete_preset(self, name: str) -> None:
-        """Delete a named preset."""
-        delete_tool_preset(self.PRESET_KEY_PREFIX, name)
-        self._refresh_preset_list()

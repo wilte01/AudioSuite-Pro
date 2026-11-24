@@ -47,6 +47,8 @@ so this window supplies only the run's rows (D32).
 
 Changed in 2.9.0: a blank line separates the report write from the queued
 completion (D38).
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window keeps only its own settings mapping (D58).
 """
 
 from __future__ import annotations
@@ -64,11 +66,6 @@ from audio_suite_shared.exceptions import handle_audio_errors
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
 from audio_suite_shared.suite_app import SuiteApp
-from audio_suite_shared.ui_presets import (
-    delete_tool_preset,
-    load_tool_preset,
-    save_tool_preset,
-)
 
 from ..core.disposition import (
     DEFAULT_DISPOSITION,
@@ -169,7 +166,7 @@ class DuplicateFinderApp(SuiteApp):
         #: View Log say so instead of opening the suite log.
         self._log_path: str = ""
 
-        self._preset_refresh: Any = None
+        self._refresh_preset_list: Any = None
 
         self._launched_from_driver = apply_argv and cli_args.looks_like_driver_argv()
 
@@ -204,14 +201,14 @@ class DuplicateFinderApp(SuiteApp):
             on_browse_quarantine=self._browse_quarantine_folder,
             on_disposition_changed=self._set_disposition,
             on_start=self.start_processing,
-            preset_names=_suite_config.list_presets(self.TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            preset_names=self._preset_names(),
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
             driver_locked=self._launched_from_driver,
         )
         self.start_btn = widgets["start_btn"]
-        self._preset_refresh = widgets.get("refresh_preset_list")
+        self._refresh_preset_list = widgets.get("refresh_preset_list")
         self._setup_frame = widgets.get("setup_frame")
         self.controls_panel = widgets["controls_panel"]
         self._set_disposition(DEFAULT_DISPOSITION)
@@ -659,24 +656,6 @@ class DuplicateFinderApp(SuiteApp):
         self._set_disposition(str(settings.get("disposition", DEFAULT_DISPOSITION)))
         if "run_mode" in settings:
             self.run_mode.set(str(settings["run_mode"]))
-
-    def _on_preset_selected(self, name: str) -> None:
-        """Load a named preset and apply its settings."""
-        settings = load_tool_preset(self.PRESET_KEY_PREFIX, name)
-        if settings is not None:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        """Save the current settings as a named preset."""
-        save_tool_preset(self.PRESET_KEY_PREFIX, name, self._collect_settings())
-        if self._preset_refresh is not None:
-            self._preset_refresh()
-
-    def _delete_preset(self, name: str) -> None:
-        """Delete a named preset."""
-        delete_tool_preset(self.PRESET_KEY_PREFIX, name)
-        if self._preset_refresh is not None:
-            self._preset_refresh()
 
 
 def main() -> None:

@@ -26,6 +26,8 @@ window supplies its settings panel, its own album table and its run; the three
 callbacks queue their payload for the shell's poller instead of calling
 ``root.after`` from the worker thread, and the report gains the ``SUMMARY:``
 marker the suite's report lock reads.
+Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
+so this window keeps only its own settings mapping (D58).
 """
 
 from __future__ import annotations
@@ -91,6 +93,9 @@ class AudioRefineryApp(SuiteApp, FileDiscoveryMixin):
     tab_labels = ("  1. Setup  ", "  2. Processing  ", "  3. Results  ")
     #: The shared Results tab carries the before/after audition row.
     audition_row = True
+
+    #: The key these presets live under in the shared store.
+    TOOL_ID = _TOOL_ID
 
     def __init__(self, root: tk.Tk) -> None:
         # ── Tk variables ──────────────────────────────────────────────────────
@@ -167,9 +172,9 @@ class AudioRefineryApp(SuiteApp, FileDiscoveryMixin):
             parallel_var=self.parallel_var,
             driver_locked=self._launched_from_driver,
             preset_names=suite_config.list_presets(_TOOL_ID),
-            on_save_preset=self._save_current_as_preset,
-            on_delete_preset=self._delete_preset,
-            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self.store_preset,
+            on_delete_preset=self.remove_preset,
+            on_preset_selected=self.use_preset,
             mode_var=self.run_mode,
         )
         self.start_btn = cast(tk.Button, setup_widgets["start_btn"])
@@ -613,21 +618,6 @@ class AudioRefineryApp(SuiteApp, FileDiscoveryMixin):
                     for name in p.enhance_params.__dataclass_fields__
                 }
             )
-
-    def _on_preset_selected(self, name: str) -> None:
-        settings = suite_config.load_preset(_TOOL_ID, name)
-        if settings:
-            self._apply_preset(settings)
-
-    def _save_current_as_preset(self, name: str) -> None:
-        suite_config.save_preset(_TOOL_ID, name, self._collect_settings())
-        if self._refresh_preset_list:
-            self._refresh_preset_list(suite_config.list_presets(_TOOL_ID))
-
-    def _delete_preset(self, name: str) -> None:
-        suite_config.delete_preset(_TOOL_ID, name)
-        if self._refresh_preset_list:
-            self._refresh_preset_list(suite_config.list_presets(_TOOL_ID))
 
     # ── Processing launch ─────────────────────────────────────────────────────
 
