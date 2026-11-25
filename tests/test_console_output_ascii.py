@@ -53,7 +53,11 @@ _OUTPUT_CALLS: frozenset[str] = frozenset(
 #: Names whose string value is the per-file line a tool shows and logs.  They
 #: reach the console through ``on_progress``, so they are output even when they
 #: are built in an assignment rather than passed to one of the calls above.
-_DISPLAY_NAMES: frozenset[str] = frozenset({"display", "display_text"})
+#: ``repaired_suffix`` is the fragment an in-place repair tool appends to that
+#: line, so it prints there too.
+_DISPLAY_NAMES: frozenset[str] = frozenset(
+    {"display", "display_text", "repaired_suffix"}
+)
 
 #: Directories that are not first-party source for this rule: a vendored build
 #: tree repeats shipped modules, and a plugin is third-party code the suite does
@@ -149,10 +153,11 @@ class TestDisplayStringsAreScanned:
 
         assert any("\u2192" in value for value in values)
 
-    def test_a_display_keyword_is_scanned(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("keyword", ["display_text", "repaired_suffix"])
+    def test_a_display_keyword_is_scanned(self, keyword: str, tmp_path: Path) -> None:
         module = tmp_path / "mod.py"
         module.write_text(
-            'on_progress(display_text=f"[SKIP] {name} \u2192 Clean")\n',
+            f'InplaceDspResult({keyword}=f"[SKIP] {{name}} \\u2192 Clean")\n',
             encoding="utf-8",
         )
 

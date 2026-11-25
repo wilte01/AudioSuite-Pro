@@ -1188,7 +1188,7 @@ def _repairing_dsp(audio: AudioSegment) -> InplaceDspResult:
         audio=audio,
         was_modified=True,
         action="Fixed 1 thing",
-        repaired_suffix=" — Done",
+        repaired_suffix=" - Done",
     )
 
 
@@ -1297,9 +1297,32 @@ class TestProcessAudioFileInplace:
             progress = self._process(inplace_processor, audio_file, _repairing_dsp)
 
         assert progress[0]["status"] == "FIXED"
-        assert progress[0]["display_text"] == "[FIXED] a.wav -> Fixed 1 thing — Done"
+        assert progress[0]["display_text"] == "[FIXED] a.wav -> Fixed 1 thing - Done"
         snapshot.assert_called_once_with(str(audio_file), "test_edit")
         assert audio_file.read_bytes() != digest
+
+    def test_the_repaired_line_is_printable_on_a_cp1252_console(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        """The line the repair tools show must survive a Windows console.
+
+        The suffix is appended to the per-file display line, so a non-ASCII
+        character in it used to garble the line the user reads (and the
+        changelog's claim that every per-file line is plain ASCII).  The
+        shipped adapters are scanned by ``tests/test_console_output_ascii.py``;
+        this pins the composed line the workflow actually emits.
+        """
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+
+        with patch(
+            "audio_suite_shared.inplace_workflow.record_audio_overwrite_snapshot"
+        ):
+            progress = self._process(inplace_processor, audio_file, _repairing_dsp)
+
+        line = progress[0]["display_text"]
+        assert line.isascii(), line
+        assert line.encode("cp1252") == line.encode("ascii")
 
     def test_dry_run_reports_found_without_writing(
         self, inplace_processor: BaseFileProcessor, tmp_path: Path

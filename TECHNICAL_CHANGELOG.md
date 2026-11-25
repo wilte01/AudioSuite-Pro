@@ -17,6 +17,16 @@ used once, and every bullet belongs to exactly one of them.
 ## [Unreleased]
 
 ### Changed
+- **The in-place tools' per-file line is inside the ASCII output lock.**
+  `repaired_suffix` — the fragment a repair tool appends to its
+  `[FIXED] file -> action` line — is scanned like `display`/`display_text`, so
+  an adapter cannot put a character a cp1252 console cannot print into the line
+  a user reads. The only non-ASCII repaired line in the tree was this suite's
+  own fake adapter (`— Done`), which no shipped adapter built: Restoration
+  writes `- Repaired` and the others append nothing. The fake is `- Done` now,
+  and `test_the_repaired_line_is_printable_on_a_cp1252_console` pins the
+  composed line the shared workflow emits.
+
 - **All eight Auto End windows mark and close the same way.** The sentence, the
   delay it states and the close are the shell's (`auto_end_sentence`,
   `close_for_auto_end`), and the condition is the shell's
