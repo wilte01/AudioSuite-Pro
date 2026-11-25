@@ -576,6 +576,15 @@ Rules:
   that is what let broken imports ship previously.
 - Keep the guard pure (no Tk side effects) and unit-tested in
   `audio_suite_shared/tests/test_preflight.py`.
+- **Every windowed entry point calls `configure_logging` before it builds a
+  window.** That function installs the pydub no-window proxy
+  (`secure_subprocess.suppress_pydub_console_windows`), so pydub's own FFmpeg
+  spawns get `CREATE_NO_WINDOW` and a `pythonw` process opens no console per
+  decode or export. It is the one seam every windowed process reaches;
+  `bootstrap_tool_app` is not, because the Master Driver, the Undo Tag Edits
+  window and plugin windows never call it. `tests/test_windowed_entry_points.py`
+  is the census: every top-level `.pyw`, plugin launcher, `<package>/main.pyw`
+  and Tk-building `__main__.py` must call it before its root exists.
 - Adding a tool import *above* the guard reintroduces the original bug; the lock
   test asserts the ordering, so this fails loudly rather than silently.
 

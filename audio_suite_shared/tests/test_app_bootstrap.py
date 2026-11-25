@@ -14,14 +14,15 @@ Covers:
     • configure_logging: sys/threading excepthooks installed and logging
       uncaught exceptions with full tracebacks
     • bootstrap_tool_app: Tkinter report_callback_exception routed to the log
-    • bootstrap_tool_app: pydub's FFmpeg spawns are hidden exactly once
+    • configure_logging: pydub's FFmpeg spawns are hidden exactly once
 
 Changed in 1.3.0: covers the deferred What's New offer that bootstrap_tool_app
 schedules for every tool it starts.
 Changed in 1.4.0: the default worker count is read from default_max_workers().
-Changed in 2.9.0: pins the pydub console-window wiring, so deleting the single
-call that hides them fails a test instead of quietly reappearing as one window
-per decode.
+Changed in 2.9.0: pins the pydub console-window wiring at ``configure_logging``,
+the shared seam every windowed entry point reaches, so deleting the single call
+that hides them fails a test instead of quietly reappearing as one window per
+decode or export.
 """
 
 from __future__ import annotations
@@ -363,6 +364,55 @@ class TestExceptionHooks:
         assert "thread_boom_sentinel" in fatals[0].exc_text
 
 
+class TestConfigureLoggingInstallsTheNoWindowProxy:
+    """The pydub proxy is installed at the seam every windowed process reaches.
+
+    ``configure_logging`` runs in every windowed entry point before a window
+    exists, so the Master Driver, the Undo Tag Edits window and plugin windows
+    - none of which call ``bootstrap_tool_app`` - still get it.  pydub starts
+    its own FFmpeg with no window flags, so dropping the call brings back a
+    console window for every decode and every export under ``pythonw``.
+    """
+
+    def test_calls_the_suppressor_exactly_once(self, monkeypatch) -> None:
+        """Wiring only: one call per process start, measured on the seam."""
+        calls: list[None] = []
+        monkeypatch.setattr(
+            logging_setup,
+            "suppress_pydub_console_windows",
+            lambda: calls.append(None),
+        )
+
+        logging_setup.configure_logging("no_window_proxy_probe")
+
+        assert len(calls) == 1, (
+            "configure_logging must hide pydub's console windows once per "
+            f"process start; it called the suppressor {len(calls)} times"
+        )
+
+    def test_leaves_pydub_routed_through_the_proxy(self, monkeypatch) -> None:
+        """The outcome, not the call: pydub's own namespaces hold the proxy."""
+        import pydub.audio_segment as pydub_audio_segment
+        import pydub.utils as pydub_utils
+
+        from audio_suite_shared import secure_subprocess
+
+        original_subprocess = pydub_audio_segment.subprocess
+        original_popen = pydub_utils.Popen
+        try:
+            # ``creation_flags`` is 0 off Windows, where the installer
+            # deliberately does nothing: there is no console window to hide.
+            monkeypatch.setattr(secure_subprocess, "creation_flags", lambda: 1)
+            logging_setup.configure_logging("no_window_proxy_probe")
+
+            proxy = pydub_audio_segment.subprocess
+            assert isinstance(proxy, secure_subprocess._NoWindowSubprocess)
+            assert pydub_utils.Popen.__self__ is proxy
+        finally:
+            pydub_audio_segment.subprocess = original_subprocess
+            pydub_utils.Popen = original_popen
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # bootstrap_tool_app  (requires display)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -422,35 +472,6 @@ class TestBootstrapToolApp:
             "bootstrap_tool_app did not schedule the What's New panel"
         )
         assert offered[-1] is setup_tk
-
-    def test_suppresses_pydub_console_windows_exactly_once(
-        self, setup_tk, monkeypatch
-    ) -> None:
-        """Every tool that starts through this helper hides pydub's consoles.
-
-        This is the only wiring that does it: pydub starts its own FFmpeg with
-        no window flags, so dropping the call brought back a console window for
-        every decode and every export under ``pythonw``.  Exactly once, because
-        a second call would only re-check a proxy ``suppress_pydub_console_
-        windows`` already installed and hide nothing new.
-        """
-        from audio_suite_shared import app_bootstrap
-
-        calls: list[None] = []
-        monkeypatch.setattr(
-            app_bootstrap,
-            "suppress_pydub_console_windows",
-            lambda: calls.append(None),
-        )
-
-        app_bootstrap.bootstrap_tool_app(
-            setup_tk, "Pydub App", "pydub_window_key", "pydub_logger"
-        )
-
-        assert len(calls) == 1, (
-            "bootstrap_tool_app must hide pydub's console windows once per "
-            f"tool start; it called the suppressor {len(calls)} times"
-        )
 
     def test_returns_none_style_when_apply_ttk_styles_false(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app

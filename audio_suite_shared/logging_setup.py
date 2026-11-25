@@ -42,6 +42,12 @@ running under ``pythonw``.
 importers (the ``.pyw`` launchers, ``lyrics_manager/__main__`` and
 ``undo_gui``) keep working unchanged.
 
+Changed in 2.9.0: ``configure_logging`` also installs the pydub no-window
+proxy.  Every windowed entry point calls this function before it builds a
+window - the launchers, the Master Driver, the Undo Tag Edits window and
+plugin windows - while three of those never call ``bootstrap_tool_app``, so
+this is the one seam at which the suppression can be guaranteed.
+
 Changed in 1.2.0: exposes :func:`get_logs_dir` so other shared modules (the
 per-tool run-outcome notes) resolve the same directory, including the
 ``AUDIOSUITE_LOG_DIR`` override, instead of re-deriving it.
@@ -63,6 +69,7 @@ from pathlib import Path
 from types import TracebackType
 
 from .constants import MAX_WORKERS_CEILING, default_max_workers
+from .secure_subprocess import suppress_pydub_console_windows
 from .suite_paths import suite_root
 
 _HOOK_MARKER = "_audio_suite_hook"
@@ -306,6 +313,12 @@ def configure_logging(program_name: str, *, min_level: int = logging.DEBUG) -> N
     exceptions (including their tracebacks) are written to the log —
     without this they only reach stderr, which is lost under pythonw.
 
+    Also routes pydub's own FFmpeg spawns through the shared no-window proxy
+    (:func:`audio_suite_shared.secure_subprocess.suppress_pydub_console_
+    windows`), so a windowed process opens no console window per decode or
+    export.  This is the startup seam every windowed entry point reaches; a
+    tool window that never calls ``bootstrap_tool_app`` still gets it.
+
     Args:
         program_name: Short identifier for the startup log entry and the
                       per-program log file, e.g. "bpm_analyzer".
@@ -315,6 +328,14 @@ def configure_logging(program_name: str, *, min_level: int = logging.DEBUG) -> N
             ``--log-level`` value so records match the console verbosity it
             configured.
     """
+    # pydub starts FFmpeg itself with no window flags, and Windows gives a
+    # console child of a windowed process a console window of its own.  This
+    # function runs in every windowed entry point before a window exists, so
+    # it is where the suppression belongs; ``bootstrap_tool_app`` cannot make
+    # that promise because the Master Driver, the Undo Tag Edits window and
+    # plugin windows never call it.
+    suppress_pydub_console_windows()
+
     logs_dir = get_logs_dir()
 
     # Named for what it is: the suite's own namespace logger, NOT the root

@@ -15,7 +15,10 @@ every tool offers the release notes for the version it is running.
 Changed in 1.4.0: ``BaseSuiteApp`` resolves its worker count from
 ``default_max_workers()`` when none is supplied.
 
-Changed in 2.9.0: ``BaseSuiteApp._open_folder`` uses the shared opener (C1).
+Changed in 2.9.0: ``BaseSuiteApp._open_folder`` uses the shared opener (C1), and
+``bootstrap_tool_app`` no longer installs the pydub no-window proxy itself:
+``configure_logging`` owns it, because that is the one startup seam every
+windowed entry point reaches and three of them never call this helper.
 """
 
 import logging
@@ -30,7 +33,6 @@ from .constants import default_max_workers
 from .error_logger import ErrorLogger, get_logger
 from .logging_setup import _log_uncaught
 from .logging_setup import configure_logging as configure_logging
-from .secure_subprocess import suppress_pydub_console_windows
 from .ui_helpers import UIHelperMixin, open_folder_path
 from .whats_new import offer_pending
 
@@ -73,10 +75,6 @@ def bootstrap_tool_app(
     -------
     tuple[ErrorLogger, ttk.Style | None]
     """
-    # pydub runs its own FFmpeg, and a windowed process gets a console for
-    # every child whose Popen is not hidden the way the suite's own are.
-    suppress_pydub_console_windows()
-
     root.title(title)
     platform_utils.setup_window(root, width, height, suite_config, window_config_key)
 
