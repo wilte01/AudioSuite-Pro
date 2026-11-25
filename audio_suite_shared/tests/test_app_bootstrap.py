@@ -14,10 +14,14 @@ Covers:
     • configure_logging: sys/threading excepthooks installed and logging
       uncaught exceptions with full tracebacks
     • bootstrap_tool_app: Tkinter report_callback_exception routed to the log
+    • bootstrap_tool_app: pydub's FFmpeg spawns are hidden exactly once
 
 Changed in 1.3.0: covers the deferred What's New offer that bootstrap_tool_app
 schedules for every tool it starts.
 Changed in 1.4.0: the default worker count is read from default_max_workers().
+Changed in 2.9.0: pins the pydub console-window wiring, so deleting the single
+call that hides them fails a test instead of quietly reappearing as one window
+per decode.
 """
 
 from __future__ import annotations
@@ -418,6 +422,35 @@ class TestBootstrapToolApp:
             "bootstrap_tool_app did not schedule the What's New panel"
         )
         assert offered[-1] is setup_tk
+
+    def test_suppresses_pydub_console_windows_exactly_once(
+        self, setup_tk, monkeypatch
+    ) -> None:
+        """Every tool that starts through this helper hides pydub's consoles.
+
+        This is the only wiring that does it: pydub starts its own FFmpeg with
+        no window flags, so dropping the call brought back a console window for
+        every decode and every export under ``pythonw``.  Exactly once, because
+        a second call would only re-check a proxy ``suppress_pydub_console_
+        windows`` already installed and hide nothing new.
+        """
+        from audio_suite_shared import app_bootstrap
+
+        calls: list[None] = []
+        monkeypatch.setattr(
+            app_bootstrap,
+            "suppress_pydub_console_windows",
+            lambda: calls.append(None),
+        )
+
+        app_bootstrap.bootstrap_tool_app(
+            setup_tk, "Pydub App", "pydub_window_key", "pydub_logger"
+        )
+
+        assert len(calls) == 1, (
+            "bootstrap_tool_app must hide pydub's console windows once per "
+            f"tool start; it called the suppressor {len(calls)} times"
+        )
 
     def test_returns_none_style_when_apply_ttk_styles_false(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
