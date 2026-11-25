@@ -11,6 +11,8 @@ handler load (PLAN D55).
 Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 (WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
 
+Changed in 2.9.0: the per-file display line uses ``->`` instead of a
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 
 import logging
@@ -141,7 +143,7 @@ def process_single_file(
         if existing_tempo and existing_tempo != marking:
             action += f" (was {existing_tempo})"
 
-    display = f"[{status}] {name} → {action}"
+    display = f"[{status}] {name} -> {action}"
     log = f"[{status}] {name} | {marking} ({bpm} BPM)\n"
 
     with lock:

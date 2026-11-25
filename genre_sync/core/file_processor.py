@@ -14,6 +14,8 @@ Changed in 1.4.0: the three per-file tag reads share one handler load
 Changed in 2.4.1: takes ``TagHandlerFactory`` from
 ``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
 handler table (WP-2).
+Changed in 2.9.0: the per-file display line uses ``->`` instead of a
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 
 import logging
@@ -122,7 +124,7 @@ def process_single_file(
                 entry += f" | Previous: {current_genre}"
             log_updated = entry + "\n"
 
-        display = f"[{status}] {name} → {action}"
+        display = f"[{status}] {name} -> {action}"
         if (
             current_genre
             and resolution.selected_genre

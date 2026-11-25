@@ -11,6 +11,8 @@ log callbacks carry the sanitised ``user_message_for`` text, never raw
 
 Changed in 1.1.0: added a regression test that read-only formats never reach the DSP.
 Changed in 1.4.0: pins the None-sentinel worker resolution.
+Changed in 2.9.0: the per-file display line uses ``->`` instead of a
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 
 from __future__ import annotations
@@ -1279,7 +1281,7 @@ class TestProcessAudioFileInplace:
 
         assert len(progress) == 1
         assert progress[0]["status"] == "SKIP"
-        assert progress[0]["display_text"] == "[SKIP] a.wav → Clean"
+        assert progress[0]["display_text"] == "[SKIP] a.wav -> Clean"
         assert progress[0]["log_text"] == "[SKIP] a.wav | Clean\n"
 
     def test_live_run_reports_fixed_and_appends_suffix(
@@ -1295,7 +1297,7 @@ class TestProcessAudioFileInplace:
             progress = self._process(inplace_processor, audio_file, _repairing_dsp)
 
         assert progress[0]["status"] == "FIXED"
-        assert progress[0]["display_text"] == "[FIXED] a.wav → Fixed 1 thing — Done"
+        assert progress[0]["display_text"] == "[FIXED] a.wav -> Fixed 1 thing — Done"
         snapshot.assert_called_once_with(str(audio_file), "test_edit")
         assert audio_file.read_bytes() != digest
 
@@ -1314,7 +1316,7 @@ class TestProcessAudioFileInplace:
             )
 
         assert progress[0]["status"] == "FOUND"
-        assert progress[0]["display_text"] == "[FOUND] a.wav → Fixed 1 thing"
+        assert progress[0]["display_text"] == "[FOUND] a.wav -> Fixed 1 thing"
         snapshot.assert_not_called()
         assert audio_file.read_bytes() == digest
 

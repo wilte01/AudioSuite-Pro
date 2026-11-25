@@ -152,7 +152,7 @@ class InplaceWorkflowMixin:
 
         if is_read_only_extension(name):
             display = (
-                f"[SKIP] {name} → read-only format ({ext}); cannot rewrite in place"
+                f"[SKIP] {name} -> read-only format ({ext}); cannot rewrite in place"
             )
             log = f"[SKIP] {name} | read-only format ({ext}); cannot rewrite in place\n"
             slot_vars[slot_idx].set("IDLE")
@@ -198,7 +198,7 @@ class InplaceWorkflowMixin:
                     action += outcome.repaired_suffix
                     status = "FIXED"
 
-            display = f"[{status}] {name} → {action}"
+            display = f"[{status}] {name} -> {action}"
             log = f"[{status}] {name} | {action}\n"
 
             with lock:

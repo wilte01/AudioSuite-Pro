@@ -11,14 +11,19 @@ The rule this module enforces is the one ``AGENTS.md`` states for
 typography belongs in comments, docstrings and documentation, where no console
 ever renders it; anything that reaches a console or a log uses ASCII.
 
-Only string constants that are arguments to an output call are inspected, so a
-comment or docstring may keep its em dashes.  Both spellings are caught: the
-literal glyph and its ``\\u2014`` escape produce the same malformed constant.
+Only string constants that are arguments to an output call - or that form a
+per-file ``display``/``display_text`` line - are inspected, so a comment or
+docstring may keep its em dashes.  Both spellings are caught: the literal
+glyph and its ``\\u2014`` escape produce the same malformed constant.
 
 Changed in 2.1.7: initial version, closing R-14 by making the rule enforceable.
 The audit's C-09 finding asked for exactly this arbiter - "a test that subprocess
 CLI output is cp1252-encodable" - and it is the reason the sweep is a one-off
 rather than a periodic chore.
+Changed in 2.9.0: the scan also reads ``display``/``display_text`` values, the
+per-file line every tool prints through ``on_progress``; those were assigned to
+a variable rather than passed to an output call, so five tools kept an arrow a
+cp1252 console renders as ``\\u2192``.
 """
 
 from __future__ import annotations
@@ -44,6 +49,11 @@ _OUTPUT_CALLS: frozenset[str] = frozenset(
         "log",
     }
 )
+
+#: Names whose string value is the per-file line a tool shows and logs.  They
+#: reach the console through ``on_progress``, so they are output even when they
+#: are built in an assignment rather than passed to one of the calls above.
+_DISPLAY_NAMES: frozenset[str] = frozenset({"display", "display_text"})
 
 #: Directories that are not first-party source for this rule: a vendored build
 #: tree repeats shipped modules, and a plugin is third-party code the suite does
@@ -73,24 +83,46 @@ def _candidate_files() -> list[Path]:
     return files
 
 
+def _constants(node: ast.AST) -> Iterator[tuple[int, str]]:
+    """Yield ``(line, value)`` for every string constant under *node*."""
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+            yield sub.lineno, sub.value
+
+
+def _is_display_target(node: ast.expr) -> bool:
+    """Return whether *node* is assigned to a per-file display name."""
+    return isinstance(node, ast.Name) and node.id in _DISPLAY_NAMES
+
+
 def _output_strings(path: Path) -> Iterator[tuple[int, str]]:
-    """Yield ``(line, value)`` for every string argument to an output call."""
+    """Yield ``(line, value)`` for every string that reaches the console.
+
+    Two shapes count: an argument (or ``display`` keyword) of an output call,
+    and a ``display``/``display_text`` value, which is the per-file line a tool
+    hands to ``on_progress`` after building it in an assignment.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = (
-            func.id
-            if isinstance(func, ast.Name)
-            else (func.attr if isinstance(func, ast.Attribute) else None)
-        )
-        if name not in _OUTPUT_CALLS:
-            continue
-        for argument in node.args:
-            for sub in ast.walk(argument):
-                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                    yield sub.lineno, sub.value
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else (func.attr if isinstance(func, ast.Attribute) else None)
+            )
+            if name in _OUTPUT_CALLS:
+                for argument in node.args:
+                    yield from _constants(argument)
+            for keyword in node.keywords:
+                if keyword.arg in _DISPLAY_NAMES:
+                    yield from _constants(keyword.value)
+        elif isinstance(node, ast.Assign):
+            if any(_is_display_target(target) for target in node.targets):
+                yield from _constants(node.value)
+        elif isinstance(node, ast.AnnAssign):
+            if _is_display_target(node.target) and node.value is not None:
+                yield from _constants(node.value)
 
 
 @pytest.fixture(scope="module")
@@ -101,6 +133,32 @@ def scanned() -> list[tuple[Path, int, str]]:
         for path in _candidate_files()
         for line, value in _output_strings(path)
     ]
+
+
+class TestDisplayStringsAreScanned:
+    """The per-file line is output even when it is built in an assignment."""
+
+    def test_an_assigned_display_value_is_scanned(self, tmp_path: Path) -> None:
+        module = tmp_path / "mod.py"
+        module.write_text(
+            'display = f"[TAGGED] {name} \u2192 {action}"\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2192" in value for value in values)
+
+    def test_a_display_keyword_is_scanned(self, tmp_path: Path) -> None:
+        module = tmp_path / "mod.py"
+        module.write_text(
+            'on_progress(display_text=f"[SKIP] {name} \u2192 Clean")\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2192" in value for value in values)
 
 
 class TestConsoleOutputIsAscii:
@@ -118,6 +176,9 @@ class TestConsoleOutputIsAscii:
         )
         assert (REPO_ROOT / "audio_suite_shared") / "exceptions.py" in paths, (
             "the shared package is not being scanned"
+        )
+        assert (REPO_ROOT / "bpm_analyzer") / "core" / "file_processor.py" in paths, (
+            "per-file display lines are not being scanned"
         )
 
     def test_no_output_string_carries_a_non_ascii_character(

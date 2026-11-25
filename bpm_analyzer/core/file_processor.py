@@ -24,6 +24,8 @@ and its line says ``(outside 75-175)`` (PLAN D108).
 Changed in 1.4.1: those files are also collected as structured records and
 handed to ``on_complete``, so the run summary and the CLI's ``--json`` can
 count them instead of leaving the evidence only in per-file lines (D109).
+Changed in 2.9.0: the per-file display line uses ``->`` instead of a
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -272,7 +274,7 @@ def process_single_file(
         logger.info("[DRY RUN] %s - BPM %d%s", name, bpm, note)
 
     status_label: str = status.name.replace("_", " ")  # DRY_RUN → DRY RUN
-    display = f"[{status_label}] {name} → {action}"
+    display = f"[{status_label}] {name} -> {action}"
     log = f"[{status_label}] {name} | BPM {bpm}{note}\n"
 
     with lock:
@@ -409,13 +411,13 @@ def _handle_bpm_result(
         if existing_bpm and existing_bpm != bpm:
             action += f" (was {existing_bpm})"
         action += note
-        display = f"[TAGGED] {filename} \u2192 {action}"
+        display = f"[TAGGED] {filename} -> {action}"
         log = f"[TAGGED] {filename} | BPM {bpm}{note}\n"
         logger.info(
             "[TAGGED] %s - BPM %d%s (was %s)", filename, bpm, note, existing_bpm
         )
     else:
-        display = f"[DRY RUN] {filename} \u2192 BPM {bpm}{note}"
+        display = f"[DRY RUN] {filename} -> BPM {bpm}{note}"
         log = f"[DRY RUN] {filename} | BPM {bpm}{note}\n"
         logger.info("[DRY RUN] %s - BPM %d%s", filename, bpm, note)
 

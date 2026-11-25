@@ -447,7 +447,7 @@ def process_single_file(
                 with lock:
                     on_progress(
                         n_errors=1,
-                        display_text=f"[UNREADABLE] {name} \u2192 could not open file",
+                        display_text=f"[UNREADABLE] {name} -> could not open file",
                         log_text=f"[UNREADABLE] {name} | {exc}\n",
                     )
                 return
@@ -457,7 +457,7 @@ def process_single_file(
                 with lock:
                     on_progress(
                         n_errors=1,
-                        display_text=f"[NO TAGS] {name} \u2192 no tags present",
+                        display_text=f"[NO TAGS] {name} -> no tags present",
                         log_text=f"[NO TAGS] {name} | no tags found\n",
                     )
                 return
@@ -483,8 +483,7 @@ def process_single_file(
                 with lock:
                     on_progress(
                         n_errors=1,
-                        display_text=f"[CORRUPT TAGS] {name} \u2192 could "
-                        f"not wipe tags",
+                        display_text=f"[CORRUPT TAGS] {name} -> could not wipe tags",
                         log_text=f"[CORRUPT TAGS] {name} | {exc}\n",
                     )
                 return
@@ -508,8 +507,7 @@ def process_single_file(
                 with lock:
                     on_progress(
                         n_errors=1,
-                        display_text=f"[WRITE FAILED] {name} \u2192 could "
-                        f"not restore tags",
+                        display_text=f"[WRITE FAILED] {name} -> could not restore tags",
                         log_text=f"[WRITE FAILED] {name} | {exc}\n",
                     )
                 return

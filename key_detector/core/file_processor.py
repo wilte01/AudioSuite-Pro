@@ -33,6 +33,8 @@ again from the middle of the track, at the same window length and against the
 same gates, because the opening 90 s of a real song is often an intro.  One
 seam, ``detect_key_for_file``, serves the thread and process workers
 (PLAN_feature_expansion.md D156).
+Changed in 2.9.0: its display/log lines use ``->`` instead of a Unicode
+arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 
 import logging
@@ -250,7 +252,7 @@ def process_single_file(
         elif not is_dry_run:
             status = _TAG_STATUS_UNKNOWN
 
-        display = f"[{status}] {name} \u2192 {detected_key}"
+        display = f"[{status}] {name} -> {detected_key}"
         if existing_key and existing_key != detected_key:
             display += f" (was {existing_key})"
 
@@ -364,7 +366,7 @@ def _handle_key_result(
     elif not is_dry_run:
         status = _TAG_STATUS_UNKNOWN
 
-    display = f"[{status}] {filename} \u2192 {detected_key}"
+    display = f"[{status}] {filename} -> {detected_key}"
     if existing_key and existing_key != detected_key:
         display += f" (was {existing_key})"
 

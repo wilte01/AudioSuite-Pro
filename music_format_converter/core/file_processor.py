@@ -19,6 +19,8 @@ is converted and the collision is reported as a skip instead of silently
 overwriting the first output. Also in 1.0.1: the source delete records its
 undo snapshot *before* removing the file, so a snapshot failure aborts the
 delete rather than losing the original.
+Changed in 2.9.0: its display/log lines use ``->`` instead of a Unicode
+arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 
 from __future__ import annotations
@@ -283,8 +285,8 @@ def _dry_run_report(
         input_size * 3.5 if output_format not in lossy_formats else input_size * 0.8
     )
     display = (
-        f"[DRY RUN] {filename} \u2192 {output_name} "
-        f"(est. {input_size:.1f}MB \u2192 {output_size:.1f}MB)"
+        f"[DRY RUN] {filename} -> {output_name} "
+        f"(est. {input_size:.1f}MB -> {output_size:.1f}MB)"
     )
     log = (
         f"[DRY RUN] {filename} | "
@@ -573,8 +575,8 @@ def process_single_file(
         in_place_status = " [IN-PLACE]" if in_place else ""
 
         display = (
-            f"[CONVERTED] {filename} \u2192 {output_name} "
-            f"({input_size:.1f}MB \u2192 {output_size:.1f}MB)"
+            f"[CONVERTED] {filename} -> {output_name} "
+            f"({input_size:.1f}MB -> {output_size:.1f}MB)"
             f"{gain_status}{delete_status}{in_place_status}"
         )
         log = (

@@ -38,11 +38,15 @@ used once, and every bullet belongs to exactly one of them.
   instead of finishing at 0 with an empty stdout. A script that parses the
   payload can trust exit 0 to mean a document was delivered.
 
-- **Lyrics Manager's per-file lines are plain ASCII.** The arrow separating a
-  file name from its outcome printed as a literal `\u2192` on a Windows
-  console, because the console's text encoding cannot represent it. It is now
-  `->`, and an outcome such as `[TAGGED] Vienna.mp3 -> synced lyrics` reads the
-  same everywhere.
+- **Every tool's per-file line is plain ASCII.** The arrow separating a file
+  name from its outcome printed as a literal `\u2192` on a Windows console,
+  because the console's text encoding cannot represent it; Album Art
+  Normaliser's skip lines did the same with an em dash. BPM, Tempo, Mood, Genre
+  Sync, Album Art Normalizer, Key Detector, Metadata Scrubber, Music Format
+  Converter, Lyrics Manager and the shared in-place workflow now use `->` (or
+  `-`), so `[TAGGED] Vienna.mp3 -> synced lyrics` reads the same everywhere.
+  The output test now inspects the per-file display line too, so a new arrow
+  cannot slip back in.
 
 ## [2.9.0] - 2026-11-20
 

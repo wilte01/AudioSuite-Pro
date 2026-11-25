@@ -25,6 +25,8 @@ this engine thresholds are grid-dependent — ``beat_track``'s hop is a frame
 count and the key vote runs through ``chroma_cqt`` — and the anchors were
 tuned at 22 050 Hz.  The same clip read one mood at 22 050 Hz and another at
 48 kHz (PLAN D138).
+Changed in 2.9.0: the per-file display line uses ``->`` instead of a
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
 """
 
 import logging
@@ -160,7 +162,7 @@ def process_single_file(
             status = "TAGGED"
 
         display = (
-            f"[{status}] {name} \u2192 {analysis.to_tag_string()} "
+            f"[{status}] {name} -> {analysis.to_tag_string()} "
             f"(conf {analysis.confidence:.2f})"
         )
         log = (
@@ -274,7 +276,7 @@ def _handle_mood_result(
         write_energy(file_path, str(energy))
         status = "TAGGED"
 
-    display = f"[{status}] {filename} → {mood} (conf {confidence:.2f})"
+    display = f"[{status}] {filename} -> {mood} (conf {confidence:.2f})"
     log = (
         f"[{status}] {filename} | Mood: {mood} | Confidence: {confidence:.2f} "
         f"| Energy: {energy}\n"
