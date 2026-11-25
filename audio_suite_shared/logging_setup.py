@@ -69,7 +69,6 @@ from pathlib import Path
 from types import TracebackType
 
 from .constants import MAX_WORKERS_CEILING, default_max_workers
-from .secure_subprocess import suppress_pydub_console_windows
 from .suite_paths import suite_root
 
 _HOOK_MARKER = "_audio_suite_hook"
@@ -333,7 +332,10 @@ def configure_logging(program_name: str, *, min_level: int = logging.DEBUG) -> N
     # function runs in every windowed entry point before a window exists, so
     # it is where the suppression belongs; ``bootstrap_tool_app`` cannot make
     # that promise because the Master Driver, the Undo Tag Edits window and
-    # plugin windows never call it.
+    # plugin windows never call it.  Imported at the point of use so this
+    # module keeps the stdlib-only import surface the headless CLI relies on.
+    from .secure_subprocess import suppress_pydub_console_windows
+
     suppress_pydub_console_windows()
 
     logs_dir = get_logs_dir()

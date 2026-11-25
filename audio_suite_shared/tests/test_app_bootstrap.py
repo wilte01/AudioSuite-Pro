@@ -376,9 +376,11 @@ class TestConfigureLoggingInstallsTheNoWindowProxy:
 
     def test_calls_the_suppressor_exactly_once(self, monkeypatch) -> None:
         """Wiring only: one call per process start, measured on the seam."""
+        from audio_suite_shared import secure_subprocess
+
         calls: list[None] = []
         monkeypatch.setattr(
-            logging_setup,
+            secure_subprocess,
             "suppress_pydub_console_windows",
             lambda: calls.append(None),
         )
