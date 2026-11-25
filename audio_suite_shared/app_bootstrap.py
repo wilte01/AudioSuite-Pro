@@ -30,6 +30,7 @@ from .constants import default_max_workers
 from .error_logger import ErrorLogger, get_logger
 from .logging_setup import _log_uncaught
 from .logging_setup import configure_logging as configure_logging
+from .secure_subprocess import suppress_pydub_console_windows
 from .ui_helpers import UIHelperMixin, open_folder_path
 from .whats_new import offer_pending
 
@@ -72,6 +73,10 @@ def bootstrap_tool_app(
     -------
     tuple[ErrorLogger, ttk.Style | None]
     """
+    # pydub runs its own FFmpeg, and a windowed process gets a console for
+    # every child whose Popen is not hidden the way the suite's own are.
+    suppress_pydub_console_windows()
+
     root.title(title)
     platform_utils.setup_window(root, width, height, suite_config, window_config_key)
 

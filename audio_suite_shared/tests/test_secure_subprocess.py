@@ -12,6 +12,9 @@ absolute on the host running it. It passed ``C:/evil`` unconditionally, which is
 relative on POSIX, so ``validate_arguments`` never resolved it and nothing
 raised - a Windows-only assumption the POSIX smoke leg exposed (R-12,
 PLAN_audit_2026-10-24_deferred_p2p3.md).
+Changed in 2.9.0: covers the ``creationflags``/``startupinfo`` pair the wrapper
+passes and the proxy that gives pydub's own FFmpeg spawns the same hidden
+window.
 Changed in 2.7.0: the metacharacter rule moved to ``shell_mode``, so these
 tests split: metacharacters are literal arguments now (a filename may hold
 ``;`` or ``&amp;``) while control characters and an explicit ``shell=True``
@@ -441,6 +444,78 @@ class TestValidateArgumentsErrorBranches:
         with patch.object(Path, "resolve", side_effect=OSError("bad")):
             with pytest.raises(SubprocessSecurityError, match="Invalid path"):
                 validate_arguments([absolute])
+
+
+class TestRunSecureSubprocessHiddenWindow:
+    def test_run_supplies_startupinfo_and_creationflags(self):
+        fake_run = MagicMock(return_value=MagicMock(returncode=0))
+        with patch("audio_suite_shared.secure_subprocess.subprocess.run", fake_run):
+            run_secure_subprocess(sys.executable, ["-c", "pass"])
+
+        kwargs = fake_run.call_args.kwargs
+        assert kwargs["creationflags"] == ss.creation_flags()
+        assert {"creationflags", "startupinfo"} <= set(kwargs)
+
+
+class TestNoWindowSubprocess:
+    """The proxy that pydub's two spawn sites are replaced with."""
+
+    def test_popen_adds_the_window_suppression_pair(self):
+        fake = MagicMock(return_value="process")
+        with patch.object(subprocess, "Popen", fake):
+            assert ss._NoWindowSubprocess().Popen(["ffmpeg", "-i", "x"]) == "process"
+
+        kwargs = fake.call_args.kwargs
+        assert kwargs["creationflags"] == ss.creation_flags()
+        # The pair, and nothing else: a stray keyword would reach Popen.
+        assert set(kwargs) == {"creationflags", "startupinfo"}
+
+    def test_a_caller_supplied_creationflags_is_not_overridden(self):
+        fake = MagicMock(return_value="process")
+        with patch.object(subprocess, "Popen", fake):
+            ss._NoWindowSubprocess().Popen(["ffmpeg"], creationflags=0)
+
+        assert fake.call_args.kwargs["creationflags"] == 0
+
+    def test_other_attributes_delegate_to_subprocess(self):
+        proxy = ss._NoWindowSubprocess()
+        assert proxy.PIPE is subprocess.PIPE
+        assert proxy.DEVNULL is subprocess.DEVNULL
+
+
+class TestSuppressPydubConsoleWindows:
+    """The install that covers the dependency's own spawns."""
+
+    def test_leaves_pydub_alone_where_no_window_can_open(self):
+        import pydub.audio_segment as pydub_audio_segment
+
+        original = pydub_audio_segment.subprocess
+        with patch.object(ss, "creation_flags", lambda: 0):
+            ss.suppress_pydub_console_windows()
+
+        assert pydub_audio_segment.subprocess is original
+
+    def test_patches_both_pydub_spawn_sites_and_is_idempotent(self):
+        import pydub.audio_segment as pydub_audio_segment
+        import pydub.utils as pydub_utils
+
+        original_subprocess = pydub_audio_segment.subprocess
+        original_popen = pydub_utils.Popen
+        try:
+            with patch.object(ss, "creation_flags", lambda: 1):
+                ss.suppress_pydub_console_windows()
+                proxy = pydub_audio_segment.subprocess
+                assert isinstance(proxy, ss._NoWindowSubprocess)
+                # pydub.utils imported ``Popen`` by name, so it needs its own
+                # patch; pydub.audio_segment reaches ``subprocess.Popen``
+                # through the proxy.
+                assert pydub_utils.Popen.__self__ is proxy
+
+                ss.suppress_pydub_console_windows()
+                assert pydub_audio_segment.subprocess is proxy
+        finally:
+            pydub_audio_segment.subprocess = original_subprocess
+            pydub_utils.Popen = original_popen
 
 
 class TestRunSecureSubprocessErrorBranches:

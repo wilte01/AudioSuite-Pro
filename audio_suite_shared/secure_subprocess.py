@@ -17,6 +17,12 @@ Changed in 2.5.0: the refused character and sequence sets are declared once
 removes exactly what ``validate_arguments`` refuses, so the CUE splitter no
 longer carries a private copy of the metacharacter set.
 
+Changed in 2.9.0: ``run_secure_subprocess`` passes ``creationflags`` as well as
+``startupinfo`` like ``run_secure_popen`` already did, and
+``suppress_pydub_console_windows`` gives pydub's own FFmpeg spawns the same
+hidden window - without it a ``pythonw`` process opened a console for every
+decode and every export.
+
 Changed in 2.7.0: those sets are shell rules, so ``validate_arguments`` now
 applies them only in ``shell_mode``.  Every caller passes a list to
 ``subprocess`` with no shell, where ``;``, ``|``, ``<``, ``>``, a backtick and
@@ -290,9 +296,11 @@ def run_secure_subprocess(
     """
     Run a subprocess with security validation.
 
-    The wrapper always supplies ``startupinfo`` (and ``creationflags`` in
-    :func:`run_secure_popen`), so a caller must not pass either: duplicating
-    the keyword raises ``TypeError`` rather than being merged.
+    The wrapper always supplies ``startupinfo`` and ``creationflags``, so a
+    caller must not pass either: duplicating the keyword raises ``TypeError``
+    rather than being merged.  ``creationflags`` carries ``CREATE_NO_WINDOW``
+    because ``SW_HIDE`` only hides a console window the child already owns,
+    while ``CREATE_NO_WINDOW`` stops one being created.
 
     Args:
         executable: The program to execute
@@ -373,6 +381,7 @@ def run_secure_subprocess(
             text=text,
             shell=False,
             startupinfo=get_startupinfo(),
+            creationflags=creation_flags(),
             **kwargs,
         )
 
@@ -619,3 +628,54 @@ def start_python_script(
         subprocess.Popen object
     """
     return run_secure_popen(sys.executable, [script_path] + args, **kwargs)
+
+
+class _NoWindowSubprocess:
+    """A :mod:`subprocess` stand-in whose ``Popen`` hides the child's console.
+
+    A dependency that spawns through the bare module - pydub does, for every
+    FFmpeg decode and export - cannot be handed ``startupinfo`` and
+    ``creationflags`` by its own caller, so it is given this proxy instead.
+    Every other attribute delegates to the real module: ``PIPE``, ``STDOUT``,
+    ``DEVNULL``, ``CompletedProcess`` and the exception types stay the standard
+    library's own.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(subprocess, name)
+
+    def Popen(self, *args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
+        """Start the child with the suppression every wrapper here applies."""
+        kwargs.setdefault("creationflags", creation_flags())
+        kwargs.setdefault("startupinfo", get_startupinfo())
+        return subprocess.Popen(*args, **kwargs)
+
+
+def suppress_pydub_console_windows() -> None:
+    """Route pydub's own ffmpeg/ffprobe spawns through the hidden window.
+
+    pydub starts FFmpeg itself - ``pydub.audio_segment`` through
+    ``subprocess.Popen`` and ``pydub.utils`` through ``from subprocess import
+    Popen`` - and passes no window flags, so a windowed process (``pythonw``)
+    opened a console window for every ``AudioSegment.from_file`` and every
+    ``.export``: the Audio Refinery showed one per file, while every
+    first-party spawn was already hidden by this module's wrappers.  Installing
+    :class:`_NoWindowSubprocess` into both of pydub's namespaces is the fix.
+    Idempotent, and does nothing where ``creation_flags()`` has no console
+    window to suppress.
+    """
+    if not creation_flags():
+        return
+    try:
+        import pydub.audio_segment as pydub_audio_segment
+        import pydub.utils as pydub_utils
+    except ImportError:
+        return
+
+    installed = getattr(pydub_audio_segment, "subprocess", None)
+    if isinstance(installed, _NoWindowSubprocess):
+        return
+
+    proxy = _NoWindowSubprocess()
+    pydub_audio_segment.subprocess = proxy
+    pydub_utils.Popen = proxy.Popen

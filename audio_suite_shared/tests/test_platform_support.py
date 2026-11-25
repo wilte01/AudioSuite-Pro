@@ -1,5 +1,9 @@
 """Tests for the declared platform support matrix (plan G1, audit #20).
 
+Changed in 2.9.0: the end-to-end ``stats`` test loads soundfile before it
+mocks ``sys.platform``, so its verdict no longer depends on an earlier module
+having imported the native library.
+
 Changed in 2.6.0: the tier and portable-set counts move to 31 tools with the
 CUE Sheet Generator, a second declared GUI-only CLI gap beside Undo Tag Edits
 (F-E8).
@@ -589,6 +593,14 @@ class TestPortableCoreCLI:
         """
         import json
 
+        # libsndfile is resolved from the *real* platform when soundfile is
+        # first imported, so load it before the mock exists: otherwise the
+        # mocked "linux" platform makes soundfile look for libsndfile.so and
+        # the scan dies with an OSError.  Left implicit, this test only passed
+        # when an earlier module in the session had already imported soundfile,
+        # which is a collection-order dependency rather than a portable-core
+        # result.
+        import soundfile as _soundfile  # noqa: F401
         from click.testing import CliRunner
 
         from audio_suite_shared.cli_app import cli
