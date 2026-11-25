@@ -3386,7 +3386,9 @@ class TestAppGuiMethods:
         app._pre_parsed_cli = None
         # CLI-related attributes for _apply_cli_args
         app.auto_start_var = Mock()
-        app.auto_end_var = Mock()
+        # A bare app is a window with Auto End unticked, like its flag above;
+        # a Mock's default .get() is truthy and would arm the close.
+        app.auto_end_var = Mock(**{"get.return_value": False})
         app.clear_logs_var = Mock()
         app.parallel_var = Mock()
         app.start_thread = Mock()
@@ -3707,18 +3709,39 @@ class TestAppGuiMethods:
 
     # ---- _maybe_auto_end ----------------------------------------------------
 
-    def test_maybe_auto_end_schedules_destroy_when_enabled(
-        self, tmp_path: Path
-    ) -> None:
+    def _armed_app(self, tmp_path: Path) -> Any:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app._log_path = str(tmp_path / "art_sync_log.txt")
+        Path(app._log_path).write_text("SUMMARY:\n", encoding="utf-8")
+        return app
+
+    def test_maybe_auto_end_marks_the_report_and_schedules_the_close(
+        self, tmp_path: Path
+    ) -> None:
+        app = self._armed_app(tmp_path)
         app.auto_end = True
 
-        app._maybe_auto_end(delay=3000)
+        app._maybe_auto_end()
 
-        # _add_log also calls root.after(0, ...) for the log line, so
-        # use assert_any_call for the destroy scheduling.
-        app.root.after.assert_any_call(3000, app.root.destroy)
+        # _add_log also calls root.after(0, ...), so match the close itself.
+        app.root.after.assert_any_call(2000, app.root.destroy)
+        assert (
+            Path(app._log_path)
+            .read_text(encoding="utf-8")
+            .endswith("\n[Auto End enabled - closing in 2 seconds...]\n")
+        )
+        assert "Auto End enabled - closing in 2 seconds..." in "".join(app._log_entries)
+
+    def test_maybe_auto_end_reads_the_setup_checkbox(self, tmp_path: Path) -> None:
+        """A standalone launch arms Auto End from the checkbox (D61)."""
+        app = self._armed_app(tmp_path)
+        app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": True})
+
+        app._maybe_auto_end()
+
+        app.root.after.assert_any_call(2000, app.root.destroy)
 
     def test_maybe_auto_end_does_nothing_when_disabled(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
@@ -3729,27 +3752,33 @@ class TestAppGuiMethods:
 
         app.root.after.assert_not_called()
 
+    def test_maybe_auto_end_error_path_states_three_seconds(
+        self, tmp_path: Path
+    ) -> None:
+        app = self._armed_app(tmp_path)
         app.auto_end = True
+
+        app._maybe_auto_end(delay_ms=3000)
+
+        app.root.after.assert_any_call(3000, app.root.destroy)
+        assert "closing in 3 seconds" in "".join(app._log_entries)
+        assert (
+            Path(app._log_path)
+            .read_text(encoding="utf-8")
+            .endswith("\n[Auto End enabled - closing in 3 seconds...]\n")
+        )
+
+    def test_maybe_auto_end_marks_no_report_before_one_is_written(
+        self, tmp_path: Path
+    ) -> None:
+        """A cancelled or failed run has no report; the close marks nothing."""
+        app = self._armed_app(tmp_path)
+        app.auto_end = True
+        app._log_path = ""
+
         app._maybe_auto_end()
 
         app.root.after.assert_any_call(2000, app.root.destroy)
-
-    def test_maybe_auto_end_logs_message(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.auto_end = True
-
-        app._maybe_auto_end(delay=2000)
-
-        log_text = "".join(app._log_entries)
-        assert "Auto End" in log_text
-        assert "2 seconds" in log_text
-
-    def test_maybe_auto_end_default_delay_is_2000(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.auto_end = True
-
-        app._maybe_auto_end()
-
-        app.root.after.assert_any_call(2000, app.root.destroy)
+        assert Path(tmp_path, "art_sync_log.txt").read_text(encoding="utf-8") == (
+            "SUMMARY:\n"
+        )

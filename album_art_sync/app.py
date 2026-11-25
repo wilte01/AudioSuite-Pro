@@ -27,6 +27,11 @@ counts what the run examined (``Examined: N / N (dry run, nothing written)``)
 rather than claiming files were processed.
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window keeps only its own settings mapping (D58).
+
+Changed in 2.9.0: Auto End is the shell's - the condition is
+``auto_end_requested``, the sentence ``auto_end_sentence`` and the close
+``close_for_auto_end`` - so this window's 2 s (3 s after a failure) is
+stated once (D61).
 """
 
 import json
@@ -47,7 +52,11 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
-from audio_suite_shared.suite_app import SuiteApp
+from audio_suite_shared.suite_app import (
+    AUTO_END_CLOSE_MS,
+    SuiteApp,
+    auto_end_sentence,
+)
 from audio_suite_shared.suite_paths import package_path
 from audio_suite_shared.tag_helper import (
     SUPPORTED_EXTENSIONS,
@@ -279,6 +288,9 @@ class AudioSuiteV6(SuiteApp):
         self._running = True
         self.file_listbox.delete(0, tk.END)
         self._log_entries = []
+        # No report for this run yet: _maybe_auto_end marks only the report a
+        # run writes, never the previous run's.
+        self._log_path = ""
         self._cancel_requested = False
         self.cancel_btn.config(state=tk.NORMAL)
         self.start_btn.config(state=tk.DISABLED)
@@ -487,7 +499,7 @@ class AudioSuiteV6(SuiteApp):
                 source=source_used or "",
                 duration_secs=time.monotonic() - start,
             )
-            self._maybe_auto_end(delay=3000)
+            self._maybe_auto_end(delay_ms=3000)
             self._running = False
             self._restore_controls()
             return
@@ -502,7 +514,7 @@ class AudioSuiteV6(SuiteApp):
                 source=source_used or "",
                 duration_secs=time.monotonic() - start,
             )
-            self._maybe_auto_end(delay=2000)
+            self._maybe_auto_end()
         elif img_raw:
             self._add_log(f"\n✓ Artwork retrieved from {source_used}")
             self._set_status("Applying artwork...")
@@ -565,7 +577,7 @@ class AudioSuiteV6(SuiteApp):
             )
             self._add_log(f"\n✓ Log saved: {self._log_path}")
             self._show_results_tab()
-            self._maybe_auto_end(delay=2000)
+            self._maybe_auto_end()
 
         self._running = False
         self._restore_controls()
@@ -602,9 +614,14 @@ class AudioSuiteV6(SuiteApp):
                 "Failed to write log '%s': %s", self._log_path, exc, exc_info=True
             )
 
-    def _maybe_auto_end(self, delay: int = 2000) -> None:
-        if self.auto_end:
-            self._add_log(
-                f"\n[Auto End enabled - closing in {delay // 1000} seconds...]"
-            )
-            self.root.after(delay, self.root.destroy)
+    def _maybe_auto_end(self, delay_ms: int = AUTO_END_CLOSE_MS) -> None:
+        """Show the Auto End sentence in the log, then close through the shell.
+
+        The run this ends is on the worker thread; the sentence is queued with
+        the other log lines and the shell marks the report this run just wrote.
+        A cancelled or failed run wrote none, so nothing is marked.
+        """
+        if not self.auto_end_requested():
+            return
+        self._add_log(f"\n[{auto_end_sentence(delay_ms)}]")
+        self.close_for_auto_end(delay_ms=delay_ms)
