@@ -17,16 +17,19 @@ used once, and every bullet belongs to exactly one of them.
 ## [Unreleased]
 
 ### Changed
-- **All seven Auto End windows mark and close the same way.** The sentence and
-  the 2000 ms close are the shell's (`close_for_auto_end`, now able to show the
-  sentence in a window's status line), and the condition is the shell's
+- **All eight Auto End windows mark and close the same way.** The sentence, the
+  delay it states and the close are the shell's (`auto_end_sentence`,
+  `close_for_auto_end`), and the condition is the shell's
   `auto_end_requested`, so the driver's `--end` flag and the Setup tab's
   checkbox are honoured identically everywhere. A standalone launch with Auto
   End ticked now closes Genre Sync, Tempo Analyzer, ReplayGain Analyzer,
-  Metadata Scrubber and Album Genre Tagger, which consulted only the driver
-  flag; Album Genre Tagger's report also gains the marker it never wrote.
-  `tests/test_auto_end.py` freezes the one sentence, its exact bytes, the delay
-  and the seven adopters (D60).
+  Metadata Scrubber, Album Genre Tagger and Album Art Sync, which consulted
+  only the driver flag; Album Genre Tagger's report also gains the marker it
+  never wrote. A run that wrote no report (cancelled, or failed before the
+  write) is marked nowhere rather than in the previous run's report, and Album
+  Art Sync's 3-second close after a failure states that time in the shell's
+  sentence. `tests/test_auto_end.py` freezes the one sentence, its exact bytes,
+  both delays and the eight adopters (D60, D61).
 
 - **Every preset-carrying window uses the shell's preset trio.** The fifteen
   windows that still defined their own select/save/delete methods drop them, and
