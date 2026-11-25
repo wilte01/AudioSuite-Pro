@@ -22,7 +22,27 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The command line no longer stops when it cannot write to the terminal.**
+  In a PowerShell window every line went through Click's Windows console
+  writer, which raised `OSError: Windows error: 6` and ended the run before it
+  read a single file, so a batch looked as though it had found nothing while
+  every file kept its old tags. Every command's progress, errors, summary and
+  the stale-install warning are now written straight to the terminal's own
+  streams, which the same window accepts without complaint.
+
+- **A `--json` run that cannot deliver its document now fails visibly.** If
+  the document cannot be written — a closed or detached stdout, or a handle
+  the console has taken away — the command says why on stderr and exits 1,
+  instead of finishing at 0 with an empty stdout. A script that parses the
+  payload can trust exit 0 to mean a document was delivered.
+
+- **Lyrics Manager's per-file lines are plain ASCII.** The arrow separating a
+  file name from its outcome printed as a literal `\u2192` on a Windows
+  console, because the console's text encoding cannot represent it. It is now
+  `->`, and an outcome such as `[TAGGED] Vienna.mp3 -> synced lyrics` reads the
+  same everywhere.
 
 ## [2.9.0] - 2026-11-20
 

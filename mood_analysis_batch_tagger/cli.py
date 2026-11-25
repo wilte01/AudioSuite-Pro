@@ -3,6 +3,10 @@
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 2.1.4: the command exits 1 when it reports per-file errors, the
 same contract ``finish_run`` applies to the ``_run_tool`` commands (PLAN D9).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -102,14 +107,14 @@ def mood_analysis_batch_cli(
     )
 
     if json:
-        click.echo(_json_mod.dumps(payload, indent=2))
+        _echo(_json_mod.dumps(payload, indent=2), required=True)
     else:
-        click.echo(
+        _echo(
             f"  Folders scanned: {folders}\n"
             f"  Files tagged:    {tagged}\n"
             f"  Files skipped:   {skipped}\n"
             f"  Errors:          {errors}"
         )
         if log_path:
-            click.echo(f"  Log: {log_path}", err=True)
+            _echo(f"  Log: {log_path}", err=True)
     finish_batch(errors)

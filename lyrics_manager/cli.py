@@ -4,6 +4,9 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+Changed in 2.9.0: the summary and the JSON document go through
+``cli_base._echo``, so a console that rejects Click's writer still shows the
+run's outcome, and a ``--json`` document that cannot be written exits 1.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -103,11 +107,12 @@ def lyrics(
             max_workers=workers,
         )
     if json:
-        click.echo(
-            _json_mod.dumps(result.to_payload("lyrics", dry_run=dry_run), indent=2)
+        _echo(
+            _json_mod.dumps(result.to_payload("lyrics", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files, "
             f"{result.skipped} skipped, {result.errors} errors "
             f"in {result.duration_secs:.1f}s"

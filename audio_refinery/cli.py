@@ -24,6 +24,10 @@ LUFS figure, and the pair is refused beside ``--album-mode``.
 Changed in 2.9.0: --target-lufs uses the shared Click callback (A2).
 parameters Best Audio measures per file.  Both resolve to one ``auto_stages``
 list, so the flag surface cannot describe a run the pipeline cannot read.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ from audio_refinery.core.models import (
 )
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -664,12 +669,13 @@ def refine(
             registry=registry,
         )
     if json:
-        click.echo(
-            _json_mod.dumps(result.to_payload("refine", dry_run=dry_run), indent=2)
+        _echo(
+            _json_mod.dumps(result.to_payload("refine", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
         succeeded = result.extra.get("succeeded", 0)
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files,"
             f" {succeeded} processed,"
             f" {result.skipped} skipped, "

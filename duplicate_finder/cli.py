@@ -8,6 +8,10 @@ each move in the suite's undo journal, so the command is reversible; nothing is
 deleted at any point.
 
 Changed in 2.3.0: initial version (``PLAN_functional_backlog.md`` item F-02).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -118,11 +123,12 @@ def duplicates(
             cache_path=cache_path or None,
         )
     if json:
-        click.echo(
-            _json_mod.dumps(result.to_payload("duplicates", dry_run=dry_run), indent=2)
+        _echo(
+            _json_mod.dumps(result.to_payload("duplicates", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
-        click.echo(
+        _echo(
             f"  Summary: {result.total} files, {result.extra.get('groups', 0)} groups "
             f"({result.extra.get('exact_groups', 0)} exact), "
             f"{result.extra.get('duplicates', 0)} duplicates, "

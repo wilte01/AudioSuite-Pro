@@ -11,6 +11,10 @@ second JSON document (PLAN D91).
 Changed in 2.1.4: a session that finished with failed tracks exits 1 as well
 as reporting ``errors`` in its payload, so a partial rip is not a shell
 success (PLAN D9).  The drive/disc failure path keeps its ``RunFailure``.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import RunFailure, cli, finish_batch
+from audio_suite_shared.cli_base import RunFailure, _echo, cli, finish_batch
 from audio_suite_shared.cli_schema import build_payload
 
 
@@ -202,7 +206,7 @@ def cd_rip_cli(
     log_lines: list[str] = []
 
     def log_cb(msg: str) -> None:
-        click.echo(f"  {msg}", err=True)
+        _echo(f"  {msg}", err=True)
         log_lines.append(msg)
 
     if detect_offset:
@@ -219,7 +223,7 @@ def cd_rip_cli(
 
     if dry:
         if json_output:
-            click.echo(
+            _echo(
                 json.dumps(
                     _rip_payload(
                         drive=drive,
@@ -234,16 +238,17 @@ def cd_rip_cli(
                         duration_secs=0.0,
                     ),
                     indent=2,
-                )
+                ),
+                required=True,
             )
             return
-        click.echo("DRY RUN — would rip with these settings:", err=True)
-        click.echo(f"  Drive:     {drive}", err=True)
-        click.echo(f"  Output:    {output_dir}", err=True)
-        click.echo(f"  Format:    {fmt}", err=True)
-        click.echo(f"  Tracks:    {tracks or 'all'}", err=True)
-        click.echo(f"  CUE sheet: {'yes' if write_cue else 'no'}", err=True)
-        click.echo(f"  Verify:    {verify_mode}", err=True)
+        _echo("DRY RUN — would rip with these settings:", err=True)
+        _echo(f"  Drive:     {drive}", err=True)
+        _echo(f"  Output:    {output_dir}", err=True)
+        _echo(f"  Format:    {fmt}", err=True)
+        _echo(f"  Tracks:    {tracks or 'all'}", err=True)
+        _echo(f"  CUE sheet: {'yes' if write_cue else 'no'}", err=True)
+        _echo(f"  Verify:    {verify_mode}", err=True)
         return
 
     # The --format Choice uses lowercase values ('wav', 'opus') while
@@ -272,7 +277,7 @@ def cd_rip_cli(
             raise click.UsageError("No valid track numbers provided.")
 
     def progress_cb(track_num: int, pct: int, msg: str) -> None:
-        click.echo(f"  Track {track_num:02d}: {msg}", err=True)
+        _echo(f"  Track {track_num:02d}: {msg}", err=True)
 
     succeeded = 0
     failed = 0
@@ -284,7 +289,7 @@ def cd_rip_cli(
         else:
             failed += 1
         status = "OK" if success else "FAIL"
-        click.echo(f"  Track {track_num:02d}: [{status}] {msg}", err=True)
+        _echo(f"  Track {track_num:02d}: [{status}] {msg}", err=True)
 
     done_event = __import__("threading").Event()
 
@@ -316,7 +321,7 @@ def cd_rip_cli(
         # In JSON mode the reason goes in the payload *and* stderr; the raise
         # below still exits 1, so both consumers see the failure.
         if json_output:
-            click.echo(
+            _echo(
                 json.dumps(
                     _rip_payload(
                         drive=drive,
@@ -332,14 +337,15 @@ def cd_rip_cli(
                         error=fatal_error,
                     ),
                     indent=2,
-                )
+                ),
+                required=True,
             )
         raise RunFailure(
             f"Rip session failed: {fatal_error}", already_reported=json_output
         )
 
     if json_output:
-        click.echo(
+        _echo(
             json.dumps(
                 _rip_payload(
                     drive=drive,
@@ -354,10 +360,11 @@ def cd_rip_cli(
                     duration_secs=time.monotonic() - started,
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo(f"Rip session complete. {len(log_lines)} log entries.", err=True)
+        _echo(f"Rip session complete. {len(log_lines)} log entries.", err=True)
     finish_batch(failed)
 
 
@@ -374,20 +381,22 @@ def _detect_read_offset(
         # Covers ReadOffsetDetectionError (no DB record / no unanimous
         # offset) and device-level AudioIOError (no disc, open failure).
         if json_output:
-            click.echo(
+            _echo(
                 json.dumps(
                     _offset_payload(drive=drive, offset=None, error=str(exc)),
                     indent=2,
-                )
+                ),
+                required=True,
             )
         raise RunFailure(str(exc), already_reported=json_output) from exc
 
     if json_output:
-        click.echo(
+        _echo(
             json.dumps(
                 _offset_payload(drive=drive, offset=offset),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo(f"Read offset measured: {offset:+d} frames for drive {drive}")
+        _echo(f"Read offset measured: {offset:+d} frames for drive {drive}")

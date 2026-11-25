@@ -12,6 +12,10 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 1.4.1: the pre-render failures (unreadable path, no audio files)
 raise ``RunFailure`` so ``--json`` publishes the schema's error document
 instead of an empty stdout, and still exits 1 (PLAN D91).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ import time
 
 import click
 
-from audio_suite_shared.cli_base import RunFailure, _opt_dry_run, _opt_json, cli
+from audio_suite_shared.cli_base import RunFailure, _echo, _opt_dry_run, _opt_json, cli
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from spectral_viewer.core.spectrogram import (
@@ -120,7 +124,7 @@ def spectrogram(
         destination = str(output_path_for(source, output_dir))
         # Progress lines go to stderr in JSON mode so stdout stays parseable.
         if dry_run:
-            click.echo(f"  [DRY] would write {destination}", err=json)
+            _echo(f"  [DRY] would write {destination}", err=json)
             images.append(
                 {"source": source, "output": destination, "status": "planned"}
             )
@@ -139,9 +143,9 @@ def spectrogram(
             )
         except (AudioSuiteError, OSError, ValueError) as exc:
             errors.append({"source": source, "error": str(exc)})
-            click.echo(f"  [ERROR] {source}: {exc}", err=True)
+            _echo(f"  [ERROR] {source}: {exc}", err=True)
             continue
-        click.echo(f"  [OK] {destination}", err=json)
+        _echo(f"  [OK] {destination}", err=json)
         images.append({"source": source, "output": destination, "status": "written"})
 
     elapsed = time.monotonic() - start_time
@@ -150,7 +154,7 @@ def spectrogram(
     if json:
         # processed counts everything attempted — planned/written images plus
         # the files that failed — which is the shared schema's rule.
-        click.echo(
+        _echo(
             _json_mod.dumps(
                 build_payload(
                     "spectrogram",
@@ -166,11 +170,12 @@ def spectrogram(
                     error_messages=errors,
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo("")
-        click.echo(
+        _echo("")
+        _echo(
             f"  Summary: {len(images)} image(s)"
             + ("" if dry_run else f", {written} written")
             + f", {len(errors)} error(s) in {elapsed:.1f}s"

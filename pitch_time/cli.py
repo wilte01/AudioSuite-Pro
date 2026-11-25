@@ -1,6 +1,10 @@
 """cli.py — ``audiosuite pitchtime``: batch tempo and pitch transforms.
 
 Changed in 2.7.0: new module (PLAN_2026-11-03_2.7.0_feature_wave_3.md F-S4).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -10,7 +14,14 @@ import json as _json
 import click
 from click.core import ParameterSource
 
-from audio_suite_shared.cli_base import _opt_dir, _opt_json, _run_tool, cli, finish_run
+from audio_suite_shared.cli_base import (
+    _echo,
+    _opt_dir,
+    _opt_json,
+    _run_tool,
+    cli,
+    finish_run,
+)
 from audio_suite_shared.exceptions import AudioConfigValueError
 from pitch_time.core.engine import run_pitch_time
 from pitch_time.core.models import MODE_PITCH, MODE_TEMPO, PitchTimeSettings
@@ -92,7 +103,7 @@ def pitchtime(
     def _on_error(message: str) -> None:
         """Record a run that could not start, so the exit status says so."""
         failures.append(message)
-        click.echo(f"  ERROR: {message}", err=True)
+        _echo(f"  ERROR: {message}", err=True)
 
     result = _run_tool(
         "pitch / time",
@@ -109,9 +120,9 @@ def pitchtime(
 
     if json:
         payload = result.to_payload("pitchtime", dry_run=dry_run)
-        click.echo(_json.dumps(payload, indent=2, default=str))
+        _echo(_json.dumps(payload, indent=2, default=str), required=True)
     else:
-        click.echo(
+        _echo(
             f"\n  Setting: {settings.description}"
             f"  Written: {result.extra.get('written', 0)}"
             f"  Skipped: {result.skipped}"

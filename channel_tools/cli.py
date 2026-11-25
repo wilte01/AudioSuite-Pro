@@ -1,6 +1,10 @@
 """cli.py — ``audiosuite channels``: apply a channel operation in place.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E6).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ import click
 from audio_suite_shared import channel_ops
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -98,15 +103,16 @@ def channels(
             dry_run=dry_run,
         )
     if json:
-        click.echo(
-            _json.dumps(result.to_payload("channels", dry_run=dry_run), indent=2)
+        _echo(
+            _json.dumps(result.to_payload("channels", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files, "
             f"{result.extra.get('succeeded', 0)} changed, "
             f"{result.skipped} unchanged, {result.errors} errors "
             f"in {result.duration_secs:.1f}s"
         )
-        click.echo(f"  Rule: {settings.rule}")
+        _echo(f"  Rule: {settings.rule}")
     finish_run(result)

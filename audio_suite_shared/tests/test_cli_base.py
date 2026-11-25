@@ -18,6 +18,8 @@ contract (PLAN D9): a run that reports errors now exits 1, skips alone stay 0,
 and ``finish_batch`` applies the same rule to a command that builds its own
 payload (D22).  ``TestRunExitStatus`` drives the real group so the status is
 observed on a command invocation, not only on the helper.
+Changed in 2.9.0: locks the stderr write so an unusable Windows console handle
+cannot abort the command before it reads a file.
 """
 
 from __future__ import annotations
@@ -286,11 +288,103 @@ class TestStaleInstallWarning:
         self, monkeypatch, tmp_path
     ) -> None:
         message = "Warning: stale install. Run: uv run audiosuite --help"
-        assert message in self._invoke(monkeypatch, message, tmp_path)
+        output = self._invoke(monkeypatch, message, tmp_path)
+        assert message in output
+        assert "Could not write to stderr" not in output
 
     def test_matching_install_prints_no_warning(self, monkeypatch, tmp_path) -> None:
         output = self._invoke(monkeypatch, None, tmp_path)
         assert "Warning: the installed audiosuite-pro" not in output
+
+    def test_a_failed_stderr_write_does_not_abort_the_run(self, monkeypatch) -> None:
+        """A diagnostic must never become the run's failure.
+
+        Click's Windows console writer raised ``OSError`` (Windows error 6, an
+        invalid handle) for every stderr line in a PowerShell console, which
+        killed the CLI before it read a file.  The run's output no longer goes
+        through it, and a write that still fails is swallowed at DEBUG rather
+        than printed as a WARNING per line.
+        """
+        from audio_suite_shared import cli_base
+
+        class _BrokenStderr:
+            def write(self, _text: str) -> int:
+                raise OSError(6, "The handle is invalid")
+
+            def flush(self) -> None:
+                raise OSError(6, "The handle is invalid")
+
+        monkeypatch.setattr(cli_base.sys, "stderr", _BrokenStderr())
+
+        cli_base._echo("Starting Lyrics Manager...", err=True)
+
+
+class TestEchoHelper:
+    """Console output bypasses Click, and an undeliverable payload is visible."""
+
+    def test_a_required_payload_failure_exits_1(self, monkeypatch, capsys) -> None:
+        """A ``--json`` consumer must never see exit 0 with an empty stdout."""
+        from audio_suite_shared import cli_base
+
+        class _BrokenStdout:
+            def write(self, _text: str) -> int:
+                raise OSError(6, "The handle is invalid")
+
+            def flush(self) -> None:
+                raise OSError(6, "The handle is invalid")
+
+        monkeypatch.setattr(cli_base.sys, "stdout", _BrokenStdout())
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_base._echo("{}", required=True)
+
+        assert excinfo.value.code == 1
+        assert "could not write the payload" in capsys.readouterr().err
+
+    def test_a_detached_stdout_fails_visibly(self, monkeypatch, capsys) -> None:
+        """``pythonw``/a closed handle leaves ``sys.stdout`` as ``None``."""
+        from audio_suite_shared import cli_base
+
+        monkeypatch.setattr(cli_base.sys, "stdout", None)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_base._echo("{}", required=True)
+
+        assert excinfo.value.code == 1
+        assert "could not write the payload" in capsys.readouterr().err
+
+    def test_a_detached_stderr_is_swallowed(self, monkeypatch) -> None:
+        from audio_suite_shared import cli_base
+
+        monkeypatch.setattr(cli_base.sys, "stderr", None)
+
+        cli_base._echo("progress", err=True)
+
+    def test_no_cli_module_calls_click_echo(self) -> None:
+        """Every command's payload goes through the helper, not Click's writer.
+
+        Click 8.5's Windows console writer raises ``OSError: Windows error: 6``
+        for every write in a PowerShell console, which lost summaries and JSON
+        documents after their audio work had finished.
+        """
+        root = Path(__file__).resolve().parents[2]
+        modules = sorted(root.glob("*/cli.py")) + sorted(
+            (root / "audio_suite_shared").glob("*_cli.py")
+        )
+        offenders = [
+            f"{path.relative_to(root)}:{number}"
+            for path in modules
+            for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            )
+            if "click.echo(" in line or "click.secho(" in line
+        ]
+
+        assert len(modules) >= 30, f"only {len(modules)} CLI modules found"
+        assert not offenders, (
+            "CLI modules must use cli_base._echo, because Click's Windows console "
+            "writer fails in a PowerShell console:\n  " + "\n  ".join(offenders)
+        )
 
 
 class TestFinishRun:

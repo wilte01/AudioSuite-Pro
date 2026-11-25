@@ -14,6 +14,10 @@ Changed in 2.6.0: ``cue generate`` builds its sheet through the shared
 calls.  The folder scan, the filename track-number fallback and the per-format
 ``FILE`` token move there, so the CLI keeps no private copy of either table, and
 a duplicate track number is refused instead of producing an unreadable sheet.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_base import _echo, cli
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.cue_generator import (
     build_folder_cue,
@@ -93,14 +97,14 @@ def _sheet_to_json(sheet: CueSheet) -> dict[str, Any]:
 
 def _print_sheet(sheet: CueSheet) -> None:
     if sheet.catalog:
-        click.echo(f"CATALOG:   {sheet.catalog}")
+        _echo(f"CATALOG:   {sheet.catalog}")
     if sheet.performer:
-        click.echo(f"PERFORMER: {sheet.performer}")
+        _echo(f"PERFORMER: {sheet.performer}")
     if sheet.title:
-        click.echo(f"TITLE:     {sheet.title}")
+        _echo(f"TITLE:     {sheet.title}")
     for f in sheet.files:
-        click.echo("")
-        click.echo(f"[FILE] {f.filename} {f.file_type or ''}".rstrip())
+        _echo("")
+        _echo(f"[FILE] {f.filename} {f.file_type or ''}".rstrip())
         for t in f.tracks:
             start = t.index01
             start_str = (
@@ -108,7 +112,7 @@ def _print_sheet(sheet: CueSheet) -> None:
                 if start
                 else "----:--:--"
             )
-            click.echo(
+            _echo(
                 f"  {t.number:02d}  {start_str}  "
                 f"{t.title or ''}  {t.performer or ''}".rstrip()
             )
@@ -134,7 +138,7 @@ def cue_parse_cli(cue_file: str, json_output: bool) -> None:
     if json_output:
         data = _sheet_to_json(sheet)
         track_count = sum(len(f["tracks"]) for f in data["files"])
-        click.echo(
+        _echo(
             json.dumps(
                 build_payload(
                     "cue parse",
@@ -150,7 +154,8 @@ def cue_parse_cli(cue_file: str, json_output: bool) -> None:
                     files=data["files"],
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
         _print_sheet(sheet)
@@ -213,7 +218,7 @@ def cue_generate_cli(
 
     track_count = len(files)
     if json_output:
-        click.echo(
+        _echo(
             json.dumps(
                 build_payload(
                     "cue generate",
@@ -227,11 +232,12 @@ def cue_generate_cli(
                     title=title,
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
         return
-    click.echo(f"Wrote CUE sheet: {cue_name}")
-    click.echo(f"  {track_count} track(s)")
+    _echo(f"Wrote CUE sheet: {cue_name}")
+    _echo(f"  {track_count} track(s)")
 
 
 @cue_group.command("split")
@@ -269,13 +275,13 @@ def cue_split_cli(
             cue_file,
             out_dir,
             ffmpeg=ffmpeg_bin,
-            progress_cb=lambda msg: click.echo(f"  {msg}", err=True),
+            progress_cb=lambda msg: _echo(f"  {msg}", err=True),
         )
     except (CueParseError, ValueError, OSError, AudioSuiteError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     if json_output:
-        click.echo(
+        _echo(
             json.dumps(
                 build_payload(
                     "cue split",
@@ -289,9 +295,10 @@ def cue_split_cli(
                     tracks=written,
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
         return
     for path in written:
-        click.echo(f"  Created {path}")
-    click.echo(f"Split {len(written)} track(s) into {out_dir}")
+        _echo(f"  Created {path}")
+    _echo(f"Split {len(written)} track(s) into {out_dir}")

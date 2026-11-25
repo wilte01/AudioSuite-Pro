@@ -22,6 +22,10 @@ Changed in 2.7.0: ``--qc`` adds the QC columns to a CSV/HTML export, while
 sets how many files are measured at once (PLAN_2026-11-03_2.7.0_feature_wave_3
 F-S7).  Measurement costs a decode per file, so nothing is measured unless one
 of the three QC switches asks for it.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import RunFailure, _opt_dir, _opt_json, cli
+from audio_suite_shared.cli_base import RunFailure, _echo, _opt_dir, _opt_json, cli
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from library_stats.library_cache import LibraryCache
@@ -234,7 +238,7 @@ def stats(
     if refresh and cache is not None:
         cache.clear_dir(directory)
 
-    click.echo(
+    _echo(
         "Scanning library for statistics..."
         + (" (incremental)" if incremental else "")
         + (" (full refresh)" if refresh else ""),
@@ -283,7 +287,7 @@ def stats(
             qc_workers=workers,
         )
     elif camelot:
-        click.echo("  Warning: --camelot applies to --export csv/html only.", err=True)
+        _echo("  Warning: --camelot applies to --export csv/html only.", err=True)
 
     if json:
         _echo_stats_json(scan, trend)
@@ -294,16 +298,16 @@ def stats(
     if export_csv:
         try:
             _export_csv(scan.report, export_csv, columns=columns, camelot=camelot)
-            click.echo(f"\n  CSV exported to: {export_csv}", err=True)
+            _echo(f"\n  CSV exported to: {export_csv}", err=True)
         except (AudioSuiteError, OSError, ValueError) as exc:
-            click.echo(f"  CSV export failed: {exc}", err=True)
+            _echo(f"  CSV export failed: {exc}", err=True)
 
     if export_json:
         try:
             _export_json(scan.report, export_json)
-            click.echo(f"\n  JSON exported to: {export_json}", err=True)
+            _echo(f"\n  JSON exported to: {export_json}", err=True)
         except (OSError, ValueError) as exc:
-            click.echo(f"  JSON export failed: {exc}", err=True)
+            _echo(f"  JSON export failed: {exc}", err=True)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -367,7 +371,7 @@ def _run_stats_scan(
                 try:
                     cache.record_completeness_snapshot(completeness_report)
                 except sqlite3.Error as exc:
-                    click.echo(
+                    _echo(
                         f"  Warning: completeness history not recorded: {exc}",
                         err=True,
                     )
@@ -421,27 +425,27 @@ def _echo_stats_json(scan: _StatsScan, trend: bool) -> None:
         payload["completeness"] = scan.completeness.to_dict()
     if trend:
         payload["trend"] = scan.history
-    click.echo(_json.dumps(payload, indent=2, default=str))
+    _echo(_json.dumps(payload, indent=2, default=str), required=True)
 
 
 def _echo_stats_report(scan: _StatsScan, detail: str | None, trend: bool) -> None:
     """Print the human-readable statistics summary."""
     report = scan.report
-    click.echo("")
-    click.echo(f"  Total files scanned   : {report.total_files}")
-    click.echo(f"  Total albums          : {report.total_albums}")
-    click.echo(f"  Total artists         : {report.total_artists}")
-    click.echo(f"  Unique genres         : {len(report.genre_distribution)}")
-    click.echo(f"  Unique keys           : {len(report.key_distribution)}")
-    click.echo(f"  Scan duration         : {scan.elapsed:.1f}s{scan.cache_info}")
-    click.echo("")
+    _echo("")
+    _echo(f"  Total files scanned   : {report.total_files}")
+    _echo(f"  Total albums          : {report.total_albums}")
+    _echo(f"  Total artists         : {report.total_artists}")
+    _echo(f"  Unique genres         : {len(report.genre_distribution)}")
+    _echo(f"  Unique keys           : {len(report.key_distribution)}")
+    _echo(f"  Scan duration         : {scan.elapsed:.1f}s{scan.cache_info}")
+    _echo("")
     if report.format_breakdown:
-        click.echo("  Format breakdown:")
+        _echo("  Format breakdown:")
         for ext, count in sorted(report.format_breakdown.items(), key=lambda x: -x[1]):
-            click.echo(f"    {ext:>8}: {count}")
+            _echo(f"    {ext:>8}: {count}")
     if report.missing_data:
-        click.echo("")
-        click.echo("  Missing data:")
+        _echo("")
+        _echo("  Missing data:")
         total = report.total_files or 1
         for label, key in (
             ("BPM", "no_bpm"),
@@ -453,7 +457,7 @@ def _echo_stats_report(scan: _StatsScan, detail: str | None, trend: bool) -> Non
             ("Artwork", "no_art"),
         ):
             count = report.missing_data.get(key, 0)
-            click.echo(f"    {label:<20}: {count:>5}  ({count / total * 100:5.1f}%)")
+            _echo(f"    {label:<20}: {count:>5}  ({count / total * 100:5.1f}%)")
 
     if scan.completeness is not None:
         _echo_completeness(scan.completeness, detail)
@@ -560,9 +564,9 @@ def _run_export(
                 qc_workers=qc_workers,
             )
     except (OSError, ValueError) as exc:
-        click.echo(f"  Export failed: {exc}", err=True)
+        _echo(f"  Export failed: {exc}", err=True)
         return
-    click.echo(f"\n  Exported {count} file(s) to: {destination}", err=True)
+    _echo(f"\n  Exported {count} file(s) to: {destination}", err=True)
 
 
 def _with_qc_columns(columns: tuple[str, ...] | None) -> tuple[str, ...]:
@@ -607,15 +611,15 @@ def _run_qc_table(
     try:
         rows = collect_export_rows(directory, qc=True, qc_workers=workers)
     except (OSError, ValueError) as exc:
-        click.echo(f"  QC pass failed: {exc}", err=True)
+        _echo(f"  QC pass failed: {exc}", err=True)
         return
     measured = [row.qc for row in rows if row.qc is not None]
     if not measured:
-        click.echo("  No audio files to measure for QC.", err=True)
+        _echo("  No audio files to measure for QC.", err=True)
         return
     summary = qc_summary(measured)
     worst = summary.offenders[0].file if summary.offenders else "none"
-    click.echo(
+    _echo(
         f"  QC: {summary.measured} of {summary.total} file(s) measured, "
         f"{summary.clipped} clipped, {summary.with_dropouts} with dropouts; "
         f"worst: {worst}",
@@ -646,11 +650,9 @@ def _run_qc_table(
                 for item in measured:
                     writer.writerow(item.as_dict())
         except OSError as exc:
-            click.echo(f"  QC CSV failed: {exc}", err=True)
+            _echo(f"  QC CSV failed: {exc}", err=True)
         else:
-            click.echo(
-                f"\n  QC table for {len(measured)} file(s) to: {qc_csv}", err=True
-            )
+            _echo(f"\n  QC table for {len(measured)} file(s) to: {qc_csv}", err=True)
 
     if qc_json:
         # The summary's keys sit beside ``files`` so the ranking and the counts
@@ -661,53 +663,49 @@ def _run_qc_table(
                 json_mod.dumps(payload, indent=2), encoding="utf-8"
             )
         except OSError as exc:
-            click.echo(f"  QC JSON failed: {exc}", err=True)
+            _echo(f"  QC JSON failed: {exc}", err=True)
         else:
-            click.echo(f"  QC JSON for {len(measured)} file(s) to: {qc_json}", err=True)
+            _echo(f"  QC JSON for {len(measured)} file(s) to: {qc_json}", err=True)
 
 
 def _echo_completeness(report: Any, detail: str | None = None) -> None:
     """Print the completeness table and, optionally, per-tag missing files."""
     from library_stats.core.completeness import TAG_FIELDS
 
-    click.echo("")
-    click.echo("  Tag Completeness:")
-    click.echo(
+    _echo("")
+    _echo("  Tag Completeness:")
+    _echo(
         f"    {'Tag':<15} {'Total':>6} {'Present':>8} {'Missing':>8} {'%':>8}   Status"
     )
     for field in TAG_FIELDS:
         tc = report.tag_results[field]
         status = _completeness_status(tc.pct_complete)
-        click.echo(
+        _echo(
             f"    {tc.label:<15} {tc.total:>6} {tc.present:>8} "
             f"{tc.missing:>8} {tc.pct_complete:>7.1f}%   {status}"
         )
-    click.echo(
-        f"    {'Overall':<15} {'':>6} {'':>8} {'':>8} {report.overall_pct:>7.1f}%"
-    )
+    _echo(f"    {'Overall':<15} {'':>6} {'':>8} {'':>8} {report.overall_pct:>7.1f}%")
     if report.total_files:
-        click.echo(f"    {report.duration_secs:.1f}s")
+        _echo(f"    {report.duration_secs:.1f}s")
 
     if detail is not None:
         tc = report.tag_results[detail]
-        click.echo("")
-        click.echo(f"  Files missing {tc.label} ({tc.missing}):")
+        _echo("")
+        _echo(f"  Files missing {tc.label} ({tc.missing}):")
         for path in tc.missing_files:
-            click.echo(f"    {path}")
+            _echo(f"    {path}")
 
 
 def _echo_trend(history: list[dict[str, Any]]) -> None:
     """Print the recorded completeness trend, oldest first."""
-    click.echo("")
+    _echo("")
     if not history:
-        click.echo(
-            "  Completeness Trend: no snapshots recorded yet for this directory."
-        )
+        _echo("  Completeness Trend: no snapshots recorded yet for this directory.")
         return
-    click.echo(f"  Completeness Trend (last {len(history)} scans):")
+    _echo(f"  Completeness Trend (last {len(history)} scans):")
     for snapshot in history:
         recorded = str(snapshot.get("recorded_at", ""))[:19]
-        click.echo(
+        _echo(
             f"    {recorded:<19} {int(snapshot.get('total_files', 0)):>6} files"
             f"   {float(snapshot.get('overall_pct', 0.0)):>6.1f}% complete"
         )

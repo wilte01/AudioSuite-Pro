@@ -1,6 +1,10 @@
 """cli.py — ``audiosuite join``: join a folder's segments into one file.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E5).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -15,7 +19,14 @@ from audio_joiner.core.models import (
     DEFAULT_GAP_MS,
     JoinSettings,
 )
-from audio_suite_shared.cli_base import _opt_dir, _opt_json, _run_tool, cli, finish_run
+from audio_suite_shared.cli_base import (
+    _echo,
+    _opt_dir,
+    _opt_json,
+    _run_tool,
+    cli,
+    finish_run,
+)
 
 
 @cli.command()
@@ -101,7 +112,7 @@ def join(
     def _on_error(message: str) -> None:
         """Record a run that could not start, so the exit status says so."""
         failures.append(message)
-        click.echo(f"  ERROR: {message}", err=True)
+        _echo(f"  ERROR: {message}", err=True)
 
     result = _run_tool(
         "audio joiner",
@@ -120,15 +131,15 @@ def join(
 
     if json:
         payload = result.to_payload("join", dry_run=dry_run)
-        click.echo(_json.dumps(payload, indent=2, default=str))
+        _echo(_json.dumps(payload, indent=2, default=str), required=True)
     else:
         duration_ms = result.extra.get("duration_ms", 0)
         minutes, rest = divmod(int(duration_ms), 60_000)
         seconds, millis = divmod(rest, 1000)
-        click.echo(
+        _echo(
             f"\n  Segments: {result.extra.get('segments', 0)}"
             f"  Length: {minutes:02d}:{seconds:02d}.{millis:03d}"
             f"  Errors: {result.errors}"
         )
-        click.echo(f"  Output: {result.extra.get('output', '')}")
+        _echo(f"  Output: {result.extra.get('output', '')}")
     finish_run(result)

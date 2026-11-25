@@ -12,6 +12,8 @@ share one handler load instead of two (PLAN D55).
 Changed in 2.4.1: takes ``TagHandlerFactory`` from
 ``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
 handler table (WP-2).
+Changed in 2.9.0: the per-file display lines use ``->`` rather than a Unicode
+arrow, which a cp1252 console encodes as a literal ``\\u2192``.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -143,7 +145,7 @@ def process_single_file(
             on_progress,
             n_skipped=1,
             n_errors=0,
-            display=f"[SKIPPED] {name} → no artist/title tags",
+            display=f"[SKIPPED] {name} -> no artist/title tags",
             log=f"[SKIPPED] {name} | no artist/title tags\n",
         )
         return
@@ -157,7 +159,7 @@ def process_single_file(
                 on_progress,
                 n_skipped=1,
                 n_errors=0,
-                display=f"[SKIPPED] {name} → already has lyrics",
+                display=f"[SKIPPED] {name} -> already has lyrics",
                 log=f"[SKIPPED] {name} | already has lyrics\n",
             )
             return
@@ -193,7 +195,7 @@ def process_single_file(
             on_progress,
             n_skipped=1,
             n_errors=0,
-            display=f"[SKIPPED] {name} → lyrics not found",
+            display=f"[SKIPPED] {name} -> lyrics not found",
             log=f"[SKIPPED] {name} | lyrics not found\n",
         )
         return
@@ -206,7 +208,7 @@ def process_single_file(
             on_progress,
             n_skipped=0,
             n_errors=0,
-            display=f"[DRY RUN] {name} → {kind} lyrics found",
+            display=f"[DRY RUN] {name} -> {kind} lyrics found",
             log=f"[DRY RUN] {name} | {kind} lyrics found\n",
         )
         return
@@ -259,7 +261,7 @@ def process_single_file(
         on_progress,
         n_skipped=1 if status == ProcessingStatus.SKIPPED else 0,
         n_errors=0,
-        display=f"[{status.name}] {name} → {action}",
+        display=f"[{status.name}] {name} -> {action}",
         log=f"[{status.name}] {name} | {action}\n",
     )
 

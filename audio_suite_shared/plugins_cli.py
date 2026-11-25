@@ -20,6 +20,10 @@ Changed in 2.1.0: new module — the plugin management commands (Sprint 7).
 Changed in 2.1.4: ``plugins list`` exits 1 when its payload reports rejected
 manifests, so a rejected plugin is visible to a scheduler as well as to a reader
 (R-06, PLAN D9/D23).  Disabled plugins stay a skip, not an error.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ import time
 
 import click
 
-from audio_suite_shared.cli_base import _opt_json, cli, finish_batch
+from audio_suite_shared.cli_base import _echo, _opt_json, cli, finish_batch
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.plugin_system import (
     default_plugin_root,
@@ -102,20 +106,18 @@ def plugins_list(json: bool) -> None:
     )
 
     if json:
-        click.echo(_json_mod.dumps(payload, indent=2))
+        _echo(_json_mod.dumps(payload, indent=2), required=True)
     elif not entries:
-        click.echo(f"  No plugins found in {default_plugin_root()}.")
+        _echo(f"  No plugins found in {default_plugin_root()}.")
     else:
-        click.echo(
-            f"  Plugins: {loaded} loaded, {disabled} disabled, {rejected} rejected"
-        )
+        _echo(f"  Plugins: {loaded} loaded, {disabled} disabled, {rejected} rejected")
         for entry in entries:
             line = (
                 f"  [{entry['status']!s:<8}] {entry['id']} {entry['version']}".rstrip()
             )
             if entry["problem"]:
                 line += f" — {entry['problem']}"
-            click.echo(line)
+            _echo(line)
     # The payload calls a rejected manifest an error, so the shell status has to
     # agree with it (R-06).  A disabled plugin is a skip and keeps status 0.
     finish_batch(rejected)
@@ -221,12 +223,12 @@ def _run_toggle(plugin_id: str, *, enabled: bool, as_json: bool, command: str) -
     if as_json:
         # The JSON mode publishes exactly one document, so the human line below
         # must not follow it.
-        click.echo(_json_mod.dumps(payload, indent=2))
+        _echo(_json_mod.dumps(payload, indent=2), required=True)
         if error is not None:
             raise SystemExit(status)
         return
     if error is not None:
-        click.echo(f"  Error: {error}", err=True)
+        _echo(f"  Error: {error}", err=True)
         raise SystemExit(status)
     verb = "enabled" if enabled else "disabled"
-    click.echo(f"  Plugin {plugin_id!r} {verb}; tools started from now on use it.")
+    _echo(f"  Plugin {plugin_id!r} {verb}; tools started from now on use it.")

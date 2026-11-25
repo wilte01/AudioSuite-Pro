@@ -7,6 +7,10 @@ raises ``click.UsageError`` (exit 2) instead of exiting 1 after an echo, so
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -150,12 +155,13 @@ def convert(
             dither=dither,
         )
     if json:
-        click.echo(
-            _json_mod.dumps(result.to_payload("convert", dry_run=dry_run), indent=2)
+        _echo(
+            _json_mod.dumps(result.to_payload("convert", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
         converted = result.extra.get("converted", 0)
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files, {converted} converted, "
             f"{result.skipped} skipped, "
             f"{result.errors} errors in {result.duration_secs:.1f}s"

@@ -1,6 +1,10 @@
 """cli.py — ``audiosuite split``: split recordings at their silent gaps.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E4).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -9,7 +13,14 @@ import json as _json
 
 import click
 
-from audio_suite_shared.cli_base import _opt_dir, _opt_json, _run_tool, cli, finish_run
+from audio_suite_shared.cli_base import (
+    _echo,
+    _opt_dir,
+    _opt_json,
+    _run_tool,
+    cli,
+    finish_run,
+)
 from track_splitter.core.models import (
     BOUNDARY_RULES,
     DEFAULT_BOUNDARY,
@@ -117,12 +128,12 @@ def split(
 
     if json:
         payload = result.to_payload("split", dry_run=dry_run)
-        click.echo(_json.dumps(payload, indent=2, default=str))
+        _echo(_json.dumps(payload, indent=2, default=str), required=True)
     else:
-        click.echo(
+        _echo(
             f"\n  Files: {result.total}  Tracks: {result.extra.get('tracks', 0)}"
             f"  Written: {result.extra.get('files_written', 0)}"
             f"  Errors: {result.errors}"
         )
-        click.echo(f"  Output: {result.extra.get('output_dir', '')}")
+        _echo(f"  Output: {result.extra.get('output_dir', '')}")
     finish_run(result)

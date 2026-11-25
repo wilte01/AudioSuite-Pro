@@ -1,6 +1,10 @@
 """CLI command for the Restoration (declip) tool.
 
 Changed in 2.3.0: initial version (``PLAN_functional_backlog.md`` item F-08a).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -65,12 +70,13 @@ def declip(
             max_run_ms=max_run_ms,
         )
     if json:
-        click.echo(
-            _json_mod.dumps(result.to_payload("declip", dry_run=dry_run), indent=2)
+        _echo(
+            _json_mod.dumps(result.to_payload("declip", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
         succeeded = result.extra.get("succeeded", 0)
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files, {succeeded} repaired, "
             f"{result.skipped} clean, {result.errors} errors "
             f"in {result.duration_secs:.1f}s"

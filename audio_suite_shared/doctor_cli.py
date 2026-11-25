@@ -35,6 +35,10 @@ Changed in 2.1.0: reports the launcher interpreter and each tool's optional
 extra, probed in that interpreter.  The launchers now run from the project's
 ``.venv``, which is exactly the interpreter whose imports decide whether a tool
 works.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -47,10 +51,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import click
-
 from audio_suite_shared import optional_deps
-from audio_suite_shared.cli_base import _opt_json, cli
+from audio_suite_shared.cli_base import _echo, _opt_json, cli
 
 # Re-exported: ``PackageStatus`` is doctor's public result type, and importing
 # it with the redundant alias is what tells mypy it is part of this module's
@@ -612,10 +614,10 @@ def doctor(json: bool) -> None:
     if json:
         # The diagnosis is still worth reading while a script consumes the
         # document, so the text report moves to stderr instead of vanishing.
-        click.echo(render_report(report), err=True)
+        _echo(render_report(report), err=True)
         payload = doctor_payload(report, duration_secs=duration_secs)
-        click.echo(_json.dumps(payload, indent=2))
+        _echo(_json.dumps(payload, indent=2), required=True)
     else:
-        click.echo(render_report(report))
+        _echo(render_report(report))
     if not report.healthy:
         raise SystemExit(1)

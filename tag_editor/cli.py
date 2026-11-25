@@ -5,6 +5,10 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 2.6.0: ``tag-edit`` gains ``--copy-from REF --fields a,b``, which
 applies the shared ``tag_templates`` copy path to one file or a whole folder
 under one undo batch, with the same ``--dry``/``--live`` gate as the edit modes.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from pathlib import Path
 
 import click
 
-from audio_suite_shared.cli_base import _opt_dry_run, _opt_json, cli
+from audio_suite_shared.cli_base import _echo, _opt_dry_run, _opt_json, cli
 from audio_suite_shared.cli_schema import build_payload, error_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from audio_suite_shared.tag_templates import (
@@ -41,13 +45,14 @@ def _echo_error(message: str, as_json: bool, dry_run: bool = False) -> None:
     so a script has one parser for success and failure.
     """
     if as_json:
-        click.echo(
+        _echo(
             json_mod.dumps(
                 error_payload("tag-edit", message, dry_run=dry_run), indent=2
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo(f"  ERROR: {message}", err=True)
+        _echo(f"  ERROR: {message}", err=True)
 
 
 def _run_import(
@@ -111,20 +116,20 @@ def _report_import(
             row_errors=plan.row_errors,
             ignored_columns=plan.ignored_columns,
         )
-        click.echo(json_mod.dumps(payload, indent=2))
+        _echo(json_mod.dumps(payload, indent=2), required=True)
     else:
         mode = "Dry run" if dry_run else "Live update"
-        click.echo(f"  Mode:      {mode}")
-        click.echo(f"  Rows read: {plan.row_count}")
-        click.echo(f"  Edits:     {len(plan.edits)}")
-        click.echo(f"  Changed:   {stats.changed}")
-        click.echo(f"  Written:   {stats.written}")
-        click.echo(f"  Errors:    {failures}")
+        _echo(f"  Mode:      {mode}")
+        _echo(f"  Rows read: {plan.row_count}")
+        _echo(f"  Edits:     {len(plan.edits)}")
+        _echo(f"  Changed:   {stats.changed}")
+        _echo(f"  Written:   {stats.written}")
+        _echo(f"  Errors:    {failures}")
         for row_error in plan.row_errors:
-            click.echo(f"  ERROR: {row_error}", err=True)
+            _echo(f"  ERROR: {row_error}", err=True)
         for result in results:
             if result.error is not None:
-                click.echo(f"  ERROR: {result.error}", err=True)
+                _echo(f"  ERROR: {result.error}", err=True)
     return 1 if failures else 0
 
 
@@ -181,18 +186,18 @@ def _run_copy(
             row_errors=[],
             ignored_columns=[],
         )
-        click.echo(json_mod.dumps(payload, indent=2))
+        _echo(json_mod.dumps(payload, indent=2), required=True)
     else:
         mode = "Dry run" if dry_run else "Live update"
-        click.echo(f"  Mode:      {mode}")
-        click.echo(f"  Reference: {reference}")
-        click.echo(f"  Fields:    {', '.join(template.fields)}")
-        click.echo(f"  Files:     {len(results)}")
-        click.echo(f"  Changed:   {changed}")
-        click.echo(f"  Written:   {written}")
-        click.echo(f"  Errors:    {errors}")
+        _echo(f"  Mode:      {mode}")
+        _echo(f"  Reference: {reference}")
+        _echo(f"  Fields:    {', '.join(template.fields)}")
+        _echo(f"  Files:     {len(results)}")
+        _echo(f"  Changed:   {changed}")
+        _echo(f"  Written:   {written}")
+        _echo(f"  Errors:    {errors}")
         for result in results:
-            click.echo(
+            _echo(
                 result_line(result, is_dry_run=dry_run).rstrip("\n"),
                 err=result.error is not None,
             )
@@ -316,15 +321,15 @@ def tag_edit_cli(
         ignored_columns=[],
     )
     if json:
-        click.echo(json_mod.dumps(payload, indent=2))
+        _echo(json_mod.dumps(payload, indent=2), required=True)
     else:
         mode = "Dry run" if dry_run else "Live update"
-        click.echo(f"  Mode:    {mode}")
-        click.echo(f"  Changed: {stats.changed}")
-        click.echo(f"  Written: {stats.written}")
-        click.echo(f"  Errors:  {stats.errors}")
+        _echo(f"  Mode:    {mode}")
+        _echo(f"  Changed: {stats.changed}")
+        _echo(f"  Written: {stats.written}")
+        _echo(f"  Errors:  {stats.errors}")
         if result.error is not None:
-            click.echo(f"  ERROR: {result.error}", err=True)
+            _echo(f"  ERROR: {result.error}", err=True)
 
     if stats.errors:
         sys.exit(1)

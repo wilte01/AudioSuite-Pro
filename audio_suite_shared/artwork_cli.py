@@ -14,6 +14,10 @@ suite utility rather than a tool: there is no window, no manifest entry and no
 Master Driver card, which is why its payload's tool id is ``artwork``.
 
 Changed in 2.6.0: new file - F-E10's ``artwork`` command group.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_base import _echo, cli
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.cue_generator import scan_audio_files
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
@@ -77,7 +81,7 @@ def _emit(json_output: bool, line: str) -> None:
         line: The line to print in text mode.
     """
     if not json_output:
-        click.echo(line)
+        _echo(line)
 
 
 def _failure(exc: Exception) -> str:
@@ -114,7 +118,7 @@ def artwork_extract_cli(
     """
     files = _files(directory, recursive)
     if not files:
-        click.echo("  Error: no supported audio files found.", err=True)
+        _echo("  Error: no supported audio files found.", err=True)
         raise SystemExit(_EXIT_ERROR)
 
     started = time.monotonic()
@@ -160,7 +164,7 @@ def artwork_extract_cli(
 
     duration = time.monotonic() - started
     if json_output:
-        click.echo(
+        _echo(
             json.dumps(
                 build_payload(
                     "artwork extract",
@@ -179,10 +183,11 @@ def artwork_extract_cli(
                     sidecar_name=name,
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo(
+        _echo(
             f"\n  {extracted} extracted, {kept} kept, {no_art} without art, "
             f"{error_count} error(s) in {duration:.1f}s."
         )
@@ -224,7 +229,7 @@ def artwork_report_cli(
     """
     files = _files(directory, recursive)
     if not files:
-        click.echo("  Error: no supported audio files found.", err=True)
+        _echo("  Error: no supported audio files found.", err=True)
         raise SystemExit(_EXIT_ERROR)
 
     started = time.monotonic()
@@ -272,7 +277,7 @@ def artwork_report_cli(
 
     duration = time.monotonic() - started
     if json_output:
-        click.echo(
+        _echo(
             json.dumps(
                 build_payload(
                     "artwork report",
@@ -291,10 +296,11 @@ def artwork_report_cli(
                     min_dimension=min_dimension,
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo(
+        _echo(
             f"\n  {len(missing)} file(s) without artwork, {len(oversized)} "
             f"above the threshold, {error_count} error(s) in {duration:.1f}s."
         )

@@ -41,6 +41,13 @@ per-file errors, not only when it crashed, and ``finish_batch`` applies that
 same rule to a command that builds its own payload.  The exit contract is 0 =
 clean (skips included), 1 = completed with per-file errors or crashed, 2 =
 usage (Click's own); ``--json`` payloads are unchanged (PLAN D9, D22).
+
+Changed in 2.9.0: every console line goes through ``_echo``, which writes to
+``sys.stdout``/``sys.stderr`` instead of ``click.echo`` - Click's Windows
+console writer raises ``OSError: Windows error: 6`` for every write in a
+PowerShell console.  A failed advisory write is recorded and the run
+continues; a ``--json`` payload passes ``required=True``, so an
+undeliverable document exits 1 instead of looking like a clean run.
 """
 
 from __future__ import annotations
@@ -63,6 +70,54 @@ from audio_suite_shared.logging_setup import configure_logging as configure_logg
 from audio_suite_shared.project_version import declared_version
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
+
+
+def _echo(
+    message: str = "",
+    *,
+    err: bool = False,
+    nl: bool = True,
+    required: bool = False,
+) -> None:
+    """Write one line to stdout or stderr without Click's console writer.
+
+    Click 8.5's Windows console writer raises ``OSError: Windows error: 6``
+    (an invalid handle) for every write when the CLI runs in a PowerShell
+    console, so ``click.echo`` aborted a run before its first file and lost
+    a finished run's summary (2026-11-24/25).  ``sys.stdout`` and
+    ``sys.stderr`` - the streams logging already writes to - accept the same
+    text, so every CLI line goes through here.
+
+    A write that fails anyway is recorded at ERROR and, unless *required*,
+    the command continues: an advisory line must not stop a batch.  A
+    *required* payload is one the caller must deliver - the ``--json``
+    document - so a consumer never sees exit 0 with an empty stdout: the
+    failure is reported on stderr and the run exits 1.  A detached stream
+    (``sys.stdout is None`` under a windowless launcher, or a closed
+    handle) counts as a failed write.
+
+    Args:
+        message: The line to write.
+        err: Write to stderr instead of stdout.
+        nl: Append a newline.
+        required: Fail visibly (exit 1) when the write cannot happen.
+    """
+    stream = sys.stderr if err else sys.stdout
+    try:
+        if stream is None:
+            raise ValueError("no output stream attached")
+        stream.write(message + ("\n" if nl else ""))
+        stream.flush()
+    except (OSError, ValueError) as exc:
+        # One ERROR per line would bury the run it is meant to report, so
+        # an advisory failure is DEBUG; an undelivered payload is the ERROR.
+        level = logging.ERROR if required else logging.DEBUG
+        logger.log(
+            level, "Could not write to %s: %s", "stderr" if err else "stdout", exc
+        )
+        if required:
+            _echo(f"ERROR: could not write the payload to stdout: {exc}", err=True)
+            raise SystemExit(1) from exc
 
 
 # ── tkinter-free shims ────────────────────────────────────────────────────
@@ -215,9 +270,9 @@ def _run_tool(
         # missing parameter made every file fail with "Worker error" in JSON
         # and text mode alike.
         if display_text:
-            click.echo(f"  {display_text}", err=True)
+            _echo(f"  {display_text}", err=True)
         elif total:
-            click.echo(f"  [{processed}/{total}]", err=True)
+            _echo(f"  [{processed}/{total}]", err=True)
 
     def on_complete(**cb_kwargs: Any) -> None:
         result.total = cb_kwargs.get("total", 0)
@@ -239,7 +294,7 @@ def _run_tool(
 
     def on_error(msg: str) -> None:
         error_msg.append(msg)
-        click.echo(f"  ERROR: {msg}", err=True)
+        _echo(f"  ERROR: {msg}", err=True)
 
     kwargs.setdefault("slot_vars", slot_vars)
     kwargs.setdefault("slot_queue", slot_queue)
@@ -247,13 +302,13 @@ def _run_tool(
     kwargs.setdefault("on_complete", on_complete)
     kwargs.setdefault("on_error", on_error)
 
-    click.echo(f"Starting {tool_name}...", err=True)
+    _echo(f"Starting {tool_name}...", err=True)
     start = time.monotonic()
     try:
         run_fn(**kwargs)
     except Exception as exc:
         logger.error("FATAL error in %s: %s", tool_name, exc, exc_info=True)
-        click.echo(f"  FATAL: {exc}", err=True)
+        _echo(f"  FATAL: {exc}", err=True)
         # The crash left one run unfinished, so it counts as one failed item:
         # the payload stays schema-valid and the text summary cannot print a
         # negative count.  ``fatal`` is what ``finish_run`` turns into exit 1.
@@ -268,9 +323,9 @@ def _run_tool(
 
     result.duration_secs = time.monotonic() - start
     if error_msg:
-        click.echo(f"Finished with errors: {', '.join(error_msg)}", err=True)
+        _echo(f"Finished with errors: {', '.join(error_msg)}", err=True)
     else:
-        click.echo(f"Finished in {result.duration_secs:.1f}s.", err=True)
+        _echo(f"Finished in {result.duration_secs:.1f}s.", err=True)
     return result
 
 
@@ -542,12 +597,12 @@ class GroupedHelpGroup(click.Group):
                     argv, prog_name, complete_var, standalone_mode=False, **extra
                 )
             except (EOFError, KeyboardInterrupt) as exc:
-                click.echo(file=sys.stderr)
+                _echo("", err=True)
                 raise click.Abort() from exc
             except click.ClickException as exc:
                 document = _failure_document(argv, exc)
                 if document is not None:
-                    click.echo(json.dumps(document, indent=2))
+                    _echo(json.dumps(document, indent=2), required=True)
                 exc.show()
                 sys.exit(2 if isinstance(exc, click.UsageError) else exc.exit_code)
             except OSError as exc:
@@ -557,7 +612,7 @@ class GroupedHelpGroup(click.Group):
         except click.exceptions.Exit as exc:
             sys.exit(exc.exit_code)
         except click.Abort:
-            click.echo("Aborted!", err=True)
+            _echo("Aborted!", err=True)
             sys.exit(1)
 
 
@@ -627,7 +682,7 @@ def cli(ctx: click.Context, log_level: str, show_json_schema: bool) -> None:
                 "The committed JSON Schema (cli_schema.json) is missing from "
                 f"this install: {exc}. Reinstall the package."
             ) from exc
-        click.echo(document, nl=False)
+        _echo(document, nl=False, required=True)
         ctx.exit(0)
     level = getattr(logging, log_level.upper(), logging.WARNING)
     _configure_console_logging(level)
@@ -645,4 +700,4 @@ def cli(ctx: click.Context, log_level: str, show_json_schema: bool) -> None:
 
     warning = stale_install_warning()
     if warning:
-        click.echo(warning, err=True)
+        _echo(warning, err=True)

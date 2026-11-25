@@ -12,6 +12,10 @@ write — because a wrong split produces tags that look authoritative, and the
 per-file parse is printed so a mis-parse is visible before it is written.  The
 JSON payload is unchanged: the per-file detail is text/log output, and adding a
 field would change the locked schema for a report no consumer asked for.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from click.core import ParameterSource
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -136,7 +141,7 @@ def tag_update_cli(
         # tags and the file looks tagged afterwards.  Writing therefore needs
         # a deliberate --live, not merely the absence of --dry.
         dry_run = True
-        click.echo(
+        _echo(
             "Filename mode defaults to a dry run; pass --live to write the "
             "parsed values.",
             err=True,
@@ -153,7 +158,7 @@ def tag_update_cli(
             effective_patterns,
             only_fill_blanks=effective_fill,
         )
-        click.echo(
+        _echo(
             f"Saved action group {saved.name!r} ({len(saved.patterns)} pattern(s)).",
             err=True,
         )
@@ -193,12 +198,12 @@ def tag_update_cli(
     )
 
     if json:
-        click.echo(_json_mod.dumps(payload, indent=2))
+        _echo(_json_mod.dumps(payload, indent=2), required=True)
     else:
         if filename_mode:
             _echo_parses(results, dry_run=dry_run)
         updated_label = "would update" if dry_run else "updated"
-        click.echo(
+        _echo(
             f"  Files processed: {stats.processed_files}\n"
             f"  Files {updated_label}: {stats.updated_files}\n"
             f"  Files skipped:   {stats.skipped_files}\n"
@@ -263,18 +268,18 @@ def _echo_action_groups(groups: Mapping[str, ActionGroup]) -> None:
         groups: Name → group, as loaded from the shared config.
     """
     if not groups:
-        click.echo(
+        _echo(
             "No action groups saved.  Save one with "
             '--pattern "..." --save-action-group NAME.'
         )
         return
-    click.echo(f"Saved action groups ({len(groups)}):")
+    _echo(f"Saved action groups ({len(groups)}):")
     for name, group in groups.items():
-        click.echo(f"  {name}")
+        _echo(f"  {name}")
         for pattern in group.patterns:
-            click.echo(f"      {pattern}")
+            _echo(f"      {pattern}")
         mode = "only fill blanks" if group.only_fill_blanks else "overwrite existing"
-        click.echo(f"      mode: {mode}")
+        _echo(f"      mode: {mode}")
 
 
 def _echo_parses(results: Sequence[ProcessingResult], *, dry_run: bool) -> None:
@@ -294,15 +299,13 @@ def _echo_parses(results: Sequence[ProcessingResult], *, dry_run: bool) -> None:
         name = result.file_path.name
         if not result.filename_pattern:
             if result.error is None:
-                click.echo(f"  [NO MATCH] {name}")
+                _echo(f"  [NO MATCH] {name}")
             continue
         rendered = " ".join(
             f"{field}='{value}'" for field, value in result.filename_fields
         )
-        click.echo(f"  [PARSED] {name} -> {rendered}")
+        _echo(f"  [PARSED] {name} -> {rendered}")
         if result.tags_updated:
-            click.echo(f"             {verb}: {', '.join(result.tags_updated)}")
+            _echo(f"             {verb}: {', '.join(result.tags_updated)}")
         if result.skipped_fields:
-            click.echo(
-                f"             kept existing: {', '.join(result.skipped_fields)}"
-            )
+            _echo(f"             kept existing: {', '.join(result.skipped_fields)}")

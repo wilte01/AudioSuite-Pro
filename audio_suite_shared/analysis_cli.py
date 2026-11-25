@@ -12,6 +12,10 @@ docstring, its argument record (a subclass, so a future tool-specific option
 has somewhere to live) and a two-line ``parse`` wrapper; the behaviour is here.
 
 Changed in 2.9.0: new module - the parser and command two analysis tools shared (B3).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ import click
 
 from .batch_undo import active_batch
 from .cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -230,13 +235,14 @@ def analysis_command(
                 max_workers=workers,
             )
         if json:
-            click.echo(
+            _echo(
                 _json_mod.dumps(
                     result.to_payload(payload_tag, dry_run=dry_run), indent=2
-                )
+                ),
+                required=True,
             )
         else:
-            click.echo(
+            _echo(
                 f"  Summary: {result.processed} files, "
                 f"{result.skipped} skipped, {result.errors} errors "
                 f"in {result.duration_secs:.1f}s"

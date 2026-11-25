@@ -4,6 +4,10 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -147,21 +152,22 @@ def album_genre(directory: str, dry_run: bool, json: bool, coverage: int) -> Non
             min_coverage=coverage,
         )
     if json:
-        click.echo(
-            _json.dumps(result.to_payload("album-genre", dry_run=dry_run), indent=2)
+        _echo(
+            _json.dumps(result.to_payload("album-genre", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
         album_genre = result.extra.get("album_genre", "")
         coverage_pct = result.extra.get("coverage_pct", 0)
         status = result.extra.get("status", "")
         if status == "coverage_failed":
-            click.echo(
+            _echo(
                 f"  Coverage check failed: {coverage_pct:.1f}% (required {coverage}%)"
             )
-        click.echo(
+        _echo(
             f"  Summary: {result.total} files, {result.processed} processed, "
             f"{result.errors} errors in {result.duration_secs:.1f}s"
         )
         if album_genre:
-            click.echo(f"  Album genre: {album_genre}")
+            _echo(f"  Album genre: {album_genre}")
     finish_run(result)

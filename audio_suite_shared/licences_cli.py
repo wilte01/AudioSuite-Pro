@@ -17,6 +17,10 @@ can read the file the payload names.
 Changed in 2.7.0: new module. The resolver is ``audio_suite_shared.licences``,
 the same one Help ▸ Licences uses, so the command and the window cannot disagree
 about what this installation ships or where it keeps it.
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -25,10 +29,8 @@ import json as _json_mod
 import time
 from typing import Any
 
-import click
-
 from audio_suite_shared import licences
-from audio_suite_shared.cli_base import _opt_json, cli, finish_batch
+from audio_suite_shared.cli_base import _echo, _opt_json, cli, finish_batch
 from audio_suite_shared.cli_schema import build_payload
 
 #: Rule between two documents in text mode, at the width the run reports use.
@@ -61,7 +63,7 @@ def licences_command(json: bool) -> None:
             # the difference between "this build carries no texts" and "it
             # carries them and cannot show them" (D9/D22).
             read_errors += 1
-            click.echo(f"  ERROR: {document.title}: {exc}", err=True)
+            _echo(f"  ERROR: {document.title}: {exc}", err=True)
             continue
         entries.append(
             {"title": document.title, "file": document.path.name, "chars": len(text)}
@@ -82,11 +84,11 @@ def licences_command(json: bool) -> None:
     )
 
     if json:
-        click.echo(_json_mod.dumps(payload, indent=2))
+        _echo(_json_mod.dumps(payload, indent=2), required=True)
     elif not documents:
         # The same sentence the window shows: an older or partial installation
         # should say what is absent rather than print nothing at all.
-        click.echo(f"  {licences.missing_message()}")
+        _echo(f"  {licences.missing_message()}")
     else:
         # The header names where each text came from. Two of them (LICENSE and
         # THIRD_PARTY_NOTICES.md) live at the suite root, not in the third-party
@@ -99,20 +101,20 @@ def licences_command(json: bool) -> None:
         )
         third_party = len(rendered) - with_suite
         if third_party and with_suite:
-            click.echo(
+            _echo(
                 f"  {len(rendered)} licence text(s): {third_party} third-party in "
                 f"{folder}, {with_suite} with the suite"
             )
         elif third_party:
-            click.echo(f"  {len(rendered)} licence text(s) in {folder}")
+            _echo(f"  {len(rendered)} licence text(s) in {folder}")
         else:
-            click.echo(f"  {len(rendered)} licence text(s) shipped with the suite")
+            _echo(f"  {len(rendered)} licence text(s) shipped with the suite")
         for document, text in rendered:
-            click.echo()
-            click.echo(f"  {_RULE}")
-            click.echo(f"  {document.title}")
-            click.echo(f"  {_RULE}")
-            click.echo()
-            click.echo(text.rstrip("\n"))
+            _echo()
+            _echo(f"  {_RULE}")
+            _echo(f"  {document.title}")
+            _echo(f"  {_RULE}")
+            _echo()
+            _echo(text.rstrip("\n"))
 
     finish_batch(read_errors)

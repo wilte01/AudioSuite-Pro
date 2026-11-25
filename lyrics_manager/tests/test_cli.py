@@ -4,6 +4,8 @@ lyrics_manager/cli.py.
 
 A fake provider is temporarily registered in the shared registry so the CLI
 can be exercised end-to-end without network access.
+Changed in 2.9.0: locks the summary and JSON document against Click's Windows
+console writer, which raised ``OSError: Windows error: 6`` and lost both.
 """
 
 from __future__ import annotations
@@ -122,6 +124,27 @@ class TestUnknownProvider:
 
 
 class TestDryRun:
+    def test_summary_survives_a_failing_click_writer(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Click's Windows writer raised for every write in a PowerShell console.
+
+        The summary used to go through it, so a finished run lost its outcome
+        (the audio work had already happened) and the process died on the
+        write.  Payload output now goes straight to ``sys.stdout``.
+        """
+        import click
+
+        def _failing_echo(*_args, **_kwargs):
+            raise OSError(6, "The handle is invalid")
+
+        monkeypatch.setattr(click, "echo", _failing_echo)
+
+        result = runner.invoke(cli, ["lyrics", "--dry", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "Summary:" in result.stdout
+
     def test_dry_run_empty_directory_succeeds(self, runner: CliRunner, tmp_path: Path):
         result = runner.invoke(cli, ["lyrics", "--dry", str(tmp_path)])
         assert result.exit_code == 0, result.output

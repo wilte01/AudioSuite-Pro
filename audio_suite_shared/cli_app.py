@@ -143,6 +143,8 @@ installation itself and must stay usable when a tool package is missing.
 
 Changed in 2.8.0: the denoiser's subcommand leaves with the standalone tool; its engine
 runs inside ``refine`` now.
+Changed in 2.9.0: the missing-tool warning goes through ``cli_base._echo``,
+which writes to the real stderr instead of Click's Windows console writer.
 """
 
 from __future__ import annotations
@@ -165,7 +167,12 @@ from audio_suite_shared import plugins_cli as _plugins_cli  # noqa: F401
 
 # Re-export shared infrastructure for backward compatibility.  Imported before
 # the registration loop so this module is the one that defines the group.
-from audio_suite_shared.cli_base import _Result, _run_tool, cli  # noqa: F401
+from audio_suite_shared.cli_base import (  # noqa: F401
+    _echo,
+    _Result,
+    _run_tool,
+    cli,
+)
 from audio_suite_shared.runtime_check import missing_modules_message
 
 # Import each tool's CLI module so its @cli.command() decorator runs and
@@ -299,7 +306,7 @@ def _plugin_command(
 
 _missing_tool_modules = _register_tool_commands()
 if _missing_tool_modules:
-    click.echo(missing_modules_message(_missing_tool_modules), err=True)
+    _echo(missing_modules_message(_missing_tool_modules), err=True)
 
 _plugin_command_failures = _register_plugin_commands()
 

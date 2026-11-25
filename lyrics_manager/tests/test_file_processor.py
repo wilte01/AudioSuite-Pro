@@ -5,6 +5,8 @@ tests/test_file_processor.py — pytest suite for the batch lyric processor.
 pydub + mutagen; ``run_fetch`` uses a registered fake provider so the suite
 never touches the network.
 Changed in 1.4.0: slot fixtures follow DEFAULT_MAX_WORKERS.
+Changed in 2.9.0: the display-line locks also assert the text is ASCII, because
+the line reaches a cp1252 console (R-14).
 """
 
 from __future__ import annotations
@@ -240,6 +242,18 @@ class TestProcessSingleFile:
         _, on_progress = self._process(tmp_path, provider)
         assert any("lyrics not found" in str(c) for c in on_progress.call_args_list)
 
+    def test_skipped_display_text_is_ascii(self, tmp_path):
+        """R-14: the display line reaches a cp1252 console.
+
+        The arrow this string once carried printed as a literal ``\\u2192`` on
+        the CLI's console because the console codec cannot encode it.
+        """
+        provider = _FakeProvider(result=None)
+        _, on_progress = self._process(tmp_path, provider)
+        displays = [call.kwargs["display_text"] for call in on_progress.call_args_list]
+        assert displays
+        assert all(text.isascii() for text in displays)
+
     def test_provider_error_reports_error(self, tmp_path):
         provider = _FakeProvider(error=LyricProviderError("network down"))
         _, on_progress = self._process(tmp_path, provider)
@@ -253,6 +267,8 @@ class TestProcessSingleFile:
         tags = read_lyrics_tags(path)
         assert tags.synced is None
         assert any("DRY RUN" in str(c) for c in on_progress.call_args_list)
+        displays = [call.kwargs["display_text"] for call in on_progress.call_args_list]
+        assert displays and all(text.isascii() for text in displays)
 
     def test_synced_write_failure_without_fallback_reports_error(self, tmp_path):
         provider = _FakeProvider(

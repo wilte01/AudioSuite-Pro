@@ -2,6 +2,10 @@
 
 Changed in 2.0.0: initial version, registering ``audiosuite stems`` (Sprint 6,
 Item 6.1).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import json as _json_mod
 import click
 
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -104,16 +109,17 @@ def stems(
         params=params,
     )
     if json:
-        click.echo(
-            _json_mod.dumps(result.to_payload("stems", dry_run=dry_run), indent=2)
+        _echo(
+            _json_mod.dumps(result.to_payload("stems", dry_run=dry_run), indent=2),
+            required=True,
         )
     else:
         separated = result.extra.get("separated", 0)
         written = result.extra.get("files_written", 0)
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files, {separated} separated into "
             f"{written} stem file(s), {result.skipped} skipped, "
             f"{result.errors} errors in {result.duration_secs:.1f}s"
         )
-        click.echo(f"  Output:  {result.extra.get('output_dir', output_dir)}")
+        _echo(f"  Output:  {result.extra.get('output_dir', output_dir)}")
     finish_run(result)

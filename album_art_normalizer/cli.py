@@ -4,6 +4,10 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -46,13 +51,14 @@ def artnormalize(directory: str, dry_run: bool, json: bool, size: int) -> None:
             is_dry_run=dry_run,
         )
     if json:
-        click.echo(
+        _echo(
             _json_mod.dumps(
                 result.to_payload("artnormalize", dry_run=dry_run), indent=2
-            )
+            ),
+            required=True,
         )
     else:
-        click.echo(
+        _echo(
             f"  Summary: {result.processed} files, "
             f"{result.skipped} skipped, {result.errors} errors "
             f"in {result.duration_secs:.1f}s"

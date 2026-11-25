@@ -15,6 +15,10 @@ document (with the same message on stderr) instead of an empty stdout
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
+``click.echo``, whose Windows console writer rejects every write in a
+PowerShell console; a ``--json`` document that cannot be written now
+exits 1.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import click
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
+    _echo,
     _opt_dir,
     _opt_dry_run,
     _opt_json,
@@ -247,7 +252,7 @@ def fingerprint(
     if json:
         # counts / isrc_submission pass through from the completion callback;
         # only the result objects need serialising before they reach JSON.
-        click.echo(
+        _echo(
             _json_mod.dumps(
                 result.to_payload(
                     "fingerprint",
@@ -258,18 +263,19 @@ def fingerprint(
                     ],
                 ),
                 indent=2,
-            )
+            ),
+            required=True,
         )
     else:
         if submission and dry_run:
             # The preview IS the deliverable of a dry run: print the exact body
             # a live run would post, unprefixed so it can be captured as-is.
-            click.echo(submission.get("xml", ""))
+            _echo(submission.get("xml", ""))
         elif submission:
-            click.echo(f"  {isrc_submission_note(submission)}", err=True)
+            _echo(f"  {isrc_submission_note(submission)}", err=True)
             if submission.get("reason"):
-                click.echo(f"  {submission['reason']}", err=True)
-        click.echo(
+                _echo(f"  {submission['reason']}", err=True)
+        _echo(
             f"  Summary: {result.processed} files, "
             f"{counts.get('identified', 0)} identified, "
             f"{counts.get('tagged', 0)} tagged, "
