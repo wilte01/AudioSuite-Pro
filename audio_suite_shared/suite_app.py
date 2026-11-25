@@ -110,6 +110,9 @@ renames a preset a user already saved (D58).
 Changed in 2.9.0: ``auto_end_requested`` is the one Auto End condition and
 ``close_for_auto_end`` the one marker plus close; ``status`` lets a window
 whose run is read from its status line show the same sentence (D60).
+Changed in 2.9.0: ``auto_end_sentence`` states the closing time too, so the
+one window whose line gives it (2 s, or 3 s after a failure) says the
+shell's sentence, and a run that wrote no report is marked nowhere (D61).
 
 """
 
@@ -146,12 +149,19 @@ from .ui_presets import (
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
-#: The sentence an Auto End window shows (its report marker is bracketed).
-_AUTO_END_TEXT = "Auto End enabled - closing in 2 seconds..."
-#: The line a run appends to its report when the window closes itself.
-_AUTO_END_MARKER = f"\n[{_AUTO_END_TEXT}]\n"
 #: How long a finished window stays readable before Auto End closes it.
-_AUTO_END_CLOSE_MS = 2000
+AUTO_END_CLOSE_MS = 2000
+
+
+def auto_end_sentence(delay_ms: int = AUTO_END_CLOSE_MS) -> str:
+    """Return the one Auto End sentence, for a window closing in *delay_ms*.
+
+    The report marker brackets it, the status line shows it, and the one
+    window whose log states the closing time says it too, so a window cannot
+    promise a time the shell does not wait.
+    """
+    return f"Auto End enabled - closing in {delay_ms // 1000} seconds..."
+
 
 #: Emits one tab's widgets into the frame the shell created for it.
 TabBuilder = Callable[[tk.Frame], Any]
@@ -612,30 +622,40 @@ class SuiteApp(UIHelperMixin, AuditionMixin):
         variable = getattr(self, "auto_end_var", None)
         return bool(self.auto_end or (variable is not None and variable.get()))
 
-    def close_for_auto_end(self, *, status: tk.StringVar | None = None) -> None:
-        """Mark the run's report, close the window (Tk thread only).
+    def close_for_auto_end(
+        self,
+        *,
+        status: tk.StringVar | None = None,
+        delay_ms: int = AUTO_END_CLOSE_MS,
+    ) -> None:
+        """Mark the run's report, close the window after *delay_ms*.
 
-        Called from the completion render, so the report the marker is appended
-        to is the one the run just wrote.
+        Called at the end of a run, so the report the marker is appended to is
+        the one that run wrote - and a run that wrote none (cancelled, or failed
+        before the write) is marked nowhere, not in the previous run's report.
 
         Args:
-            status: A status variable to show the marker's sentence in, for a
-                window whose completed run is read from its status line.
+            status: A status variable to show the sentence in, for a window
+                whose completed run is read from its status line.
+            delay_ms: How long the finished window stays readable.
         """
-        self._mark_auto_end()
+        self._mark_auto_end(delay_ms)
         if status is not None:
-            status.set(_AUTO_END_TEXT)
-        self.root.after(_AUTO_END_CLOSE_MS, self.root.destroy)
+            status.set(auto_end_sentence(delay_ms))
+        self.root.after(delay_ms, self.root.destroy)
 
-    def _mark_auto_end(self) -> None:
+    def _mark_auto_end(self, delay_ms: int) -> None:
         """Append the Auto End marker to the run's report (best effort).
 
         The audio work is already done and the window is about to close, so a
         report that cannot be appended to is a log line, never a dialog.
         """
+        report = getattr(self, "_log_path", "")
+        if not report:
+            return
         try:
-            with open(self._log_path, "a", encoding="utf-8") as handle:
-                handle.write(_AUTO_END_MARKER)
+            with open(report, "a", encoding="utf-8") as handle:
+                handle.write(f"\n[{auto_end_sentence(delay_ms)}]\n")
         except OSError as exc:
             logger.warning("Could not append the Auto End marker: %s", exc)
 
