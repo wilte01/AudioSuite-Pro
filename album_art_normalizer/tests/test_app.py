@@ -164,7 +164,7 @@ class TestRunNormalizationD3:
         assert calls["is_dry_run"] is False
         assert calls["target_size"] == (800, 800)
         assert app._log_entries, "the live session opened its log"
-        assert "Embedded target: 800\u00d7800" in app._log_entries[3]
+        assert "Embedded target: 800x800" in app._log_entries[3]
 
 
 # ── G2.5: --size pre-fills resolution ─────────────────────────────────────

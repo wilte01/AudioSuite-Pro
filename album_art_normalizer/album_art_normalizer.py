@@ -18,6 +18,10 @@ Changed in 2.9.0: the unsupported-extension outcome is ASCII.  It is the
 ``outcome`` fragment the per-file line quotes, so the ASCII output lock reads
 it (``tests/test_console_output_ascii.py``), and a cp1252 console printed the
 em dash as ``\u2014``.
+Changed in 2.9.0: the session log is ASCII as well - its box-drawing rules,
+its target sizes, the per-file arrow and the error cross reached
+``logs/album_art_normalizer.log`` and, from the window, ``art_normalize_log.txt``.
+They are dashes, ``x``, ``->`` and the word ERROR now.
 """
 
 import logging
@@ -83,29 +87,21 @@ def run_processing(
 
     emit(f"=== Session started {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     emit(f"Directory        : {dir_path}")
-    emit(f"Embedded target  : {target_size[0]}\u00d7{target_size[1]}")
-    emit(f"folder.jpg target: {FOLDER_JPG_TARGET[0]}\u00d7{FOLDER_JPG_TARGET[1]}")
+    emit(f"Embedded target  : {target_size[0]}x{target_size[1]}")
+    emit(f"folder.jpg target: {FOLDER_JPG_TARGET[0]}x{FOLDER_JPG_TARGET[1]}")
     emit("")
 
-    emit(
-        "\u2500\u2500\u2500 folder.jpg check "
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500"
-    )
+    emit("--- folder.jpg check " + "-" * 51)
     try:
         folder_result = _process_folder_jpg(dir_path)
         if folder_result is None:
-            emit("  folder.jpg not present \u2014 skipped.")
+            emit("  folder.jpg not present - skipped.")
         else:
             emit(f"  {folder_result}")
             if "resized" in folder_result:
                 images_updated += 1
     except FolderImageError as exc:
-        emit(f"  \u2717 ERROR: {exc}")
+        emit(f"  ERROR: {exc}")
         error_count += 1
     emit("")
 
@@ -116,10 +112,7 @@ def run_processing(
     if not audio_files:
         emit("No supported audio files (.mp3 / .flac) found in directory.")
     else:
-        emit(
-            f"\u2500\u2500\u2500 Audio files ({len(audio_files)} found) "
-            "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        )
+        emit(f"--- Audio files ({len(audio_files)} found) " + "-" * 42)
         emit("")
 
     for path in audio_files:
@@ -135,28 +128,21 @@ def run_processing(
             else:
                 outcome = "Unsupported extension - skipped."
 
-            emit(f"  \u2192 {outcome}")
+            emit(f"  -> {outcome}")
             if "resized" in outcome and "saved" in outcome:
                 images_updated += 1
 
         except (AudioTagReadError, AudioTagWriteError, ImageDecodeError) as exc:
             logger.exception("Handled error processing %s", path.name)
-            emit(f"  \u2717 ERROR: {exc}")
+            emit(f"  ERROR: {exc}")
             error_count += 1
         except Exception as exc:
             logger.exception("Unexpected error processing %s", path.name)
-            emit(f"  \u2717 UNEXPECTED ERROR: {exc}")
+            emit(f"  UNEXPECTED ERROR: {exc}")
             error_count += 1
 
     emit("")
-    emit(
-        "\u2500\u2500\u2500 Summary "
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    )
+    emit("--- Summary " + "-" * 48)
     emit(f"  Audio files examined : {total_files}")
     emit(f"  Images updated       : {images_updated}")
     emit(f"  Errors               : {error_count}")

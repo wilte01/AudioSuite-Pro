@@ -57,6 +57,13 @@ used once, and every bullet belongs to exactly one of them.
   follows those calls, so the whole line is read wherever it was built, and a
   size reads `800x800` instead of the multiplication sign a console garbles.
 
+- **Album Art Normaliser's session log is plain ASCII.** Its section rules were
+  runs of box-drawing lines, sizes read `800×800`, each file's outcome sat
+  behind an arrow and each failure behind a cross - none of which a Windows
+  console can print, and all of which are written into the run report the View
+  Log button opens. The rules are dashes, a size reads `800x800`, the arrow is
+  `->` and a failure starts `ERROR:`.
+
 - **The Fingerprinter's album and ISRC report lines are plain ASCII too.** The
   run report's `[ALBUM] ... decided` and `[ISRC] ...` lines are written into
   the scanned folder's `fingerprint_*_log.txt`, where an em dash is a character

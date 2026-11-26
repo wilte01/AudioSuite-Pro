@@ -23,6 +23,11 @@ Changed in 2.9.0: the run report's ``SUMMARY:`` footer is
 ``audio_suite_shared.run_report.summary_lines`` -- this report words its
 first counter ``Files examined`` through ``total_label`` -- the one
 implementation every window writes with (D39).
+
+Changed in 2.9.0: the window's session log is ASCII - its target sizes read
+``800x800`` and its error line says ``ERROR:`` rather than carrying a cross, so
+the lines it hands to ``art_normalize_log.txt`` and the diagnostic log print on
+a cp1252 console.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -251,19 +256,19 @@ class ArtNormalizerApp(SuiteApp):
         _append_log("=== Session started ===")
         _append_log(f"Directory: {directory}")
         _append_log(f"Mode: {'Dry Run' if dry_run else 'Live Update'}")
-        _append_log(f"Embedded target: {target_size[0]}×{target_size[1]}")
-        _append_log(f"folder.jpg target: {FOLDER_JPG_TARGET[0]}×{FOLDER_JPG_TARGET[1]}")
+        _append_log(f"Embedded target: {target_size[0]}x{target_size[1]}")
+        _append_log(f"folder.jpg target: {FOLDER_JPG_TARGET[0]}x{FOLDER_JPG_TARGET[1]}")
         _append_log("")
 
         # folder.jpg
         try:
             result = process_folder_jpg(Path(directory), dry_run)
             if result is None:
-                _append_log("folder.jpg not present — skipped.")
+                _append_log("folder.jpg not present - skipped.")
             else:
                 _append_log(f"  {result}")
         except FolderImageError as exc:
-            _append_log(f"  ✗ ERROR: {exc}")
+            _append_log(f"  ERROR: {exc}")
 
         _append_log("")
 

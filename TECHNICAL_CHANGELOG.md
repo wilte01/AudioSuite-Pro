@@ -17,6 +17,18 @@ used once, and every bullet belongs to exactly one of them.
 ## [Unreleased]
 
 ### Changed
+- **The ASCII output lock reads a module's own printer.** `emit` and
+  `_append_log` are the names a tool gives the function that logs one session
+  line, so a call to one is an output call - but only where the module defines
+  it. `emit` is also the two-argument progress callback the Refinery and others
+  receive, whose text is a Tk label; a name-only rule would have pulled its
+  whole progress list (`Complete ✓`, `Applying DSP…`) into a console rule, so
+  the local definition is the gate, the same distinction `_returns_text` draws
+  for `outcome`. It found Album Art Normaliser's session log: three box-drawing
+  rules, two `800×800` target sizes, the per-file arrow and three error crosses,
+  in both the headless path and the window, which also writes those lines into
+  `art_normalize_log.txt`. All are ASCII now.
+
 - **The ASCII output lock reads the run report's own lines.** `report_line` -
   the field `AlbumResolution` carries the `[ALBUM]` summary in - joins
   `_DISPLAY_NAMES`, so the album-cluster formatter is followed like any display

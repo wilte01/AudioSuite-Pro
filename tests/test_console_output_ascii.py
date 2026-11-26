@@ -41,7 +41,13 @@ appended (or inserted, or extended) into ``log_entries`` or ``report_lines`` is
 a report line because that is where the run report is assembled.  Those two
 containers are named for the report, which keeps the rule narrow: a Tk listbox
 fills a plain ``lines``/``notes`` list with its bullets, and a console never
-renders it.
+renders it.  A module's own printer is read too: ``emit`` and ``_append_log``
+are the names a tool gives the function that logs one of its session lines
+(``def emit(msg): logger.info(msg)``), so a call to one is output - but only
+when *this* module defines it.  ``emit`` is also the name of the two-argument
+progress callback several tools are handed, whose text is a widget label rather
+than a console line; a name-only rule would drag the whole Refinery progress
+list into this one.
 """
 
 from __future__ import annotations
@@ -110,6 +116,13 @@ _REPORT_CONTAINERS: frozenset[str] = frozenset({"log_entries", "report_lines"})
 #: Methods that add one line, or a run of them, to a report container.
 _REPORT_METHODS: frozenset[str] = frozenset({"append", "extend", "insert"})
 
+#: Names a module gives the function that prints one of its own lines: ``emit``
+#: in Album Art Normalizer's session log, ``_append_log`` in its window.  The
+#: name is read only when *this* module defines it, because ``emit`` is also the
+#: two-argument progress callback several tools receive - ``emit("Done",
+#: "Complete")`` in the Refinery - and those strings are widget labels.
+_LOCAL_PRINTERS: frozenset[str] = frozenset({"emit", "_append_log"})
+
 #: Directories that are not first-party source for this rule: a vendored build
 #: tree repeats shipped modules, and a plugin is third-party code the suite does
 #: not own.
@@ -174,15 +187,18 @@ def _display_expressions(tree: ast.Module) -> Iterator[ast.expr]:
 def _output_strings(path: Path) -> Iterator[tuple[int, str]]:
     """Yield ``(line, value)`` for every string the module prints itself.
 
-    Three shapes count: an argument of an output call, a
+    Four shapes count: an argument of an output call, a
     ``display``/``display_text``-style value, which is the per-file line a tool
-    hands to ``on_progress`` after building it in an assignment, and a line
-    added to a run-report container, which no output call ever sees.
+    hands to ``on_progress`` after building it in an assignment, a line added to
+    a run-report container, and a call to the module's own printer, all of which
+    reach a console or a log without passing through a call named above.
     """
     tree = _parse(path)
+    printers = _local_printers(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            if _call_name(node) in _OUTPUT_CALLS or _is_report_append(node):
+            name = _call_name(node)
+            if name in _OUTPUT_CALLS or name in printers or _is_report_append(node):
                 for argument in node.args:
                     yield from _constants(argument)
     for expression in _display_expressions(tree):
@@ -197,6 +213,16 @@ def _call_name(node: ast.Call) -> str | None:
     if isinstance(func, ast.Attribute):
         return func.attr
     return None
+
+
+def _local_printers(tree: ast.Module) -> frozenset[str]:
+    """Return the names *tree* defines for its own line printer."""
+    return frozenset(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name in _LOCAL_PRINTERS
+    )
 
 
 def _is_report_append(node: ast.Call) -> bool:
@@ -591,6 +617,37 @@ class TestRunReportLinesAreScanned:
         assert not any("\u2022" in value for value in values)
 
 
+class TestModulePrintersAreScanned:
+    """A module's own ``emit``/``_append_log`` is its line printer."""
+
+    def test_a_module_defined_printer_is_scanned(self, tmp_path: Path) -> None:
+        module = tmp_path / "mod.py"
+        module.write_text(
+            "def run(directory):\n"
+            "    def emit(msg: str) -> None:\n"
+            "        logger.info(msg)\n"
+            "\n"
+            '    emit(f"[START] {directory} \\u2014 session")\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+    def test_a_received_emit_callback_is_not_scanned(self, tmp_path: Path) -> None:
+        """``emit(stage, message)`` is the Refinery's widget label, not a log."""
+        module = tmp_path / "mod.py"
+        module.write_text(
+            'def process(path, emit):\n    emit("Done", "Complete \\u2713")\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert not any("\u2713" in value for value in values)
+
+
 class TestConsoleOutputIsAscii:
     """No first-party console/log string may carry a non-ASCII character."""
 
@@ -626,6 +683,9 @@ class TestConsoleOutputIsAscii:
             REPO_ROOT / "audio_fingerprinter" / "core" / "fingerprint_phases.py"
             in paths
         ), "a report line appended to a report container is not being scanned"
+        assert (
+            REPO_ROOT / "album_art_normalizer" / "album_art_normalizer.py" in paths
+        ), "a session log printed by the module's own emit is not being scanned"
 
     def test_no_output_string_carries_a_non_ascii_character(
         self, scanned: list[tuple[Path, int, str]]

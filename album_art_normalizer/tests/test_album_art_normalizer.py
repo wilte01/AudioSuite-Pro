@@ -626,7 +626,7 @@ class TestRunProcessing:
         assert result is not None
         assert result.errors == 1
         assert result.images_updated == 0
-        assert any("✗ ERROR" in line for line in logs)
+        assert any("ERROR: cannot open" in line for line in logs)
 
     def test_folder_jpg_updated_increments_count(self, tmp_path: Path) -> None:
         with (
