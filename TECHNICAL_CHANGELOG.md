@@ -17,6 +17,20 @@ used once, and every bullet belongs to exactly one of them.
 ## [Unreleased]
 
 ### Changed
+- **Album Art Sync's worker no longer schedules on the Tk root.**
+  `start_thread` starts the run with `SuiteApp._start_worker`, and the window's
+  `_set_status`/`_set_progress`/`_set_stats`/`_show_result`/`_restore_controls`
+  helpers and `_add_log` only put a message on the run's queue; the shell's
+  poller renders it through the window's `_dispatch_ui_message`. The Auto End
+  close rides that queue too, so `_maybe_auto_end` no longer calls `root.after`
+  from the worker - the shell marks the report and schedules the destroy on the
+  Tk thread. The blocking artwork picker cannot be a message the poller renders,
+  so `PickerDialog.show_threadsafe` takes an optional `schedule` callable (the
+  app passes its queue put) and sets its wait event in a `finally`, so a dialog
+  that raises cannot strand the run's thread. Every widget in this window is
+  written on the Tk thread only, as AGENTS.md's GUI Callback Contract requires
+  (D63).
+
 - **The ASCII output lock reads a module's own printer.** `emit` and
   `_append_log` are the names a tool gives the function that logs one session
   line, so a call to one is an output call - but only where the module defines
