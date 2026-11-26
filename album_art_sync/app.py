@@ -391,10 +391,6 @@ class AudioSuiteV6(SuiteApp):
         self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
         self.notebook.select(self.results_frame)
 
-    def _show_results_tab(self) -> None:
-        """Queue the switch to the Results tab for the Tk thread."""
-        self._ui_updates.put(("results_tab",))
-
     def _restore_controls(self) -> None:
         """Queue the Start/Cancel reset for the Tk thread (see _apply_controls)."""
         self._ui_updates.put(("controls",))
@@ -404,15 +400,15 @@ class AudioSuiteV6(SuiteApp):
         self.start_btn.config(state=tk.NORMAL)
         self.cancel_btn.config(state=tk.DISABLED)
 
-    def _post_to_main_thread(self, callback: Callable[[], None]) -> None:
-        """Queue a callable for the Tk thread's poller (worker side only).
+    def _post_picker_request(self, callback: Callable[[], None]) -> None:
+        """Queue the artwork picker's dialog for the Tk thread (worker side).
 
-        The artwork picker blocks until its dialog closes, so its request
-        cannot ride the queue as a message the poller renders like any other:
-        the worker hands the call over here and waits on the dialog's own
-        event, which the Tk thread sets when the user answers.
+        The picker blocks until its dialog closes, so its request cannot be a
+        message the poller renders like the others: the worker hands the dialog
+        over under its own kind and waits on the dialog's event, which the Tk
+        thread sets when the user answers.
         """
-        self._ui_updates.put(("call", callback))
+        self._ui_updates.put(("picker", callback))
 
     def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
         """Render one queued worker message on the Tk thread."""
@@ -428,13 +424,11 @@ class AudioSuiteV6(SuiteApp):
         elif kind == "result":
             _, text, files, source, duration_secs = message
             self._apply_result(text, files, source, duration_secs)
-        elif kind == "results_tab":
-            self.notebook.select(self.results_frame)
         elif kind == "controls":
             self._apply_controls()
         elif kind == "auto_end":
             self.close_for_auto_end(delay_ms=message[1])
-        elif kind == "call":
+        elif kind == "picker":
             message[1]()
 
     # ── Thread-safe picker bridge ─────────────────────────────────────────────
@@ -447,7 +441,7 @@ class AudioSuiteV6(SuiteApp):
         responds; the worker never schedules on the root itself.
         """
         return self._picker.show_threadsafe(
-            items, artist, engine, schedule=self._post_to_main_thread
+            items, artist, engine, schedule=self._post_picker_request
         )
 
     # ── Background thread ─────────────────────────────────────────────────────
@@ -625,7 +619,6 @@ class AudioSuiteV6(SuiteApp):
                 duration_secs=time.monotonic() - start,
             )
             self._add_log(f"\n✓ Log saved: {self._log_path}")
-            self._show_results_tab()
             self._maybe_auto_end()
 
         self._running = False

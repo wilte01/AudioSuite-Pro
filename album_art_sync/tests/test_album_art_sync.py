@@ -3309,13 +3309,15 @@ class TestAppRunLogic:
             "progress",
             "stats",
             "result",
-            "results_tab",
             "controls",
         }
         # The status text, the log line and the result reached the widgets.
         app.overall_status.set.assert_any_call("Searching for artwork...")
         app.file_listbox.insert.assert_any_call("end", "--- SESSION START: DRY RUN ---")
         app.completion_label.config.assert_any_call(text="Sync Complete via Deezer")
+        # The result message is what switches to the Results tab; no second
+        # message repeats a select that has already happened.
+        app.notebook.select.assert_called_once_with(app.results_frame)
 
     def test_start_thread_snapshots_tk_vars_and_starts_daemon_worker(
         self, tmp_path: Path
@@ -3906,8 +3908,9 @@ class TestAppGuiMethods:
         """The dialog is handed to the poller; the worker only waits for it.
 
         ``_on_pick`` runs on the worker and blocks until the user answers, so
-        the request travels as a queued call and the answer arrives through the
-        dialog's own event - the worker never schedules on the root.
+        the request travels under the picker's own message kind and the answer
+        arrives through the dialog's event - the worker never schedules on the
+        root.
         """
         app = self._make_bare_app(self._import_app_class(), tmp_path)
         from album_art_sync.ui.picker_dialog import PickerDialog
@@ -3927,5 +3930,5 @@ class TestAppGuiMethods:
             drained = _drain_ui(app)
             worker.join(timeout=2.0)
 
-        assert [message[0] for message in drained] == ["call"]
+        assert [message[0] for message in drained] == ["picker"]
         assert answers == [b"ART"]
