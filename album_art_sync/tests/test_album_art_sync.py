@@ -2748,6 +2748,7 @@ class TestAppRunLogic:
         app._run_mode = app.run_mode.get()
         app._run_embed_size = int(app.size_var.get())
         app._run_purge = app.purge_var.get()
+        app._run_auto_end = app.auto_end_requested()
         return app
 
     def teardown_method(self, method) -> None:
@@ -3054,7 +3055,8 @@ class TestAppRunLogic:
         AudioSuiteV6 = self._import_app_class()
         (tmp_path / "track01.mp3").write_bytes(b"fake")
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.auto_end = True
+        # start_thread snapshots the checkbox; this drive skips it.
+        app._run_auto_end = True
         with (
             patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
             patch("album_art_sync.app.read_album_artist", return_value=""),
@@ -3251,11 +3253,13 @@ class TestAppRunLogic:
         app.run_mode.get = Mock(return_value="Update Artwork")
         app.size_var.get = Mock(return_value="1200")
         app.purge_var.get = Mock(return_value=False)
+        app.auto_end_var = Mock(**{"get.return_value": True})
 
         with patch("album_art_sync.app.threading.Thread") as mock_thread:
             app.start_thread()
 
         assert app._run_path == str(tmp_path)
+        assert app._run_auto_end is True
         assert app._run_mode == "Update Artwork"
         assert app._run_embed_size == 1200
         assert app._run_purge is False
@@ -3389,6 +3393,9 @@ class TestAppGuiMethods:
         # A bare app is a window with Auto End unticked, like its flag above;
         # a Mock's default .get() is truthy and would arm the close.
         app.auto_end_var = Mock(**{"get.return_value": False})
+        # start_thread snapshots the arming decision with the run's other Tk
+        # inputs; a bare app is a window whose run began with it unarmed.
+        app._run_auto_end = app.auto_end_requested()
         app.clear_logs_var = Mock()
         app.parallel_var = Mock()
         app.start_thread = Mock()
@@ -3710,17 +3717,23 @@ class TestAppGuiMethods:
     # ---- _maybe_auto_end ----------------------------------------------------
 
     def _armed_app(self, tmp_path: Path) -> Any:
+        """A bare app whose run began with Auto End armed.
+
+        ``start_thread`` snapshots the decision on the Tk thread, so an armed
+        run reaches ``_maybe_auto_end`` with ``_run_auto_end`` set; the worker
+        never reads the flag or the checkbox itself.
+        """
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
         app._log_path = str(tmp_path / "art_sync_log.txt")
         Path(app._log_path).write_text("SUMMARY:\n", encoding="utf-8")
+        app._run_auto_end = True
         return app
 
     def test_maybe_auto_end_marks_the_report_and_schedules_the_close(
         self, tmp_path: Path
     ) -> None:
         app = self._armed_app(tmp_path)
-        app.auto_end = True
 
         app._maybe_auto_end()
 
@@ -3733,30 +3746,38 @@ class TestAppGuiMethods:
         )
         assert "Auto End enabled - closing in 2 seconds..." in "".join(app._log_entries)
 
-    def test_maybe_auto_end_reads_the_setup_checkbox(self, tmp_path: Path) -> None:
-        """A standalone launch arms Auto End from the checkbox (D61)."""
+    def test_maybe_auto_end_never_reads_the_checkbox_on_the_worker(
+        self, tmp_path: Path
+    ) -> None:
+        """The arming decision is start_thread's snapshot, not a worker .get().
+
+        Reading a Tk variable off the main thread is what ``_run_logic``'s
+        thread-safety note forbids, so the checkbox raising the way Tk does
+        off-thread must not stop the close.
+        """
         app = self._armed_app(tmp_path)
         app.auto_end = False
-        app.auto_end_var = MagicMock(**{"get.return_value": True})
+        app.auto_end_var = MagicMock(
+            **{"get.side_effect": RuntimeError("main thread is not in main loop")}
+        )
 
         app._maybe_auto_end()
 
         app.root.after.assert_any_call(2000, app.root.destroy)
 
     def test_maybe_auto_end_does_nothing_when_disabled(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.auto_end = False
+        app = self._armed_app(tmp_path)
+        app._run_auto_end = False
 
         app._maybe_auto_end()
 
         app.root.after.assert_not_called()
+        assert app._log_entries == []
 
     def test_maybe_auto_end_error_path_states_three_seconds(
         self, tmp_path: Path
     ) -> None:
         app = self._armed_app(tmp_path)
-        app.auto_end = True
 
         app._maybe_auto_end(delay_ms=3000)
 
@@ -3773,7 +3794,6 @@ class TestAppGuiMethods:
     ) -> None:
         """A cancelled or failed run has no report; the close marks nothing."""
         app = self._armed_app(tmp_path)
-        app.auto_end = True
         app._log_path = ""
 
         app._maybe_auto_end()

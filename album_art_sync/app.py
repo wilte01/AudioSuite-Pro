@@ -31,7 +31,9 @@ so this window keeps only its own settings mapping (D58).
 Changed in 2.9.0: Auto End is the shell's - the condition is
 ``auto_end_requested``, the sentence ``auto_end_sentence`` and the close
 ``close_for_auto_end`` - so this window's 2 s (3 s after a failure) is
-stated once (D61).
+stated once, and ``start_thread`` snapshots the arming decision with the
+run's other Tk inputs so the worker never reads the checkbox itself (D61,
+D62).
 """
 
 import json
@@ -301,6 +303,9 @@ class AudioSuiteV6(SuiteApp):
         self._run_mode = self.run_mode.get()
         self._run_embed_size = int(self.size_var.get())
         self._run_purge = self.purge_var.get()
+        # Auto End's arming is a Tk read like the four above: _maybe_auto_end
+        # runs on the worker, which may not call .get() on the checkbox.
+        self._run_auto_end = self.auto_end_requested()
         threading.Thread(target=self._run_logic, daemon=True).start()
 
     # ── Logging ────────────────────────────────────────────────────────────────
@@ -617,11 +622,13 @@ class AudioSuiteV6(SuiteApp):
     def _maybe_auto_end(self, delay_ms: int = AUTO_END_CLOSE_MS) -> None:
         """Show the Auto End sentence in the log, then close through the shell.
 
-        The run this ends is on the worker thread; the sentence is queued with
-        the other log lines and the shell marks the report this run just wrote.
-        A cancelled or failed run wrote none, so nothing is marked.
+        The run this ends is on the worker thread, so the arming decision is
+        the one ``start_thread`` snapshotted on the Tk thread - never a second
+        read of the checkbox. The sentence is queued with the other log lines
+        and the shell marks the report this run just wrote; a cancelled or
+        failed run wrote none, so nothing is marked.
         """
-        if not self.auto_end_requested():
+        if not self._run_auto_end:
             return
         self._add_log(f"\n[{auto_end_sentence(delay_ms)}]")
         self.close_for_auto_end(delay_ms=delay_ms)
