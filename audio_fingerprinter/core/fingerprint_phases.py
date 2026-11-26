@@ -9,7 +9,10 @@ Changed in 2.4.3: split out of
 ``audio_fingerprinter.core.file_processor``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
 Changed in 2.9.0: the album-ambiguous message is ASCII - it is printed in the
-per-file line, and a cp1252 console rendered its em dash as ``\u2014``.
+per-file line, and a cp1252 console rendered its em dash as ``\u2014``.  The
+``[ISRC]`` report lines are ASCII for the same reason - they are written into
+that report - and they accumulate in ``report_lines``, the name the output lock
+reads, so what is appended to the report is scanned too.
 """
 
 from __future__ import annotations
@@ -310,26 +313,26 @@ def collect_isrc_submissions(
         results: Finished per-file results for the run.
 
     Returns:
-        Tuple ``(submissions, notes)``.  ``submissions`` holds one entry per
-        recording with at least one new ISRC; ``notes`` are report lines for
-        the log (invalid codes, unreadable tags, files with nothing new), which
-        are reported rather than silently dropped.
+        Tuple ``(submissions, report_lines)``.  ``submissions`` holds one entry
+        per recording with at least one new ISRC; ``report_lines`` are the
+        report's lines (invalid codes, unreadable tags, files with nothing
+        new), which are reported rather than silently dropped.
     """
     per_recording: dict[str, list[str]] = {}
-    notes: list[str] = []
+    report_lines: list[str] = []
 
     for result in sorted(results, key=lambda r: r.file_path):
         try:
             tagged = read_isrcs(result.file_path)
         except (OSError, AudioSuiteError) as exc:
-            notes.append(
+            report_lines.append(
                 f"[ISRC SKIPPED] {result.filename}: could not read its ISRCs ({exc})"
             )
             continue
         if not tagged:
             continue
         if not result.recording_id:
-            notes.append(
+            report_lines.append(
                 f"[ISRC SKIPPED] {result.filename}: {len(tagged)} ISRC(s) found, "
                 "but the file matched no MusicBrainz recording to attach them to"
             )
@@ -343,7 +346,7 @@ def collect_isrc_submissions(
         for value in tagged:
             problem = isrc_error(value)
             if problem:
-                notes.append(f"[ISRC SKIPPED] {result.filename}: {problem}")
+                report_lines.append(f"[ISRC SKIPPED] {result.filename}: {problem}")
                 continue
             code = normalize_isrc(value)
             if code in registered or code in bucket:
@@ -352,8 +355,8 @@ def collect_isrc_submissions(
             bucket.append(code)
             added += 1
         if known and not added:
-            notes.append(
-                f"[ISRC] {result.filename}: nothing new to submit — its "
+            report_lines.append(
+                f"[ISRC] {result.filename}: nothing new to submit - its "
                 f"{known} ISRC(s) are already registered on {recording_id}"
             )
 
@@ -362,7 +365,7 @@ def collect_isrc_submissions(
         for recording_id, codes in sorted(per_recording.items())
         if codes
     )
-    return submissions, tuple(notes)
+    return submissions, tuple(report_lines)
 
 
 def _run_isrc_submission(
@@ -390,7 +393,7 @@ def _run_isrc_submission(
         machine-readable record surfaced in the CLI JSON, including the XML.
     """
     submissions, notes = collect_isrc_submissions(results)
-    lines = list(notes)
+    report_lines = list(notes)
     recordings = len(submissions)
     isrcs = sum(len(submission.isrcs) for submission in submissions)
     xml = build_isrc_submission_xml(submissions)
@@ -406,31 +409,35 @@ def _run_isrc_submission(
     }
 
     if not xml:
-        lines.append(
+        report_lines.append(
             "[ISRC] Nothing to submit: no file carried an ISRC that "
             "MusicBrainz does not already have."
         )
-        return payload, lines, "[ISRC] Nothing new to submit."
+        return payload, report_lines, "[ISRC] Nothing new to submit."
 
     if params.is_dry_run:
         payload["status"] = "preview"
-        lines.append(
-            f"[ISRC PREVIEW] Dry run — would POST {isrcs} ISRC(s) for "
+        report_lines.append(
+            f"[ISRC PREVIEW] Dry run - would POST {isrcs} ISRC(s) for "
             f"{recordings} recording(s) to MusicBrainz. Exact payload:"
         )
-        lines.append(xml.rstrip("\n"))
+        report_lines.append(xml.rstrip("\n"))
         return (
             payload,
-            lines,
-            f"[ISRC PREVIEW] {isrcs} ISRC(s) for {recordings} recording(s) — "
+            report_lines,
+            f"[ISRC PREVIEW] {isrcs} ISRC(s) for {recordings} recording(s) - "
             "not submitted (dry run)",
         )
 
     if mb_client is None:
         payload["status"] = "not attempted"
         payload["reason"] = "MusicBrainz lookup is off, so no recording was met."
-        lines.append(f"[ISRC NOT SUBMITTED] {payload['reason']}")
-        return payload, lines, "[ISRC] Not submitted — MusicBrainz lookup is off."
+        report_lines.append(f"[ISRC NOT SUBMITTED] {payload['reason']}")
+        return (
+            payload,
+            report_lines,
+            "[ISRC] Not submitted - MusicBrainz lookup is off.",
+        )
 
     result = mb_client.submit_isrcs(submissions, auth or MBAuth())
     payload.update(
@@ -441,20 +448,20 @@ def _run_isrc_submission(
         reason=result.reason,
     )
     if result.ok:
-        lines.append(
+        report_lines.append(
             f"[ISRC SUBMITTED] {result.isrcs} ISRC(s) for {result.recordings} "
-            f"recording(s): the edit is pending review — MusicBrainz keeps new "
+            f"recording(s): the edit is pending review - MusicBrainz keeps new "
             f"edits open for {EDIT_REVIEW_DAYS} days."
         )
         return (
             payload,
-            lines,
+            report_lines,
             f"[ISRC SUBMITTED] {result.isrcs} ISRC(s) for "
-            f"{result.recordings} recording(s) — pending edit",
+            f"{result.recordings} recording(s) - pending edit",
         )
 
-    lines.append(
+    report_lines.append(
         f"[ISRC {result.status.upper()}] {result.isrcs} ISRC(s) for "
         f"{result.recordings} recording(s) were not submitted: {result.reason}"
     )
-    return payload, lines, f"[ISRC {result.status.upper()}] {result.reason}"
+    return payload, report_lines, f"[ISRC {result.status.upper()}] {result.reason}"

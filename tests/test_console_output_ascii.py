@@ -34,7 +34,14 @@ both defects in place.  Only a producer that can hand back text is followed,
 annotated ``str`` or not annotated at all: ``outcome`` is a generic name that a
 dozen modules also give to object-returning calls (``join_files``,
 ``ScanOutcome``, ``verify_extracted_track``), whose strings are fields rather
-than lines any console shows.
+than lines any console shows.  The run report is read the same way.
+The ``[ALBUM]`` summary is a ``report_line`` field on ``AlbumResolution``, so
+the name is display text even though it is never bound to a local, and a string
+appended (or inserted, or extended) into ``log_entries`` or ``report_lines`` is
+a report line because that is where the run report is assembled.  Those two
+containers are named for the report, which keeps the rule narrow: a Tk listbox
+fills a plain ``lines``/``notes`` list with its bullets, and a console never
+renders it.
 """
 
 from __future__ import annotations
@@ -88,8 +95,20 @@ _DISPLAY_NAMES: frozenset[str] = frozenset(
         "action",
         "repaired_suffix",
         "outcome",
+        "report_line",
     }
 )
+
+#: The run-report containers a tool assembles its report in: ``log_entries`` is
+#: the completion payload's field the shell writes to ``*_log.txt``, and
+#: ``report_lines`` is a phase's share of it - the ``[ALBUM]`` and ``[ISRC]``
+#: lines reach the file through one of them and never through an output call.
+#: The generic ``lines``/``notes`` locals around them are deliberately not read:
+#: a Tk listbox fills one of those with bullets a console never renders.
+_REPORT_CONTAINERS: frozenset[str] = frozenset({"log_entries", "report_lines"})
+
+#: Methods that add one line, or a run of them, to a report container.
+_REPORT_METHODS: frozenset[str] = frozenset({"append", "extend", "insert"})
 
 #: Directories that are not first-party source for this rule: a vendored build
 #: tree repeats shipped modules, and a plugin is third-party code the suite does
@@ -155,20 +174,15 @@ def _display_expressions(tree: ast.Module) -> Iterator[ast.expr]:
 def _output_strings(path: Path) -> Iterator[tuple[int, str]]:
     """Yield ``(line, value)`` for every string the module prints itself.
 
-    Two shapes count: an argument of an output call, and a
+    Three shapes count: an argument of an output call, a
     ``display``/``display_text``-style value, which is the per-file line a tool
-    hands to ``on_progress`` after building it in an assignment.
+    hands to ``on_progress`` after building it in an assignment, and a line
+    added to a run-report container, which no output call ever sees.
     """
     tree = _parse(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            func = node.func
-            name = (
-                func.id
-                if isinstance(func, ast.Name)
-                else (func.attr if isinstance(func, ast.Attribute) else None)
-            )
-            if name in _OUTPUT_CALLS:
+            if _call_name(node) in _OUTPUT_CALLS or _is_report_append(node):
                 for argument in node.args:
                     yield from _constants(argument)
     for expression in _display_expressions(tree):
@@ -183,6 +197,17 @@ def _call_name(node: ast.Call) -> str | None:
     if isinstance(func, ast.Attribute):
         return func.attr
     return None
+
+
+def _is_report_append(node: ast.Call) -> bool:
+    """Return whether *node* adds a line to a run-report container."""
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr in _REPORT_METHODS
+        and isinstance(func.value, ast.Name)
+        and func.value.id in _REPORT_CONTAINERS
+    )
 
 
 def _imported_module(path: Path, node: ast.ImportFrom, name: str) -> Path | None:
@@ -507,6 +532,65 @@ class TestCallReturnedFragmentsAreScanned:
         assert any("\u2014" in value for value in values)
 
 
+class TestRunReportLinesAreScanned:
+    """Report lines are assembled in a container, never passed to a printer."""
+
+    def test_a_report_line_field_is_scanned(self, tmp_path: Path) -> None:
+        """``AlbumResolution.report_line`` carries the ``[ALBUM]`` summary."""
+        module = tmp_path / "mod.py"
+        module.write_text(
+            "def _report_line(folder):\n"
+            '    return f"[ALBUM] {folder}: decided \\u2014 Album"\n'
+            "\n"
+            "AlbumResolution(report_line=_report_line(folder))\n",
+            encoding="utf-8",
+        )
+
+        values = [value for _path, _line, value in _fragment_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+    @pytest.mark.parametrize("container", ["log_entries", "report_lines"])
+    def test_a_line_appended_to_a_report_container_is_scanned(
+        self, container: str, tmp_path: Path
+    ) -> None:
+        module = tmp_path / "mod.py"
+        module.write_text(
+            f'{container}.append(f"[ALBUM] {{label}}: ambiguous \\u2014 tied")\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+    def test_a_report_header_is_scanned_where_a_tool_inserts_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The Stem Separator prepends its run report's header with ``insert``."""
+        module = tmp_path / "mod.py"
+        module.write_text(
+            'log_entries.insert(0, "=== Stem separation \\u2014 3 file(s) ===")\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+    def test_an_unrelated_line_list_is_not_scanned(self, tmp_path: Path) -> None:
+        """A Tk listbox fills ``lines`` with bullets; a console never shows it."""
+        module = tmp_path / "mod.py"
+        module.write_text(
+            'lines.append(f"  \\u2022 {item}")\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert not any("\u2022" in value for value in values)
+
+
 class TestConsoleOutputIsAscii:
     """No first-party console/log string may carry a non-ASCII character."""
 
@@ -535,6 +619,13 @@ class TestConsoleOutputIsAscii:
             REPO_ROOT / "audio_fingerprinter" / "core" / "fingerprint_messages.py"
             in paths
         ), "an imported per-file formatter is not being followed"
+        assert (
+            REPO_ROOT / "audio_fingerprinter" / "core" / "album_cluster.py" in paths
+        ), "a report line carried on a result object is not being scanned"
+        assert (
+            REPO_ROOT / "audio_fingerprinter" / "core" / "fingerprint_phases.py"
+            in paths
+        ), "a report line appended to a report container is not being scanned"
 
     def test_no_output_string_carries_a_non_ascii_character(
         self, scanned: list[tuple[Path, int, str]]

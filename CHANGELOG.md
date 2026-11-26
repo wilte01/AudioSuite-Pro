@@ -57,6 +57,13 @@ used once, and every bullet belongs to exactly one of them.
   follows those calls, so the whole line is read wherever it was built, and a
   size reads `800x800` instead of the multiplication sign a console garbles.
 
+- **The Fingerprinter's album and ISRC report lines are plain ASCII too.** The
+  run report's `[ALBUM] ... decided` and `[ISRC] ...` lines are written into
+  the scanned folder's `fingerprint_*_log.txt`, where an em dash is a character
+  a Windows console and the copied report cannot print. They now use ` - `,
+  like every other report line, and the output test reads those report lines
+  directly, so one cannot slip back in.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

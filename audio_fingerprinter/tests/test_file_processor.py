@@ -641,7 +641,7 @@ class TestRunFingerprintingAlbumMode:
         assert "Remix" not in pulled.message
         # The per-album report line is present.
         assert any(
-            line.startswith("[ALBUM]") and "decided — The Album" in line
+            line.startswith("[ALBUM]") and "decided - The Album" in line
             for line in kwargs["log_entries"]
         )
         assert kwargs["counts"]["identified"] == 4

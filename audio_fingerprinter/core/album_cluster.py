@@ -12,6 +12,10 @@ Clustering only ever *adds* evidence.  The per-file score/duration
 guardrails and the tag-aware tie-break stay in force, and every file
 that no decided cluster claims falls back to exactly today's per-file
 matching.
+
+Changed in 2.9.0: the ``[ALBUM]`` report lines are ASCII - the em dash that
+separated the album folder from its verdict reached the run report, where a
+cp1252 console cannot print it.
 """
 
 from __future__ import annotations
@@ -277,12 +281,12 @@ def _report_line(
     if status == "decided" and winner is not None:
         if tag_resolved and tied:
             return (
-                f"[ALBUM] {label}: decided — {winner.title or winner.release_group_id} "
+                f"[ALBUM] {label}: decided - {winner.title or winner.release_group_id} "
                 f"(album-tag match among {len(tied)} clusters "
                 f"tied at {tied[0].score:.2f})"
             )
         return (
-            f"[ALBUM] {label}: decided — {winner.title or winner.release_group_id} "
+            f"[ALBUM] {label}: decided - {winner.title or winner.release_group_id} "
             f"({winner.file_count} files, avg score {winner.avg_score:.2f})"
         )
     if status == "ambiguous" and tied:
@@ -297,7 +301,7 @@ def _report_line(
             )
         else:
             summary = _tied_summary(tied)
-        return f"[ALBUM] {label}: ambiguous — {summary}; files left untagged"
+        return f"[ALBUM] {label}: ambiguous - {summary}; files left untagged"
     return f"[ALBUM] {label}: no release group reached the {album_min}-file minimum"
 
 

@@ -17,6 +17,19 @@ used once, and every bullet belongs to exactly one of them.
 ## [Unreleased]
 
 ### Changed
+- **The ASCII output lock reads the run report's own lines.** `report_line` -
+  the field `AlbumResolution` carries the `[ALBUM]` summary in - joins
+  `_DISPLAY_NAMES`, so the album-cluster formatter is followed like any display
+  producer. A string appended (or inserted, or extended) into `log_entries` or
+  `report_lines` is scanned too, because the run report is assembled there and
+  never passes through `print` or a logger; the Fingerprinter's phase output is
+  named `report_lines` for that reason (it was `lines`/`notes`). The rule reads
+  those two containers by name and not the generic `lines`/`notes` locals
+  around them - a Tk listbox fills one of those with bullets a console never
+  renders, and reading it would classify GUI text as console output. Twelve em
+  dashes fell out: three `[ALBUM]` lines, six `[ISRC]` lines and the Stem
+  Separator's report header. All are `-` now.
+
 - **The in-place tools' per-file line is inside the ASCII output lock.**
   `repaired_suffix` — the fragment a repair tool appends to its
   `[FIXED] file -> action` line — is scanned like `display`/`display_text`, so

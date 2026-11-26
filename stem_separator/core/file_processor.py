@@ -34,7 +34,9 @@ Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
 
 Changed in 2.9.0: the pool is a ``StemSeparationProcessor`` class rather than
 the shared base built inline, so the slot-grid lock can compare it with the
-GUI's grid (C1 stage 2).
+GUI's grid (C1 stage 2).  The run report's header line is ASCII too - its
+three em dashes reached ``*_separate_log.txt``, where a cp1252 console cannot
+print them.
 
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
@@ -344,8 +346,8 @@ def run_stem_separation(
 
     log_entries.insert(
         0,
-        f"=== Stem separation — {len(files)} file(s) — "
-        f"{'Dry Run' if params.dry_run else 'Live Update'} — "
+        f"=== Stem separation - {len(files)} file(s) - "
+        f"{'Dry Run' if params.dry_run else 'Live Update'} - "
         f"{demucs_engine.describe_device(device)} ===\n",
     )
     completion = {
