@@ -53,13 +53,19 @@ report opener.
 Changed in 2.9.0: the Processing tab's stats line is locked against the run's
 file count and the applier's per-file ticks, and against its main-thread
 marshalling; a dry run's line is locked to its "Examined" wording.
+Changed in 2.9.0: the worker's UI bridge is the shell's queue and poller, so
+the run is driven and then drained through ``_dispatch_ui_message`` - the
+worker itself schedules nothing on the root, and the picker's request rides
+the same queue (D63).
 """
 
 from __future__ import annotations
 
 import io
+import queue
 import sys
 import threading
+import time
 import types
 from pathlib import Path
 from typing import Any, Optional
@@ -271,6 +277,22 @@ def _make_test_candidate(
         score=float(width * height),
         match_score=1.0,
     )
+
+
+def _drain_ui(app: Any) -> list[tuple[Any, ...]]:
+    """Render every message the run queued, the way the shell's poller does.
+
+    Returns the messages in the order they were rendered, so a test can assert
+    what the worker handed over as well as what the widgets received.
+    """
+    drained: list[tuple[Any, ...]] = []
+    while True:
+        try:
+            message = app._ui_updates.get_nowait()
+        except queue.Empty:
+            return drained
+        app._dispatch_ui_message(message)
+        drained.append(message)
 
 
 # ===========================================================================
@@ -2163,6 +2185,68 @@ class TestPickerDialogThreadSafety:
         assert captured[1] == "Radiohead"
         assert captured[2] == "Deezer"
 
+    def test_a_supplied_scheduler_replaces_the_call_on_the_root(self) -> None:
+        """A window with a queue hands the dialog over, never the root.
+
+        Album Art Sync's worker may not call ``root.after`` at all, so its
+        request arrives through ``schedule`` and the root is left untouched on
+        that thread.
+        """
+        dialog, mock_root = self._make_dialog()
+        scheduled: list = []
+
+        def fake_schedule(fn) -> None:
+            scheduled.append(fn)
+            with patch.object(dialog, "_show", return_value=b"PICKED"):
+                fn()
+
+        result = dialog.show_threadsafe(
+            items=[_make_test_candidate(url="http://example.com/art.jpg")],
+            artist="Artist",
+            engine="TestEngine",
+            schedule=fake_schedule,
+        )
+
+        assert result == b"PICKED"
+        assert len(scheduled) == 1
+        mock_root.after.assert_not_called()
+
+    def test_a_failed_dialog_still_releases_the_waiting_worker(self) -> None:
+        """The event is set even when the dialog raises, or the run hangs.
+
+        The worker blocks on that event, so a picker that cannot draw its
+        window must not leave the run's thread waiting forever.
+        """
+        dialog, _root = self._make_dialog()
+        pending: list = []
+        answers: list[Any] = []
+
+        def fake_schedule(fn) -> None:
+            pending.append(fn)
+
+        with patch.object(dialog, "_show", side_effect=RuntimeError("no display")):
+            worker = threading.Thread(
+                target=lambda: answers.append(
+                    dialog.show_threadsafe(
+                        items=[_make_test_candidate(url="u")],
+                        artist="A",
+                        engine="E",
+                        schedule=fake_schedule,
+                    )
+                )
+            )
+            worker.start()
+            deadline = time.monotonic() + 2.0
+            while not pending and time.monotonic() < deadline:
+                time.sleep(0.01)
+            # The Tk thread's half raises; the waiting worker must still wake.
+            with pytest.raises(RuntimeError, match="no display"):
+                pending[0]()
+            worker.join(timeout=2.0)
+
+        assert not worker.is_alive()
+        assert answers == [None]
+
 
 # ===========================================================================
 #  10. ui/picker_dialog — _show() internals (render, nav, accept/reject)
@@ -2726,6 +2810,7 @@ class TestAppRunLogic:
         app.purge_var = Mock()
         app.purge_var.get = Mock(return_value=True)
         app._log_entries = []
+        app._ui_updates = queue.SimpleQueue()
         app._cancel_requested = False
         app.auto_end = False
         app._app_config = {"fanart": {}}
@@ -2909,6 +2994,7 @@ class TestAppRunLogic:
         ):
             app._run_logic()
         mock_apply.assert_not_called()
+        _drain_ui(app)
         app.completion_label.config.assert_any_call(text="Operation Cancelled")
 
     # ---- mode -> applier_mode translation (the fragile string mapping) -----
@@ -2959,6 +3045,7 @@ class TestAppRunLogic:
         ):
             app._run_logic()
         mock_apply.assert_not_called()
+        _drain_ui(app)
         app.completion_label.config.assert_any_call(text="No Artwork Found")
 
     def test_successful_apply_sets_success_message(self, tmp_path: Path) -> None:
@@ -2975,6 +3062,7 @@ class TestAppRunLogic:
             patch("album_art_sync.app.apply_artwork", return_value=True),
         ):
             app._run_logic()
+        _drain_ui(app)
         app.completion_label.config.assert_any_call(text="Sync Complete via Fanart.tv")
 
     def test_artwork_apply_wrapped_in_active_undo_batch(self, tmp_path: Path) -> None:
@@ -3012,6 +3100,7 @@ class TestAppRunLogic:
             patch("album_art_sync.app.apply_artwork", return_value=False),
         ):
             app._run_logic()
+        _drain_ui(app)
         app.completion_label.config.assert_any_call(text="Partial Success - Check Log")
 
     def test_unhandled_exception_sets_error_message(self, tmp_path: Path) -> None:
@@ -3027,6 +3116,7 @@ class TestAppRunLogic:
             ),
         ):
             app._run_logic()
+        _drain_ui(app)
         app.completion_label.config.assert_any_call(text="Error - See Log")
         assert "CRITICAL ERROR" in "".join(app._log_entries)
 
@@ -3066,15 +3156,10 @@ class TestAppRunLogic:
             ),
         ):
             app._run_logic()
-        # Auto End must schedule the window close at its delay; the same root
-        # also carries the zero-delay UI marshalling calls, so match on the
-        # scheduled delays rather than counting every after().
-        destroy_calls = [
-            call_
-            for call_ in app.root.after.call_args_list
-            if call_.args[:2] == (2000, app.root.destroy)
-        ]
-        assert len(destroy_calls) == 1
+        # The worker only queues; the close is the Tk thread's to schedule.
+        app.root.after.assert_not_called()
+        _drain_ui(app)
+        app.root.after.assert_called_once_with(2000, app.root.destroy)
 
     # ---- the stats line ----------------------------------------------------
 
@@ -3094,6 +3179,7 @@ class TestAppRunLogic:
             ),
         ):
             app._run_logic()
+        _drain_ui(app)
         # A run that finds no artwork still reports its denominator rather than
         # leaving the builder's "Processed: 0 | Skipped: 0 | Errors: 0" text.
         assert app.stats_label.config.call_args.kwargs["text"] == "Processed: 0 / 2"
@@ -3119,6 +3205,7 @@ class TestAppRunLogic:
             patch("album_art_sync.app.apply_artwork", side_effect=fake_apply),
         ):
             app._run_logic()
+        _drain_ui(app)
 
         texts = [
             call_.kwargs["text"] for call_ in app.stats_label.config.call_args_list
@@ -3147,6 +3234,7 @@ class TestAppRunLogic:
             patch("album_art_sync.app.apply_artwork", return_value=True),
         ):
             app._run_logic()
+        _drain_ui(app)
 
         texts = [
             call_.kwargs["text"] for call_ in app.stats_label.config.call_args_list
@@ -3182,22 +3270,19 @@ class TestAppRunLogic:
 
     # ---- worker-thread marshalling (audit H3) -------------------------------
 
-    def _scheduled(self, app: Any) -> list[tuple[int, Any, tuple[Any, ...]]]:
-        """Return (delay, callback, args) for each recorded after() call."""
-        return [tuple(call_.args) for call_ in app.root.after.call_args_list]
-
-    def test_worker_ui_writes_are_scheduled_on_main_thread(
+    def test_the_worker_queues_every_ui_write_and_renders_none(
         self, tmp_path: Path
     ) -> None:
-        """Every widget write on the worker path is deferred via after(0, ...).
+        """_run_logic hands each UI write to the queue, never to the root.
 
-        The stubs record the scheduling instead of running it, so a direct
-        widget call from _run_logic would leave these lists empty.
+        The root raises the way Tk does off-thread, so any ``root.after`` from
+        the worker would end the run; the messages are rendered afterwards,
+        on the Tk thread, through the dispatch the shell's poller calls.
         """
         AudioSuiteV6 = self._import_app_class()
         (tmp_path / "track01.mp3").write_bytes(b"fake")
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.root.after.side_effect = None  # record only, do not execute
+        app.root.after.side_effect = RuntimeError("main thread is not in main loop")
         with (
             patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
             patch("album_art_sync.app.read_album_artist", return_value=""),
@@ -3209,34 +3294,28 @@ class TestAppRunLogic:
         ):
             app._run_logic()
 
-        scheduled = self._scheduled(app)
-        zero_delay = [entry for entry in scheduled if entry[0] == 0]
-        callbacks = [entry[1] for entry in zero_delay]
-        assert app._append_log_line in callbacks
-        assert app._apply_status in callbacks
-        assert app._apply_progress in callbacks
-        assert app._apply_stats in callbacks
-        assert app._apply_result in callbacks
-        assert app._apply_controls in callbacks
-        # The status text and the result message reached the main thread.
-        # Bound methods are compared with == : each attribute access builds a
-        # new method object, so an identity check would never match.
-        assert any(
-            entry[1] == app._apply_status and entry[2] == "Searching for artwork..."
-            for entry in zero_delay
-        )
-        assert any(
-            entry[1] == app._apply_result and entry[2] == "Sync Complete via Deezer"
-            for entry in zero_delay
-        )
-        # No widget was written directly from the worker thread.
+        # Nothing was written while the worker ran.
         app.overall_status.set.assert_not_called()
         app.completion_label.config.assert_not_called()
         app.file_listbox.insert.assert_not_called()
         app.start_btn.config.assert_not_called()
         app.notebook.select.assert_not_called()
-        app.progress.config.assert_not_called()
         app.stats_label.config.assert_not_called()
+
+        kinds = {message[0] for message in _drain_ui(app)}
+        assert kinds == {
+            "log",
+            "status",
+            "progress",
+            "stats",
+            "result",
+            "results_tab",
+            "controls",
+        }
+        # The status text, the log line and the result reached the widgets.
+        app.overall_status.set.assert_any_call("Searching for artwork...")
+        app.file_listbox.insert.assert_any_call("end", "--- SESSION START: DRY RUN ---")
+        app.completion_label.config.assert_any_call(text="Sync Complete via Deezer")
 
     def test_start_thread_snapshots_tk_vars_and_starts_daemon_worker(
         self, tmp_path: Path
@@ -3255,7 +3334,7 @@ class TestAppRunLogic:
         app.purge_var.get = Mock(return_value=False)
         app.auto_end_var = Mock(**{"get.return_value": True})
 
-        with patch("album_art_sync.app.threading.Thread") as mock_thread:
+        with patch("audio_suite_shared.suite_app.threading.Thread") as mock_thread:
             app.start_thread()
 
         assert app._run_path == str(tmp_path)
@@ -3265,6 +3344,10 @@ class TestAppRunLogic:
         assert app._run_purge is False
         assert mock_thread.call_args.kwargs["daemon"] is True
         assert mock_thread.call_args.kwargs["target"] == app._run_logic
+        # The shell owns the run's queue and its poller, so the window's
+        # worker has a queue to put messages on from the first tick.
+        assert isinstance(app._ui_updates, queue.SimpleQueue)
+        assert app.root.after.call_args.args[1] == app._poll_ui_updates
 
     def test_log_helper_updates_the_listbox_when_called_on_main_thread(
         self, tmp_path: Path
@@ -3283,13 +3366,13 @@ class TestAppRunLogic:
 
 
 class TestRealWidgetMarshalling:
-    """The after(0, ...) bridge against real Tk widgets.
+    """The queue-and-dispatch bridge against real Tk widgets.
 
     A per-test withdrawn Toplevel off the session-scoped shared root is used
     so nothing lasting past the test is interned on the shared root.
     """
 
-    def test_add_log_line_reaches_a_real_listbox(self, root: Any) -> None:
+    def test_a_queued_log_line_reaches_a_real_listbox(self, root: Any) -> None:
         sys.modules.pop("album_art_sync.app", None)
         import tkinter as tk
 
@@ -3301,12 +3384,17 @@ class TestRealWidgetMarshalling:
             app.root = top
             app.file_listbox = tk.Listbox(top)
             app._log_entries = []
+            app._ui_updates = queue.SimpleQueue()
 
-            app._add_log("scheduled from a worker")
-            assert app.file_listbox.size() == 0  # nothing yet: the bridge is deferred
+            app._add_log("queued from a worker")
             top.update()
-            assert app.file_listbox.get(0, tk.END) == ("scheduled from a worker",)
-            assert app._log_entries == ["scheduled from a worker\n"]
+            # The worker queued the line; only the poller's dispatch writes it.
+            assert app.file_listbox.size() == 0
+            assert app._log_entries == ["queued from a worker\n"]
+
+            _drain_ui(app)
+
+            assert app.file_listbox.get(0, tk.END) == ("queued from a worker",)
         finally:
             top.destroy()
 
@@ -3370,6 +3458,7 @@ class TestAppGuiMethods:
         app.purge_var.get = Mock(return_value=True)
         app.purge_var.set = Mock()
         app._log_entries = []
+        app._ui_updates = queue.SimpleQueue()
         app._cancel_requested = False
         app.auto_end = False
         app._app_config = {"fanart": {}}
@@ -3737,8 +3826,10 @@ class TestAppGuiMethods:
 
         app._maybe_auto_end()
 
-        # _add_log also calls root.after(0, ...), so match the close itself.
-        app.root.after.assert_any_call(2000, app.root.destroy)
+        # The worker queues the close; the Tk thread's poller schedules it.
+        app.root.after.assert_not_called()
+        _drain_ui(app)
+        app.root.after.assert_called_once_with(2000, app.root.destroy)
         assert (
             Path(app._log_path)
             .read_text(encoding="utf-8")
@@ -3763,7 +3854,10 @@ class TestAppGuiMethods:
 
         app._maybe_auto_end()
 
-        app.root.after.assert_any_call(2000, app.root.destroy)
+        # Nothing on the worker touches the root; the close is queued.
+        app.root.after.assert_not_called()
+        _drain_ui(app)
+        app.root.after.assert_called_once_with(2000, app.root.destroy)
 
     def test_maybe_auto_end_does_nothing_when_disabled(self, tmp_path: Path) -> None:
         app = self._armed_app(tmp_path)
@@ -3781,7 +3875,9 @@ class TestAppGuiMethods:
 
         app._maybe_auto_end(delay_ms=3000)
 
-        app.root.after.assert_any_call(3000, app.root.destroy)
+        app.root.after.assert_not_called()
+        _drain_ui(app)
+        app.root.after.assert_called_once_with(3000, app.root.destroy)
         assert "closing in 3 seconds" in "".join(app._log_entries)
         assert (
             Path(app._log_path)
@@ -3798,7 +3894,38 @@ class TestAppGuiMethods:
 
         app._maybe_auto_end()
 
-        app.root.after.assert_any_call(2000, app.root.destroy)
+        _drain_ui(app)
+        app.root.after.assert_called_once_with(2000, app.root.destroy)
         assert Path(tmp_path, "art_sync_log.txt").read_text(encoding="utf-8") == (
             "SUMMARY:\n"
         )
+
+    # ---- the picker bridge --------------------------------------------------
+
+    def test_the_picker_request_rides_the_run_queue(self, tmp_path: Path) -> None:
+        """The dialog is handed to the poller; the worker only waits for it.
+
+        ``_on_pick`` runs on the worker and blocks until the user answers, so
+        the request travels as a queued call and the answer arrives through the
+        dialog's own event - the worker never schedules on the root.
+        """
+        app = self._make_bare_app(self._import_app_class(), tmp_path)
+        from album_art_sync.ui.picker_dialog import PickerDialog
+
+        app.root.after.side_effect = RuntimeError("main thread is not in main loop")
+        app._picker = PickerDialog(app.root)
+        answers: list[Any] = []
+
+        with patch.object(PickerDialog, "_show", return_value=b"ART"):
+            worker = threading.Thread(
+                target=lambda: answers.append(app._on_pick([], "A", "Deezer"))
+            )
+            worker.start()
+            deadline = time.monotonic() + 2.0
+            while app._ui_updates.empty() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            drained = _drain_ui(app)
+            worker.join(timeout=2.0)
+
+        assert [message[0] for message in drained] == ["call"]
+        assert answers == [b"ART"]

@@ -10,6 +10,10 @@ modules, so they are shown in resolution order with mismatched album
 names already removed.
 Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
+Changed in 2.9.0: the request reaches the Tk thread through an optional
+``schedule`` callable, so a window whose worker owns a queue (Album Art Sync)
+hands the dialog to its poller instead of calling ``root.after`` off-thread
+(D63).
 """
 
 # ── Standard library imports ─────────────────────────────────────────────────
@@ -17,6 +21,7 @@ import io
 import logging
 import threading
 import tkinter as tk
+from collections.abc import Callable
 from typing import Optional
 
 # ── Third-party imports ─────────────────────────────────────────────────────
@@ -44,23 +49,39 @@ class PickerDialog:
         self._root = root
 
     def show_threadsafe(
-        self, items: list[RankedCandidate], artist: str, engine: str
+        self,
+        items: list[RankedCandidate],
+        artist: str,
+        engine: str,
+        *,
+        schedule: Callable[[Callable[[], None]], None] | None = None,
     ) -> Optional[bytes]:
         """
         Schedule the picker on the main thread and block the calling thread
         until the user makes a choice.
 
         *items* is a pre-filtered, quality-ranked list of candidates.
+        *schedule* is how the request reaches the Tk thread: a window whose
+        worker hands its updates to a queue passes the callable that puts this
+        one there, because its worker may not call ``root.after`` at all
+        (AGENTS.md, GUI Callback Contract). Omitted, it is scheduled directly.
         Returns selected image bytes, or None if rejected/closed.
         """
         result_holder: list[Optional[bytes]] = [None]
         done = threading.Event()
 
         def _run_on_main() -> None:
-            result_holder[0] = self._show(items, artist, engine)
-            done.set()
+            # The worker waits on this event below, so it is set even when the
+            # dialog raises: a failed picker may not strand the run's thread.
+            try:
+                result_holder[0] = self._show(items, artist, engine)
+            finally:
+                done.set()
 
-        self._root.after(0, _run_on_main)
+        if schedule is None:
+            self._root.after(0, _run_on_main)
+        else:
+            schedule(_run_on_main)
         done.wait()
         return result_holder[0]
 

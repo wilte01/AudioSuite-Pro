@@ -34,14 +34,18 @@ Changed in 2.9.0: Auto End is the shell's - the condition is
 stated once, and ``start_thread`` snapshots the arming decision with the
 run's other Tk inputs so the worker never reads the checkbox itself (D61,
 D62).
+Changed in 2.9.0: the worker's UI bridge is the shell's queue and poller, so
+``_run_logic`` and the picker bridge never call ``root.after`` off the Tk
+thread: the ``_set_*``/``_show_*`` helpers only queue a message, and
+``_dispatch_ui_message`` renders it - the Auto End close included (D63).
 """
 
 import json
 import logging
 import os
-import threading
 import time
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import ttk
 from typing import Any, Optional
@@ -306,38 +310,42 @@ class AudioSuiteV6(SuiteApp):
         # Auto End's arming is a Tk read like the four above: _maybe_auto_end
         # runs on the worker, which may not call .get() on the checkbox.
         self._run_auto_end = self.auto_end_requested()
-        threading.Thread(target=self._run_logic, daemon=True).start()
+        # The shell owns the run's queue, its daemon thread and the poller; the
+        # worker only ever puts messages on that queue.
+        self._start_worker(self._run_logic, ())
 
     # ── Logging ────────────────────────────────────────────────────────────────
     #
-    # Thread safety: _add_log is called from the worker thread, so it appends
-    # to the plain in-memory list immediately (that list is what the log file
-    # is written from) and schedules the file-list update onto the Tk main
-    # thread. update_idletasks is kept only to force a repaint -- it does not
-    # make cross-thread Tk access safe.
+    # Thread safety: every helper below is called from the worker thread, so it
+    # only appends to the plain in-memory list (what the log file is written
+    # from) or puts a message on the run's queue. The shell's poller drains that
+    # queue on the Tk thread and _dispatch_ui_message renders it, so the worker
+    # never calls root.after (AGENTS.md, GUI Callback Contract). update_idletasks
+    # is kept only to force a repaint -- it does not make cross-thread Tk access
+    # safe.
 
     def _add_log(self, txt: str) -> None:
         """Append a line to the on-screen log and the in-memory log list."""
         self._log_entries.append(txt + "\n")
-        self.root.after(0, self._append_log_line, txt)
+        self._ui_updates.put(("log", txt))
 
     def _append_log_line(self, txt: str) -> None:
-        """Append one line to the Processing tab's file list (main thread)."""
+        """Append one line to the Processing tab's file list (Tk thread only)."""
         self.file_listbox.insert(tk.END, txt)
         self.file_listbox.see(tk.END)
         self.root.update_idletasks()
 
     def _set_status(self, text: str) -> None:
-        """Set the status label from any thread."""
-        self.root.after(0, self._apply_status, text)
+        """Queue a status-label write for the Tk thread."""
+        self._ui_updates.put(("status", text))
 
     def _apply_status(self, text: str) -> None:
         """Write the status label (must run on the main thread)."""
         self.overall_status.set(text)
 
     def _set_progress(self, value: int, maximum: int | None = None) -> None:
-        """Update the progress bar from any thread."""
-        self.root.after(0, self._apply_progress, value, maximum)
+        """Queue a progress-bar write for the Tk thread."""
+        self._ui_updates.put(("progress", value, maximum))
 
     def _apply_progress(self, value: int, maximum: int | None = None) -> None:
         """Write the progress bar (must run on the main thread)."""
@@ -347,8 +355,8 @@ class AudioSuiteV6(SuiteApp):
             self.progress.config(value=value, maximum=maximum)
 
     def _set_stats(self, processed: int, total: int, *, dry_run: bool = False) -> None:
-        """Update the stats line's file counter from any thread."""
-        self.root.after(0, self._apply_stats, processed, total, dry_run)
+        """Queue a stats-line write for the Tk thread."""
+        self._ui_updates.put(("stats", processed, total, dry_run))
 
     def _apply_stats(self, processed: int, total: int, dry_run: bool = False) -> None:
         """Write the stats line (must run on the main thread)."""
@@ -367,8 +375,8 @@ class AudioSuiteV6(SuiteApp):
         source: str = "",
         duration_secs: float = 0.0,
     ) -> None:
-        """Show a result message and switch to the results tab, from any thread."""
-        self.root.after(0, self._apply_result, text, files, source, duration_secs)
+        """Queue the result message and the Results tab switch for the Tk thread."""
+        self._ui_updates.put(("result", text, files, source, duration_secs))
 
     def _apply_result(
         self, text: str, files: int, source: str, duration_secs: float
@@ -384,27 +392,63 @@ class AudioSuiteV6(SuiteApp):
         self.notebook.select(self.results_frame)
 
     def _show_results_tab(self) -> None:
-        """Switch to the results tab from any thread."""
-        self.root.after(0, self.notebook.select, self.results_frame)
+        """Queue the switch to the Results tab for the Tk thread."""
+        self._ui_updates.put(("results_tab",))
 
     def _restore_controls(self) -> None:
-        """Re-enable Start / disable Cancel from any thread (see _apply_controls)."""
-        self.root.after(0, self._apply_controls)
+        """Queue the Start/Cancel reset for the Tk thread (see _apply_controls)."""
+        self._ui_updates.put(("controls",))
 
     def _apply_controls(self) -> None:
-        """Enable Start and disable Cancel (must run on the main thread)."""
+        """Enable Start and disable Cancel (must run on the Tk thread)."""
         self.start_btn.config(state=tk.NORMAL)
         self.cancel_btn.config(state=tk.DISABLED)
+
+    def _post_to_main_thread(self, callback: Callable[[], None]) -> None:
+        """Queue a callable for the Tk thread's poller (worker side only).
+
+        The artwork picker blocks until its dialog closes, so its request
+        cannot ride the queue as a message the poller renders like any other:
+        the worker hands the call over here and waits on the dialog's own
+        event, which the Tk thread sets when the user answers.
+        """
+        self._ui_updates.put(("call", callback))
+
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued worker message on the Tk thread."""
+        kind = message[0]
+        if kind == "log":
+            self._append_log_line(message[1])
+        elif kind == "status":
+            self._apply_status(message[1])
+        elif kind == "progress":
+            self._apply_progress(message[1], message[2])
+        elif kind == "stats":
+            self._apply_stats(message[1], message[2], message[3])
+        elif kind == "result":
+            _, text, files, source, duration_secs = message
+            self._apply_result(text, files, source, duration_secs)
+        elif kind == "results_tab":
+            self.notebook.select(self.results_frame)
+        elif kind == "controls":
+            self._apply_controls()
+        elif kind == "auto_end":
+            self.close_for_auto_end(delay_ms=message[1])
+        elif kind == "call":
+            message[1]()
 
     # ── Thread-safe picker bridge ─────────────────────────────────────────────
 
     def _on_pick(self, items: list[Any], artist: str, engine: str) -> Optional[bytes]:
         """
         Called from the background thread whenever an API returns candidates.
-        Safely delegates to PickerDialog.show_threadsafe() which schedules
-        the actual UI on the main thread and blocks here until the user responds.
+        Delegates to PickerDialog.show_threadsafe(), which hands the dialog to
+        this window's queue for the Tk thread and blocks here until the user
+        responds; the worker never schedules on the root itself.
         """
-        return self._picker.show_threadsafe(items, artist, engine)
+        return self._picker.show_threadsafe(
+            items, artist, engine, schedule=self._post_to_main_thread
+        )
 
     # ── Background thread ─────────────────────────────────────────────────────
 
@@ -413,10 +457,10 @@ class AudioSuiteV6(SuiteApp):
         """Resolve artwork and embed it, on a worker thread.
 
         Thread safety: this runs off the Tk main thread, so it must not touch
-        a widget or call ``.get()`` on a Tk variable. The inputs are
-        snapshotted by ``start_thread`` on the main thread, and every UI write
-        goes through the small ``_set_*``/``_show_*`` helpers above, which
-        schedule a main-thread method via ``root.after(0, ...)``.
+        a widget, call ``.get()`` on a Tk variable or schedule on the root. The
+        inputs are snapshotted by ``start_thread`` on the main thread, and every
+        UI write goes through the small ``_set_*``/``_show_*`` helpers above,
+        which put a message on the run's queue for the shell's poller to render.
         """
         start = time.monotonic()
         path = self._run_path
@@ -625,10 +669,11 @@ class AudioSuiteV6(SuiteApp):
         The run this ends is on the worker thread, so the arming decision is
         the one ``start_thread`` snapshotted on the Tk thread - never a second
         read of the checkbox. The sentence is queued with the other log lines
-        and the shell marks the report this run just wrote; a cancelled or
-        failed run wrote none, so nothing is marked.
+        and the close is queued with it, because the shell marking the report
+        and scheduling the destroy are both Tk-thread work; a cancelled or
+        failed run wrote no report, so nothing is marked.
         """
         if not self._run_auto_end:
             return
         self._add_log(f"\n[{auto_end_sentence(delay_ms)}]")
-        self.close_for_auto_end(delay_ms=delay_ms)
+        self._ui_updates.put(("auto_end", delay_ms))
