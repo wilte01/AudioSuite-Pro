@@ -1,3 +1,4 @@
+# Changed in 2.9.0: the processor result these tests quote is ASCII (``800x800``).
 """
 tests/test_file_processor.py
 Unit tests for album_art_normalizer/core/file_processor.py — the
@@ -245,8 +246,8 @@ class TestUndoBatchRecording:
         # reason, and this fake stands in for the real write site.
         if not dry_run:
             embed_artwork(str(path), self._jpeg_bytes())
-            return "Embedded image resized to 800×800 and saved."
-        return "Embedded image would be resized to 800×800 (dry run)."
+            return "Embedded image resized to 800x800 and saved."
+        return "Embedded image would be resized to 800x800 (dry run)."
 
     def test_live_run_records_embed_snapshots_under_active_batch(
         self, tmp_path: Path

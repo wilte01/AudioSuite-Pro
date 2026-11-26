@@ -1,3 +1,5 @@
+# Changed in 2.9.0: the artwork outcome text these tests quote is ASCII
+# (``800x800 - skipped.``), because the em dash reached the console.
 """
 test_album_art_normalizer.py
 =========================
@@ -348,7 +350,7 @@ class TestProcessMp3Artwork:
         ):
             result = process_mp3_artwork(path, (800, 800))
 
-        assert "resized to 800×800" in result
+        assert "resized to 800x800" in result
         assert "saved" in result
         embed.assert_called_once_with(str(path), ANY)
         resized = Image.open(io.BytesIO(embed.call_args.args[1]))
@@ -456,7 +458,7 @@ class TestProcessFlacArtwork:
         ):
             result = process_flac_artwork(path, (1200, 1200))
 
-        assert "resized to 1200×1200" in result
+        assert "resized to 1200x1200" in result
         assert "saved" in result
         embed.assert_called_once_with(str(path), ANY)
         resized = Image.open(io.BytesIO(embed.call_args.args[1]))
@@ -562,7 +564,7 @@ class TestRunProcessing:
             patch(
                 "album_art_normalizer.process_mp3_artwork",
                 return_value=(
-                    "Embedded image was 500×500; resized to 800×800 and saved."
+                    "Embedded image was 500x500; resized to 800x800 and saved."
                 ),
             ),
         ):
@@ -582,7 +584,7 @@ class TestRunProcessing:
             patch(
                 "album_art_normalizer.process_flac_artwork",
                 return_value=(
-                    "Embedded image was 400×400; resized to 1000×1000 and saved."
+                    "Embedded image was 400x400; resized to 1000x1000 and saved."
                 ),
             ),
         ):
@@ -600,7 +602,7 @@ class TestRunProcessing:
             patch("album_art_normalizer.process_folder_jpg", return_value=None),
             patch(
                 "album_art_normalizer.process_mp3_artwork",
-                return_value="Embedded image already 800×800 — skipped.",
+                return_value="Embedded image already 800x800 - skipped.",
             ),
         ):
             logs, result = self._collect(str(tmp_path), (800, 800))
@@ -630,7 +632,7 @@ class TestRunProcessing:
         with (
             patch(
                 "album_art_normalizer.process_folder_jpg",
-                return_value="folder.jpg was 500×500; resized to 1000×1000.",
+                return_value="folder.jpg was 500x500; resized to 1000x1000.",
             ),
         ):
             logs, result = self._collect(str(tmp_path), (800, 800))
@@ -660,13 +662,13 @@ class TestRunProcessing:
             patch(
                 "album_art_normalizer.process_mp3_artwork",
                 return_value=(
-                    "Embedded image was 300×300; resized to 600×600 and saved."
+                    "Embedded image was 300x300; resized to 600x600 and saved."
                 ),
             ),
             patch(
                 "album_art_normalizer.process_flac_artwork",
                 return_value=(
-                    "Embedded image was 300×300; resized to 600×600 and saved."
+                    "Embedded image was 300x300; resized to 600x600 and saved."
                 ),
             ),
         ):
@@ -853,7 +855,7 @@ class TestDryRunWritesNothing:
 
         embed.assert_not_called()
         assert path.read_bytes() == before
-        assert "would be resized to 800×800" in result
+        assert "would be resized to 800x800" in result
         assert "dry run" in result
         assert "saved" not in result
 

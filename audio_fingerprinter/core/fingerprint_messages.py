@@ -8,6 +8,10 @@ re-exports every name, so existing importers are unaffected.
 Changed in 2.4.3: split out of
 ``audio_fingerprinter.core.file_processor``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+Changed in 2.9.0: the display line and the match detail are ASCII.  These
+functions' return values are the per-file line, so the ASCII output lock now
+follows the call that builds it (``tests/test_console_output_ascii.py``); the
+em dash a cp1252 console printed as ``\u2014`` is ``-``.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ def _result_display(result: FingerprintFileResult) -> str:
     if result.status == FingerprintStatus.ERROR:
         return f"[{label}] {result.filename}: {result.message}"
     if result.status in _MESSAGE_STATUSES:
-        return f"[{label}] {result.filename} — {result.message}"
+        return f"[{label}] {result.filename} - {result.message}"
     return f"[{label}] {result.filename}"
 
 
@@ -54,15 +58,15 @@ def _match_message(
     Near-ties that the file tags settled are marked "matched file tags";
     unresolved near-ties surface the runner-up candidate in the message.
     """
-    title = f"{best.title}" + (f" — {best.artist}" if best.artist else "")
+    title = f"{best.title}" + (f" - {best.artist}" if best.artist else "")
     message = f"{title or best.recording_id} (score {best.score:.2f})"
     if tag_resolved:
         message += "; matched file tags"
     elif ambiguous and len(recordings) > 1:
         runner = recordings[1]
         runner_text = f"{runner.title}" + (
-            f" — {runner.artist}" if runner.artist else ""
+            f" - {runner.artist}" if runner.artist else ""
         )
         if runner_text:
-            message += f"; ambiguous — also {runner_text} (score {runner.score:.2f})"
+            message += f"; ambiguous - also {runner_text} (score {runner.score:.2f})"
     return message

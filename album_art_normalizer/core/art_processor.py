@@ -15,6 +15,10 @@ tests can patch ``album_art_normalizer.MP3`` / ``album_art_normalizer.FLAC`` via
 Changed in 2.4.1: keeps its function-local ``TagHandlerFactory`` import
 from ``tag_helper_base``: that name is the seam the dry-run locks patch,
 and the leaf ``tag_handler_factory`` is reached through the shim (WP-2).
+Changed in 2.9.0: the status string these processors return is the per-file
+line the tool prints and logs, so it is ASCII - the em dash is ``-`` and a
+size reads ``800x800``.  A cp1252 console prints both ``\u2014`` and
+``\u00d7`` as mojibake, and the run report is read on the same console.
 """
 
 import io
@@ -207,10 +211,10 @@ def _resize_outcome(
         A human-readable one-line status string.
     """
     crop_note = " (centre-cropped)" if spec.needs_crop else ""
-    was = f"Embedded image was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
+    was = f"Embedded image was {current_size[0]}x{current_size[1]}{crop_note}; "
     if dry_run:
-        return f"{was}would be resized to {target[0]}\u00d7{target[1]} (dry run)."
-    return f"{was}resized to {target[0]}\u00d7{target[1]} and saved."
+        return f"{was}would be resized to {target[0]}x{target[1]} (dry run)."
+    return f"{was}resized to {target[0]}x{target[1]} and saved."
 
 
 def process_mp3_artwork(
@@ -259,18 +263,18 @@ def process_mp3_artwork(
         ) from exc
 
     if audio.tags is None:
-        return "No ID3 tags found \u2014 skipped."
+        return "No ID3 tags found - skipped."
 
     apic_frames: list[APIC] = audio.tags.getall("APIC")
     if not apic_frames:
-        return "No embedded artwork (APIC frame absent) \u2014 skipped."
+        return "No embedded artwork (APIC frame absent) - skipped."
 
     frame = apic_frames[0]
     img = load_image_from_bytes(frame.data)
     current_size: tuple[int, int] = img.size
 
     if current_size == target:
-        return f"Embedded image already {target[0]}\u00d7{target[1]} \u2014 skipped."
+        return f"Embedded image already {target[0]}x{target[1]} - skipped."
 
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     new_data = encode_image_to_jpeg_bytes(img, target)
@@ -314,14 +318,14 @@ def process_flac_artwork(
 
     pictures: list[Picture] = audio.pictures
     if not pictures:
-        return "No embedded artwork (Picture block absent) \u2014 skipped."
+        return "No embedded artwork (Picture block absent) - skipped."
 
     pic = pictures[0]
     img = load_image_from_bytes(pic.data)
     current_size: tuple[int, int] = img.size
 
     if current_size == target:
-        return f"Embedded image already {target[0]}\u00d7{target[1]} \u2014 skipped."
+        return f"Embedded image already {target[0]}x{target[1]} - skipped."
 
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     new_data = encode_image_to_jpeg_bytes(img, target)
@@ -368,13 +372,13 @@ def process_audio_artwork(
 
     raw_data = handler.extract_artwork()
     if raw_data is None:
-        return "No embedded artwork \u2014 skipped."
+        return "No embedded artwork - skipped."
 
     img = load_image_from_bytes(raw_data)
     current_size: tuple[int, int] = img.size
 
     if current_size == target:
-        return f"Embedded image already {target[0]}\u00d7{target[1]} \u2014 skipped."
+        return f"Embedded image already {target[0]}x{target[1]} - skipped."
 
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     new_data = encode_image_to_jpeg_bytes(img, target)
@@ -419,7 +423,7 @@ def process_folder_jpg(directory: Path, dry_run: bool = False) -> str | None:
     target = FOLDER_JPG_TARGET
 
     if current_size == target:
-        return f"folder.jpg already {target[0]}\u00d7{target[1]} \u2014 skipped."
+        return f"folder.jpg already {target[0]}x{target[1]} - skipped."
 
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     img = center_crop_to_square(img)
@@ -428,8 +432,8 @@ def process_folder_jpg(directory: Path, dry_run: bool = False) -> str | None:
     if dry_run:
         crop_note = " (centre-cropped)" if spec.needs_crop else ""
         return (
-            f"folder.jpg was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
-            f"would be resized to {target[0]}\u00d7{target[1]} (dry run)."
+            f"folder.jpg was {current_size[0]}x{current_size[1]}{crop_note}; "
+            f"would be resized to {target[0]}x{target[1]} (dry run)."
         )
 
     try:
@@ -439,6 +443,6 @@ def process_folder_jpg(directory: Path, dry_run: bool = False) -> str | None:
 
     crop_note = " (centre-cropped)" if spec.needs_crop else ""
     return (
-        f"folder.jpg was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
-        f"resized to {target[0]}\u00d7{target[1]}."
+        f"folder.jpg was {current_size[0]}x{current_size[1]}{crop_note}; "
+        f"resized to {target[0]}x{target[1]}."
     )

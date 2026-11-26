@@ -8,6 +8,8 @@ re-exports every name, so existing importers are unaffected.
 Changed in 2.4.3: split out of
 ``audio_fingerprinter.core.file_processor``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+Changed in 2.9.0: the album-ambiguous message is ASCII - it is printed in the
+per-file line, and a cp1252 console rendered its em dash as ``\u2014``.
 """
 
 from __future__ import annotations
@@ -125,7 +127,7 @@ def _apply_album_decision(
         return (
             FingerprintStatus.ALBUM_AMBIGUOUS,
             None,
-            f"album ambiguous — {decision.cluster_title}; left untagged",
+            f"album ambiguous - {decision.cluster_title}; left untagged",
         )
     if decision.outcome == "fallback" and decision.best is None:
         return (

@@ -6,6 +6,8 @@ Changed in 1.2.0: adds the MusicBrainz enrichment / ISRC real-outcome tests
 dry run's previewed XML is byte-identical to the live POST body
 (Sprint 2 Item 2.3).
 Changed in 1.4.0: the tag tie-break and album-mode tests patch the single handler load.
+Changed in 2.9.0: the display and message assertions quote the ASCII separator
+(`` - ``) the fingerprinter prints, because the em dash reached the console.
 """
 
 from __future__ import annotations
@@ -211,7 +213,7 @@ class TestProcessFileTagTiebreak:
         job.client.lookup.return_value = self._lookup((remix, original))
         result = _process_file(job, "/path/track.mp3")
         assert result.status == "MATCHED"
-        assert "Johnny, Don't Do It — 10cc" in result.message
+        assert "Johnny, Don't Do It - 10cc" in result.message
         assert "matched file tags" in result.message
         assert "Rosenstolz" not in result.message
         assert result.acoustid_id == "ac-orig"
@@ -241,7 +243,7 @@ class TestProcessFileTagTiebreak:
         result = _process_file(job, "/path/track.mp3")
         assert result.status == "MATCHED"
         assert result.acoustid_id == "ac-top"
-        assert "ambiguous — also Song B" in result.message
+        assert "ambiguous - also Song B" in result.message
         assert "matched file tags" not in result.message
 
     @patch("audio_fingerprinter.core.file_processor.generate_fingerprint")
@@ -257,7 +259,7 @@ class TestProcessFileTagTiebreak:
         job.client.lookup.return_value = self._lookup((top, runner_up))
         result = _process_file(job, "/path/track.mp3")
         assert result.status == "MATCHED"
-        assert result.message == "Dominant — 10cc (score 0.98)"
+        assert result.message == "Dominant - 10cc (score 0.98)"
         assert "ambiguous" not in result.message
 
 
@@ -321,9 +323,9 @@ class TestResultDisplay:
             file_path="x",
             filename="a.mp3",
             status="MATCHED",
-            message="Song — Artist (score 0.90)",
+            message="Song - Artist (score 0.90)",
         )
-        assert _result_display(result) == "[MATCHED] a.mp3 — Song — Artist (score 0.90)"
+        assert _result_display(result) == "[MATCHED] a.mp3 - Song - Artist (score 0.90)"
 
     def test_plain_status_line(self):
         result = FingerprintFileResult(
@@ -336,11 +338,11 @@ class TestResultDisplay:
             file_path="x",
             filename="a.mp3",
             status="ALBUM AMBIGUOUS",
-            message="album ambiguous — A vs B; left untagged",
+            message="album ambiguous - A vs B; left untagged",
         )
         assert (
             _result_display(result)
-            == "[ALBUM AMBIGUOUS] a.mp3 — album ambiguous — A vs B; left untagged"
+            == "[ALBUM AMBIGUOUS] a.mp3 - album ambiguous - A vs B; left untagged"
         )
 
 
@@ -672,7 +674,7 @@ class TestRunFingerprintingAlbumMode:
         kwargs = complete.call_args.kwargs
         assert all(r.status == "ALBUM AMBIGUOUS" for r in kwargs["results"])
         for result in kwargs["results"]:
-            assert "album ambiguous — The Album vs Other Album" in result.message
+            assert "album ambiguous - The Album vs Other Album" in result.message
             assert result.tag_written is False
         assert kwargs["counts"]["album_ambiguous"] == 6
         assert any(
@@ -1243,7 +1245,7 @@ class TestCommitMatchTags:
             )
         assert result.status == FingerprintStatus.TAG_WRITE_FAILED
         assert result.tag_written is False
-        assert result.message == "Song (score 0.90) — file is read-only"
+        assert result.message == "Song (score 0.90) - file is read-only"
 
     def test_mbid_note_is_appended_when_the_opt_in_is_on(self):
         matched = self._matched()
@@ -1261,7 +1263,7 @@ class TestCommitMatchTags:
             result = _commit_match_tags(matched, _make_recording(), params, None)
         mock_mbids.assert_called_once()
         assert result.status == FingerprintStatus.TAGGED
-        assert result.message == "Song (score 0.90) — MBID track id written"
+        assert result.message == "Song (score 0.90) - MBID track id written"
 
     def test_mbids_are_skipped_when_the_acoustid_write_failed(self):
         matched = self._matched()

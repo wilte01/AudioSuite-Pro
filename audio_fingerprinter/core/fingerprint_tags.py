@@ -8,6 +8,9 @@ re-exports every name, so existing importers are unaffected.
 Changed in 2.4.3: split out of
 ``audio_fingerprinter.core.file_processor``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+Changed in 2.9.0: the notes this module appends to a file's message are ASCII.
+They land in the per-file display line, so the em dash a cp1252 console printed
+as ``\u2014`` is ``-``.
 """
 
 from __future__ import annotations
@@ -164,17 +167,17 @@ def _commit_match_tags(
         if ok and params.write_mbids:
             mbids = _write_mbids_for(params, recording, matched.file_path)
             if mbids:
-                message = f"{message} — {mbids}"
+                message = f"{message} - {mbids}"
         if ok and params.write_isrc and matched.isrcs:
             isrc_note = _write_isrc_for(matched.isrcs, matched.file_path)
             if isrc_note:
-                message = f"{message} — {isrc_note}"
+                message = f"{message} - {isrc_note}"
 
     if not ok:
         return replace(
             matched,
             status=FingerprintStatus.TAG_WRITE_FAILED,
-            message=f"{message} — {msg}",
+            message=f"{message} - {msg}",
         )
 
     return replace(

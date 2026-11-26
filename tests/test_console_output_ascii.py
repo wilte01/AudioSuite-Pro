@@ -11,8 +11,7 @@ The rule this module enforces is the one ``AGENTS.md`` states for
 typography belongs in comments, docstrings and documentation, where no console
 ever renders it; anything that reaches a console or a log uses ASCII.
 
-Only string constants that are arguments to an output call - or that form a
-per-file ``display``/``display_text`` line - are inspected, so a comment or
+Only string constants that reach output are inspected, so a comment or
 docstring may keep its em dashes.  Both spellings are caught: the literal
 glyph and its ``\\u2014`` escape produce the same malformed constant.
 
@@ -27,13 +26,18 @@ cp1252 console renders as ``\\u2192``.  The same rule now covers ``log_text``
 and the ``action`` fragment both lines are built from: a repair that prints
 ``Fixed 1 thing - Done`` in ASCII still wrote an em dash into the run report
 through the fragment, so the lock has to read the fragment and not only the
-line that quotes it.
+line that quotes it.  ``outcome`` joins them, and a display value that is a
+*call* is followed: Album Art Normalizer's skip line is the string its
+``process_*_artwork`` functions return, and the fingerprinter's is
+``_result_display``'s, so a lock that stopped at the call site would have left
+both defects in place.
 """
 
 from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -61,10 +65,12 @@ _OUTPUT_CALLS: frozenset[str] = frozenset(
 #: of the calls above.  The log line is written as ``log``, ``log_line`` or
 #: ``log_text`` depending on the tool, so all three are covered; ``action`` is
 #: the verdict both lines quote (``Fixed 1 thing``) and ``repaired_suffix`` the
-#: fragment an in-place repair tool appends to it.  ``action`` is also the
-#: keyword argparse and Tk take for an option flag; those strings are ASCII by
-#: construction, so the shared name costs nothing and keeps one rule instead of
-#: one per call.
+#: fragment an in-place repair tool appends to it.  ``outcome`` is the status
+#: string a processor returns for one file - Album Art Normalizer prints it as
+#: ``[SKIPPED] song.mp3 - <outcome>`` - so the name is read here as well as the
+#: line that quotes it.  ``action`` is also the keyword argparse and Tk take for
+#: an option flag; those strings are ASCII by construction, so the shared name
+#: costs nothing and keeps one rule instead of one per call.
 _DISPLAY_NAMES: frozenset[str] = frozenset(
     {
         "display",
@@ -74,6 +80,7 @@ _DISPLAY_NAMES: frozenset[str] = frozenset(
         "log_text",
         "action",
         "repaired_suffix",
+        "outcome",
     }
 )
 
@@ -81,6 +88,12 @@ _DISPLAY_NAMES: frozenset[str] = frozenset(
 #: tree repeats shipped modules, and a plugin is third-party code the suite does
 #: not own.
 _EXCLUDED_DIRS: frozenset[str] = frozenset({"tests", "packaging", "plugins"})
+
+#: How far a call-returned fragment is followed: the call site, the function
+#: that builds the text, the helper that function returns through, and one
+#: below that.  Four hops reaches every producer in the tree today; a longer
+#: chain would be a formatter nobody could read the line out of anyway.
+_MAX_FRAGMENT_DEPTH = 4
 
 
 def _candidate_files() -> list[Path]:
@@ -105,6 +118,12 @@ def _candidate_files() -> list[Path]:
     return files
 
 
+@lru_cache(maxsize=None)
+def _parse(path: Path) -> ast.Module:
+    """Parse *path* once; the fragment walk revisits the same modules."""
+    return ast.parse(path.read_text(encoding="utf-8"))
+
+
 def _constants(node: ast.AST) -> Iterator[tuple[int, str]]:
     """Yield ``(line, value)`` for every string constant under *node*."""
     for sub in ast.walk(node):
@@ -117,14 +136,29 @@ def _is_display_target(node: ast.expr) -> bool:
     return isinstance(node, ast.Name) and node.id in _DISPLAY_NAMES
 
 
-def _output_strings(path: Path) -> Iterator[tuple[int, str]]:
-    """Yield ``(line, value)`` for every string that reaches the console.
+def _display_expressions(tree: ast.Module) -> Iterator[ast.expr]:
+    """Yield every expression whose value is a per-file display fragment."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg in _DISPLAY_NAMES:
+                    yield keyword.value
+        elif isinstance(node, ast.Assign):
+            if any(_is_display_target(target) for target in node.targets):
+                yield node.value
+        elif isinstance(node, ast.AnnAssign):
+            if _is_display_target(node.target) and node.value is not None:
+                yield node.value
 
-    Two shapes count: an argument (or ``display`` keyword) of an output call,
-    and a ``display``/``display_text`` value, which is the per-file line a tool
+
+def _output_strings(path: Path) -> Iterator[tuple[int, str]]:
+    """Yield ``(line, value)`` for every string the module prints itself.
+
+    Two shapes count: an argument of an output call, and a
+    ``display``/``display_text``-style value, which is the per-file line a tool
     hands to ``on_progress`` after building it in an assignment.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = _parse(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
@@ -136,25 +170,217 @@ def _output_strings(path: Path) -> Iterator[tuple[int, str]]:
             if name in _OUTPUT_CALLS:
                 for argument in node.args:
                     yield from _constants(argument)
-            for keyword in node.keywords:
-                if keyword.arg in _DISPLAY_NAMES:
-                    yield from _constants(keyword.value)
-        elif isinstance(node, ast.Assign):
-            if any(_is_display_target(target) for target in node.targets):
-                yield from _constants(node.value)
+    for expression in _display_expressions(tree):
+        yield from _constants(expression)
+
+
+def _call_name(node: ast.Call) -> str | None:
+    """Return the name a call is made through, or None for anything else."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _imported_module(path: Path, node: ast.ImportFrom, name: str) -> Path | None:
+    """Resolve one name of an ``ImportFrom`` to the module file it lives in."""
+    if node.level:
+        base = path.parent
+        for _ in range(node.level - 1):
+            base = base.parent
+    else:
+        base = REPO_ROOT
+    module = base.joinpath(*node.module.split(".")) if node.module else base / name
+    for candidate in (module.with_suffix(".py"), module / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _local_definition(
+    tree: ast.Module, name: str
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """Return this module's own definition of *name*, if it has one."""
+    for node in tree.body:
+        if (
+            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            and node.name == name
+        ):
+            return node
+    return None
+
+
+def _definition(
+    path: Path,
+    tree: ast.Module,
+    name: str,
+    depth: int = 0,
+    visited: frozenset[tuple[Path, str]] = frozenset(),
+) -> tuple[Path, ast.Module, ast.FunctionDef | ast.AsyncFunctionDef] | None:
+    """Resolve *name* to the function body that defines it, in this file or an
+    import, following a re-export chain rather than guessing."""
+    key = (path, name)
+    if key in visited or depth > _MAX_FRAGMENT_DEPTH:
+        return None
+    local = _local_definition(tree, name)
+    if local is not None:
+        return path, tree, local
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            if (alias.asname or alias.name) != name:
+                continue
+            module = _imported_module(path, node, alias.name)
+            if module is None:
+                return None
+            return _definition(
+                module, _parse(module), alias.name, depth + 1, visited | {key}
+            )
+    return None
+
+
+def _local_values(tree: ast.Module, name: str) -> list[ast.expr]:
+    """Return every expression this module binds to a local *name*."""
+    values: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if any(
+                _is_display_target(target) or _is_name(target, name)
+                for target in node.targets
+            ):
+                values.append(node.value)
         elif isinstance(node, ast.AnnAssign):
-            if _is_display_target(node.target) and node.value is not None:
-                yield from _constants(node.value)
+            if _is_name(node.target, name) and node.value is not None:
+                values.append(node.value)
+    return values
+
+
+def _is_name(node: ast.expr, name: str) -> bool:
+    """Return whether *node* is the bare name *name*."""
+    return isinstance(node, ast.Name) and node.id == name
+
+
+def _is_function_table(value: ast.expr) -> bool:
+    """Return whether *value* is a table of functions a processor is chosen from."""
+    return isinstance(value, ast.Dict | ast.List | ast.Set | ast.Tuple)
+
+
+def _call_sources(
+    path: Path,
+    tree: ast.Module,
+    expression: ast.AST,
+    depth: int,
+    visited: frozenset[tuple[Path, str]],
+    *,
+    follow_imports: bool = True,
+) -> Iterator[tuple[Path, ast.Module, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """Yield the functions whose text can become *expression*'s value."""
+    for sub in ast.walk(expression):
+        if isinstance(sub, ast.Call):
+            name = _call_name(sub)
+            if name is not None:
+                yield from _name_sources(
+                    path, tree, name, depth, visited, follow_imports, from_call=True
+                )
+        elif isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+            yield from _name_sources(
+                path, tree, sub.id, depth, visited, follow_imports, from_call=False
+            )
+
+
+def _name_sources(
+    path: Path,
+    tree: ast.Module,
+    name: str,
+    depth: int,
+    visited: frozenset[tuple[Path, str]],
+    follow_imports: bool,
+    *,
+    from_call: bool,
+) -> Iterator[tuple[Path, ast.Module, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """Resolve *name* to the producers behind it, following a local binding only
+    when it is a call the value is made from or a table of callables."""
+    key = (path, name)
+    if key in visited or depth > _MAX_FRAGMENT_DEPTH:
+        return
+    if follow_imports:
+        definition = _definition(path, tree, name)
+    else:
+        local = _local_definition(tree, name)
+        definition = (path, tree, local) if local is not None else None
+    if definition is not None:
+        yield definition
+        return
+    for value in _local_values(tree, name):
+        if from_call or _is_function_table(value):
+            yield from _call_sources(
+                path,
+                tree,
+                value,
+                depth + 1,
+                visited | {key},
+                follow_imports=follow_imports,
+            )
+
+
+def _producer_strings(
+    path: Path,
+    tree: ast.Module,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    depth: int = 0,
+    visited: frozenset[tuple[Path, str]] = frozenset(),
+) -> Iterator[tuple[Path, int, str]]:
+    """Yield ``(path, line, value)`` for the text *function* returns.
+
+    Only ``return`` statements are read - not the whole body - so a helper the
+    producer merely calls for its side effects cannot drag unrelated strings
+    into the lock.  A return that delegates to a sibling formatter is followed,
+    because that is where a composed line's wording lives.
+    """
+    for node in ast.walk(function):
+        if isinstance(node, ast.Return) and node.value is not None:
+            for line, value in _constants(node.value):
+                yield path, line, value
+            for source_path, source_tree, helper in _call_sources(
+                path,
+                tree,
+                node.value,
+                depth + 1,
+                visited | {(path, function.name)},
+            ):
+                yield from _producer_strings(
+                    source_path, source_tree, helper, depth + 1, visited
+                )
+
+
+def _fragment_strings(path: Path) -> Iterator[tuple[Path, int, str]]:
+    """Yield the strings a call-returned display value is built from.
+
+    A tool that binds ``outcome = processor(...)`` or passes
+    ``display_text=_result_display(result)`` prints text this module's own file
+    does not contain, so the scan follows the call to the function that returns
+    it.  Without that hop the em dashes in those lines are invisible to the
+    lock and resurface on the user's console.
+    """
+    tree = _parse(path)
+    for expression in _display_expressions(tree):
+        for source_path, source_tree, function in _call_sources(
+            path, tree, expression, 0, frozenset()
+        ):
+            yield from _producer_strings(source_path, source_tree, function)
 
 
 @pytest.fixture(scope="module")
 def scanned() -> list[tuple[Path, int, str]]:
     """Every output string in the tree, as ``(path, line, value)`` triples."""
-    return [
-        (path, line, value)
-        for path in _candidate_files()
-        for line, value in _output_strings(path)
-    ]
+    found: set[tuple[Path, int, str]] = set()
+    for path in _candidate_files():
+        found.update((path, line, value) for line, value in _output_strings(path))
+        found.update(_fragment_strings(path))
+    return sorted(found, key=lambda item: (str(item[0]), item[1], item[2]))
 
 
 class TestDisplayStringsAreScanned:
@@ -186,7 +412,9 @@ class TestDisplayStringsAreScanned:
 
         assert any("\u2192" in value for value in values)
 
-    @pytest.mark.parametrize("name", ["log", "log_line", "log_text", "action"])
+    @pytest.mark.parametrize(
+        "name", ["log", "log_line", "log_text", "action", "outcome"]
+    )
     def test_a_log_or_action_assignment_is_scanned(
         self, name: str, tmp_path: Path
     ) -> None:
@@ -198,6 +426,59 @@ class TestDisplayStringsAreScanned:
         )
 
         values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+
+class TestCallReturnedFragmentsAreScanned:
+    """A display value a tool gets back from a call is output too."""
+
+    def test_a_same_file_formatter_is_followed(self, tmp_path: Path) -> None:
+        module = tmp_path / "mod.py"
+        module.write_text(
+            "def _describe(name):\n"
+            '    return f"[SKIP] {name} \u2014 clean"\n'
+            "\n"
+            "display_text = _describe(name)\n",
+            encoding="utf-8",
+        )
+
+        values = [value for _path, _line, value in _fragment_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+    def test_an_imported_formatter_is_followed(self, tmp_path: Path) -> None:
+        package = tmp_path / "pkg"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "formats.py").write_text(
+            'def describe(name):\n    return f"[SKIP] {name} \u2014 clean"\n',
+            encoding="utf-8",
+        )
+        module = package / "runner.py"
+        module.write_text(
+            "from .formats import describe\n\ndisplay = describe(name)\n",
+            encoding="utf-8",
+        )
+
+        values = [value for _path, _line, value in _fragment_strings(module)]
+
+        assert any("\u2014" in value for value in values)
+
+    def test_a_formatter_chosen_from_a_table_is_followed(self, tmp_path: Path) -> None:
+        """Album Art Normalizer picks its processor from a per-suffix table."""
+        module = tmp_path / "mod.py"
+        module.write_text(
+            "def _resize(path, target, dry_run):\n"
+            '    return "Embedded image already 800x800 \u2014 skipped."\n'
+            "\n"
+            'HANDLERS = {".mp3": _resize}\n'
+            "processor = HANDLERS.get(suffix)\n"
+            "outcome = processor(path, target, dry_run)\n",
+            encoding="utf-8",
+        )
+
+        values = [value for _path, _line, value in _fragment_strings(module)]
 
         assert any("\u2014" in value for value in values)
 
@@ -221,6 +502,15 @@ class TestConsoleOutputIsAscii:
         assert (REPO_ROOT / "bpm_analyzer") / "core" / "file_processor.py" in paths, (
             "per-file display lines are not being scanned"
         )
+        assert (
+            REPO_ROOT / "album_art_normalizer"
+        ) / "core" / "art_processor.py" in paths, (
+            "a call-returned per-file outcome is not being scanned"
+        )
+        assert (
+            REPO_ROOT / "audio_fingerprinter" / "core" / "fingerprint_messages.py"
+            in paths
+        ), "an imported per-file formatter is not being followed"
 
     def test_no_output_string_carries_a_non_ascii_character(
         self, scanned: list[tuple[Path, int, str]]

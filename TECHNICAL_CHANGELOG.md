@@ -35,9 +35,23 @@ used once, and every bullet belongs to exactly one of them.
   BPM tool (both the main-thread and the process-pool handler), Key Detector,
   the mood tool, Lyrics Manager (both error paths) and Album Art Normalizer,
   plus the Unicode arrow inside Music Format Converter's two log builders. They
-  are `-`, `|` and `->` now. A `display_text=` whose value is a call — the
-  fingerprinter's `_result_display(result)` — is still outside the name-based
-  rule.
+  are `-`, `|` and `->` now.
+
+- **The ASCII output lock follows a call-returned per-file fragment.** A tool
+  that binds `outcome = processor(...)` or passes
+  `display_text=_result_display(result)` prints text its own module does not
+  contain, so a name-based sweep could not see it: Album Art Normalizer's skip
+  line and the Fingerprinter's match detail both reached the console with an em
+  dash. The scan resolves the call through the module's own functions, its
+  imports (including a re-export) and a suffix table of processors, then reads
+  the `return` statements of the function that builds the text, four hops deep
+  and never the whole body, so a helper called for its side effects cannot drag
+  unrelated strings in. `outcome` joins `_DISPLAY_NAMES`. It found Album Art
+  Normaliser's six artwork outcomes and the Fingerprinter's display and match
+  separators, the tag-write notes it appends and its album-ambiguous message;
+  all are `-` now, and a size reads `800x800` instead of the multiplication
+  sign. Reintroducing either glyph makes the lock name the file and line, and
+  three tests pin the same-file, imported and table-selected producer.
 
 - **All eight Auto End windows mark and close the same way.** The sentence, the
   delay it states and the close are the shell's (`auto_end_sentence`,

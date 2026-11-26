@@ -50,7 +50,12 @@ used once, and every bullet belongs to exactly one of them.
   reading the log line also caught the remaining em dashes in BPM, Key
   Detector, Mood Analyzer, Lyrics Manager and Album Art Normalizer's error
   lines, and Music Format Converter's conversion arrows, so the saved run
-  report is ASCII too.
+  report is ASCII too. Two lines escaped that pass because the text comes back
+  from a function the display line calls: Album Art Normalizer's skip line
+  ("No embedded artwork - skipped.") and the Fingerprinter's match detail
+  (`[TAGGED] Vienna.mp3 - Vienna - Ultravox (score 0.98)`). The test now
+  follows those calls, so the whole line is read wherever it was built, and a
+  size reads `800x800` instead of the multiplication sign a console garbles.
 
 ## [2.9.0] - 2026-11-20
 

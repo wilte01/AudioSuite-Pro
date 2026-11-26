@@ -14,6 +14,10 @@ Changed in 2.5.0: the module's own ``FileHandler`` and its
 ``configure_logging(\"album_art_normalizer\")``, which owns both the
 diagnostic ``logs/<program>.log`` and the suite log, so a second handler was
 a private copy of that rule that nothing called.
+Changed in 2.9.0: the unsupported-extension outcome is ASCII.  It is the
+``outcome`` fragment the per-file line quotes, so the ASCII output lock reads
+it (``tests/test_console_output_ascii.py``), and a cp1252 console printed the
+em dash as ``\u2014``.
 """
 
 import logging
@@ -129,7 +133,7 @@ def run_processing(
             elif suffix == ".flac":
                 outcome = _process_flac(path, target_size)
             else:
-                outcome = "Unsupported extension \u2014 skipped."
+                outcome = "Unsupported extension - skipped."
 
             emit(f"  \u2192 {outcome}")
             if "resized" in outcome and "saved" in outcome:
