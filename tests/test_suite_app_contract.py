@@ -99,7 +99,7 @@ import threading
 import tkinter as tk
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from queue import Queue, SimpleQueue
+from queue import SimpleQueue
 from tkinter import ttk
 from types import SimpleNamespace
 from typing import Any
@@ -868,11 +868,11 @@ def _complete_mood_analysis_run(
     """Drive the batch engine and the poller: the engine writes the log there.
 
     The tagger's report is the engine's, so the drive runs the engine over one
-    file (with the analysis itself stubbed) and lets the window's own poller
-    read the ``done`` message, which is what names ``_log_path``.
+    file (with the analysis itself stubbed) and hands its queue to the window's
+    poller, which reads the ``done`` message that names ``_log_path``.
     """
     (tmp_path / "track.mp3").write_bytes(b"x")
-    out: Queue[Any] = Queue()
+    out: SimpleQueue[tuple[Any, ...]] = SimpleQueue()
     with patch(
         "mood_analysis_batch_tagger.core.batch_analysis_engine._analyse_file",
         return_value=SimpleNamespace(
@@ -886,8 +886,8 @@ def _complete_mood_analysis_run(
             live=False,
             max_workers=1,
         )
-    app._queue = out
-    app._poll_queue()
+    app._ui_updates = out
+    app._poll_ui_updates()
     # The completion is scheduled onto the Tk thread; run it now.
     app.root.update()
 

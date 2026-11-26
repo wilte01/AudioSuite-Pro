@@ -23,6 +23,9 @@ when not supplied (PLAN D56).
 Changed in 2.9.0: the log footer names itself ``SUMMARY:``, the marker every
 other tool's run report carries, so the window's View Log opens a report the
 shell's contract recognises (C1 stage 2).
+Changed in 2.9.0: ``run_batch`` takes any queue with ``put`` (``MessageQueue``)
+instead of a ``queue.Queue``, so the window can hand it the shell's
+``SimpleQueue`` without a type argument (D65).
 """
 
 from __future__ import annotations
@@ -33,8 +36,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from queue import Queue
-from typing import Any
+from typing import Any, Protocol
 
 from audio_suite_shared.batch_undo import (
     get_active_batch_id,
@@ -68,6 +70,19 @@ from mood_analyzer.core.file_processor import _analyse_file
 from mood_analyzer.core.signal_mood_engine import MoodAnalysis
 
 logger = logging.getLogger(__name__)
+
+
+class MessageQueue(Protocol):
+    """The one queue operation a batch run needs: ``put``.
+
+    The GUI hands the run the shell's ``SimpleQueue``, and the CLI hands it a
+    ``queue.Queue`` it also reads.  A run never reads its own queue, so the
+    parameter names the operation both share rather than one of the classes.
+    """
+
+    def put(self, item: tuple[Any, ...]) -> None:
+        """Append *item* for the reader."""
+
 
 # Analysis failures that indicate a file simply cannot be analysed with signal
 # analysis — these are counted as SKIPs, not errors.
@@ -106,7 +121,7 @@ class _BatchCallbacks:
     processed_count: list[int]
     log_lines: list[str]
     total: int
-    out_queue: "Queue[tuple[Any, ...]]"
+    out_queue: MessageQueue
     root: str
     _current_folder: list[str | None]
 
@@ -368,7 +383,7 @@ def _slot_label(action: str, filename: str) -> str:
 @handle_audio_errors(reraise=False, context="mood_analysis_batch_process")
 def run_batch(
     root: str,
-    out_queue: Queue[tuple[Any, ...]],
+    out_queue: MessageQueue,
     stop_event: threading.Event,
     live: bool = True,
     analysis_duration: int = 90,
@@ -391,7 +406,7 @@ def run_batch(
 
     Args:
         root:               Root directory to scan recursively.
-        out_queue:          Queue consumed by the UI polling loop.
+        out_queue:          Queue the UI poller drains: anything with ``put``.
         stop_event:         Checked between files; set externally to cancel.
         live:               When ``False`` (Dry Run), moods are determined but
             tags are not written to disk.

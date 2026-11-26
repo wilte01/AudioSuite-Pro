@@ -32,6 +32,11 @@ completion renders through ``render_completion``, and View Log is the shell's
 report opener, so it opens the path the engine reports for the run.
 Changed in 2.9.0: the preset trio (select, save, delete) is the shell's,
 so this window declares the settings a preset carries and keeps only that (D58).
+Changed in 2.9.0: the window starts its run through ``SuiteApp._start_worker``
+and renders the run's messages in ``_dispatch_ui_message``, so the shell's
+poller owns the drain and this file keeps no queue, poller or thread of its own
+(D65).  A run the engine's error boundary swallowed is reported instead of
+leaving the window on "Processing..." with Start disabled.
 """
 
 from __future__ import annotations
@@ -41,7 +46,6 @@ import os
 import threading
 import time
 import tkinter as tk
-from queue import Empty, Queue
 from typing import Any
 
 from audio_suite_shared import platform_utils, suite_config
@@ -130,8 +134,6 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
 
         # ── Processing state ─────────────────────────────────────────────────
 
-        self._queue: Queue[Any] = Queue()
-        self._running: bool = False
         self._tagged_count: int = 0
         self._skipped_count: int = 0
         self._error_count: int = 0
@@ -139,6 +141,15 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
         # Set by ``_on_start``; the completion's elapsed time reads it.
         self._run_started: float = 0.0
         self.auto_end: bool = False
+
+        # ── Run snapshot ─────────────────────────────────────────────────────
+        # ``_on_start`` fills these on the Tk thread; the run's thread reads
+        # only these, never the Tk variables behind them.
+        self._run_root: str = ""
+        self._run_live: bool = False
+        self._run_duration: int = 90
+        self._run_parallel: bool = False
+        self._run_workers: int = 1
 
         # ── Worker slot pool ──────────────────────────────────────────────────
         # Built before super().__init__: the shell renders the grid from it.
@@ -285,97 +296,95 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
         self.stats_label.config(text=self.processing_stats_text)
         self._reset_slot_vars()
 
-        self._running = True
         self.start_btn.config(state="disabled")
         self.notebook.select(self.processing_frame)
 
-        live: bool = self.run_mode.get() == "Live Update"
-        duration: int = self.analysis_duration.get()
-        parallel: bool = self.parallel_mode.get()
-        workers = self.max_workers.get()
+        # Snapshot on the Tk thread: the run's thread reads only these.
+        self._run_root = root
+        self._run_live = self.run_mode.get() == "Live Update"
+        self._run_duration = self.analysis_duration.get()
+        self._run_parallel = self.parallel_mode.get()
+        self._run_workers = self.max_workers.get()
 
-        def _run_worker() -> None:
-            def _on_worker_status(slot: int, label: str) -> None:
-                self._queue.put(("slot", slot, label))
-
-            with active_batch(TOOL_ID, "tag_edit"):
-                batch_analysis_engine.run_batch(
-                    root=root,
-                    out_queue=self._queue,
-                    stop_event=threading.Event(),
-                    live=live,
-                    analysis_duration=duration,
-                    parallel_mode=parallel,
-                    max_workers=workers,
-                    on_worker_status=_on_worker_status,
-                )
-
-        threading.Thread(target=_run_worker, daemon=True).start()
-        self.root.after(100, self._poll_queue)
+        self._start_worker(self._run_batch, ())
 
     def _reset_slot_vars(self) -> None:
         for var in self.slot_vars:
             var.set("IDLE")
 
-    def _poll_queue(self) -> None:
-        try:
-            while True:
-                msg = self._queue.get_nowait()
-                kind = msg[0]
+    def _run_batch(self) -> None:
+        """Run the batch off the Tk thread, writing only to the run's queue."""
+        events = self._ui_updates
 
-                if kind == "folder":
-                    _, rel_folder, count, folder_total = msg
-                    self._folder_count += 1
-                    self.file_listbox.insert(
-                        tk.END, f"\u25b6  {rel_folder}  ({count} files)"
-                    )
-                    self.file_listbox.see(tk.END)
-                    self.overall_status.set(f"Scanning: {rel_folder}")
-                    self._update_stats()
+        def _on_worker_status(slot: int, label: str) -> None:
+            events.put(("slot", slot, label))
 
-                elif kind == "slot":
-                    _, slot_idx, label = msg
-                    if 0 <= slot_idx < len(self.slot_vars):
-                        self.slot_vars[slot_idx].set(label)
-
-                elif kind == "progress":
-                    _, current, total, filename = msg
-                    pct = (current / total * 100) if total else 0
-                    self.progress["value"] = pct
-                    self.overall_status.set(f"Processing: {filename}")
-
-                elif kind == "result":
-                    _, filepath, filename, success, detail = msg
-                    if success:
-                        self._tagged_count += 1
-                        entry = f"    OK   {filename}  ->  {detail}"
-                    else:
-                        self._skipped_count += 1
-                        entry = f"    SKIP {filename}  --  {detail}"
-                    self.file_listbox.insert(tk.END, entry)
-                    self.file_listbox.see(tk.END)
-                    self._update_stats()
-
-                elif kind == "done":
-                    _, tagged, skipped, errors, folders, log_path = msg
-                    self._tagged_count = tagged
-                    self._skipped_count = skipped
-                    self._error_count = errors
-                    self._folder_count = folders
-                    self._log_path = log_path
-                    self._on_done(tagged, skipped, errors, folders)
-                    return
-
-        except Empty:
-            pass
-        except Exception:  # noqa: BLE001 - poller must survive one bad read
-            logger.warning(
-                "Unexpected error while polling the batch queue",
-                exc_info=True,
+        with active_batch(TOOL_ID, "tag_edit"):
+            result: batch_analysis_engine.BatchResult | None = (
+                batch_analysis_engine.run_batch(
+                    root=self._run_root,
+                    out_queue=events,
+                    stop_event=threading.Event(),
+                    live=self._run_live,
+                    analysis_duration=self._run_duration,
+                    parallel_mode=self._run_parallel,
+                    max_workers=self._run_workers,
+                    on_worker_status=_on_worker_status,
+                )
             )
 
-        if self._running:
-            self.root.after(100, self._poll_queue)
+        if result is None:
+            # ``run_batch`` is ``@handle_audio_errors(reraise=False)``: a crash
+            # is logged and swallowed, so without this the window would sit on
+            # "Processing..." with Start disabled and no poller left to notice.
+            events.put(("error", "The batch failed. See the log for details."))
+
+    def _dispatch_ui_message(self, message: tuple[Any, ...]) -> None:
+        """Render one queued run message on the Tk thread."""
+        kind = message[0]
+
+        if kind == "folder":
+            _, rel_folder, count, folder_total = message
+            self._folder_count += 1
+            self.file_listbox.insert(tk.END, f"\u25b6  {rel_folder}  ({count} files)")
+            self.file_listbox.see(tk.END)
+            self.overall_status.set(f"Scanning: {rel_folder}")
+            self._update_stats()
+
+        elif kind == "slot":
+            _, slot_idx, label = message
+            if 0 <= slot_idx < len(self.slot_vars):
+                self.slot_vars[slot_idx].set(label)
+
+        elif kind == "progress":
+            _, current, total, filename = message
+            pct = (current / total * 100) if total else 0
+            self.progress["value"] = pct
+            self.overall_status.set(f"Processing: {filename}")
+
+        elif kind == "result":
+            _, filepath, filename, success, detail = message
+            if success:
+                self._tagged_count += 1
+                entry = f"    OK   {filename}  ->  {detail}"
+            else:
+                self._skipped_count += 1
+                entry = f"    SKIP {filename}  --  {detail}"
+            self.file_listbox.insert(tk.END, entry)
+            self.file_listbox.see(tk.END)
+            self._update_stats()
+
+        elif kind == "done":
+            _, tagged, skipped, errors, folders, log_path = message
+            self._tagged_count = tagged
+            self._skipped_count = skipped
+            self._error_count = errors
+            self._folder_count = folders
+            self._log_path = log_path
+            self._on_done(tagged, skipped, errors, folders)
+
+        elif kind == "error":
+            self._on_error(message[1])
 
     def _update_stats(self) -> None:
         self.stats_label.config(
@@ -389,7 +398,6 @@ class MoodAnalysisBatchTaggerApp(SuiteApp):
 
     def _on_done(self, tagged: int, skipped: int, errors: int, folders: int) -> None:
         """Render the finished batch (must run on the main thread)."""
-        self._running = False
         self.progress["value"] = 100
         self.overall_status.set("Complete.")
         self.summary_label.config(

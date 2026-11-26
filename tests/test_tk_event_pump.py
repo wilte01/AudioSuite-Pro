@@ -66,14 +66,6 @@ SHELL_METHODS: tuple[str, ...] = (
 
 #: Modules that still drain a queue on the Tk thread, with the reason.
 ALLOWLIST: dict[str, str] = {
-    "mood_analysis_batch_tagger/app.py": (
-        "The batch engine publishes on this queue and the run ends on the "
-        "engine's own 'done' message, not on a worker thread's lifetime: the "
-        "window keeps no thread handle to test, so pump_events' is_running has "
-        "nothing to read, and the 'done' handler renders the completion and "
-        "closes the window from inside the drain.  Migrating it means giving "
-        "the engine a thread handle first (D20, D29)."
-    ),
     "plugins/example_plugin/window.py": (
         "The example plugin is the documented teaching case for the queue "
         "protocol (AGENTS.md, GUI Callback Contract - D136) and it is not part "

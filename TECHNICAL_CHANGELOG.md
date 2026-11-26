@@ -17,6 +17,17 @@ used once, and every bullet belongs to exactly one of them.
 ## [Unreleased]
 
 ### Changed
+- **Mood Analysis Batch Tagger's worker publishes on the shell's queue.** The
+  window starts the run with `SuiteApp._start_worker` and renders its
+  `folder`/`slot`/`progress`/`result`/`done` messages in `_dispatch_ui_message`,
+  so `event_pump.pump_events` owns the drain and the window keeps no queue,
+  100 ms poller or `_running` flag of its own. `run_batch` takes any queue with
+  `put` (a new `MessageQueue` protocol), so the engine accepts the shell's
+  `SimpleQueue` as it is. A run the engine's
+  `handle_audio_errors(reraise=False)` boundary swallowed now queues an `error`
+  message instead of leaving the window on "Processing..." with Start disabled,
+  and `tests/test_tk_event_pump.py` no longer allowlists the window (D65).
+
 - **Album Art Sync's worker no longer schedules on the Tk root.**
   `start_thread` starts the run with `SuiteApp._start_worker`, and the window's
   `_set_status`/`_set_progress`/`_set_stats`/`_show_result`/`_restore_controls`

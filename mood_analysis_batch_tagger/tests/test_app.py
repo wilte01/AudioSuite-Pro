@@ -15,6 +15,10 @@ because ``_on_open_log`` now delegates to ``ui_helpers.open_log_file`` (D-19).
 Changed in 2.9.0: the window composes ``SuiteApp``, so the tests read the
 shell's widget names and its completion, which the stubbed ``root.after`` runs
 for the 0 ms writes (C1 stage 2).
+
+Changed in 2.9.0: the run starts through the shell's hand-off, so the message
+cases drive ``_poll_ui_updates`` (the real pump) and the start cases patch the
+shell's ``threading.Thread`` rather than the window's (D65).
 """
 
 from __future__ import annotations
@@ -54,8 +58,12 @@ def _make_app() -> MoodAnalysisBatchTaggerApp:
     app.auto_end_var = MagicMock()
     app.clear_logs_var = MagicMock()
     app.parallel_var = MagicMock()
-    app._queue = queue.Queue()
-    app._running = False
+    app._ui_updates = queue.SimpleQueue()
+    app._run_root = ""
+    app._run_live = False
+    app._run_duration = 90
+    app._run_parallel = False
+    app._run_workers = 1
     app._tagged_count = 0
     app._skipped_count = 0
     app._error_count = 0
@@ -82,14 +90,7 @@ def _make_app() -> MoodAnalysisBatchTaggerApp:
 
 class TestOnDone:
     def _app(self) -> MoodAnalysisBatchTaggerApp:
-        app = _make_app()
-        app._running = True
-        return app
-
-    def test_sets_running_false(self) -> None:
-        app = self._app()
-        app._on_done(tagged=5, skipped=2, errors=1, folders=3)
-        assert app._running is False
+        return _make_app()
 
     def test_re_enables_start_button(self) -> None:
         app = self._app()
@@ -232,7 +233,7 @@ class TestOnStart:
         with patch(f"{APP}.platform_utils") as mock_platform:
             app._on_start()
         mock_platform.messagebox.showwarning.assert_called_once()
-        assert app._running is False
+        app.start_btn.config.assert_not_called()
 
     def test_missing_directory_shows_error(self, tmp_path) -> None:
         app = _make_app()
@@ -240,7 +241,7 @@ class TestOnStart:
         with patch(f"{APP}.platform_utils") as mock_platform:
             app._on_start()
         mock_platform.messagebox.showerror.assert_called_once()
-        assert app._running is False
+        app.start_btn.config.assert_not_called()
 
     def test_valid_directory_starts_worker(self, tmp_path) -> None:
         app = _make_app()
@@ -254,21 +255,21 @@ class TestOnStart:
             patch(f"{APP}.save_run_mode"),
             patch(f"{APP}.suite_config") as mock_config,
             patch(f"{APP}.active_batch") as mock_active_batch,
-            patch(f"{APP}.threading.Thread") as mock_thread,
             patch(f"{APP}.batch_analysis_engine") as mock_engine,
+            patch("audio_suite_shared.suite_app.threading.Thread") as mock_thread,
         ):
             app._on_start()
 
             mock_config.save_last_directory.assert_called_once_with(str(tmp_path))
-            assert app._running is True
             app.start_btn.config.assert_called_once_with(state="disabled")
             app.notebook.select.assert_called_once_with(app.processing_frame)
 
             mock_thread.assert_called_once()
             thread_kwargs = mock_thread.call_args.kwargs
             assert thread_kwargs["daemon"] is True
+            assert thread_kwargs["args"] == ()
             worker = thread_kwargs["target"]
-            worker()
+            worker(*thread_kwargs["args"])
             mock_active_batch.assert_called_once_with(
                 "mood_analysis_batch_tagger", "tag_edit"
             )
@@ -276,7 +277,8 @@ class TestOnStart:
             run_kwargs = mock_engine.run_batch.call_args.kwargs
             assert run_kwargs["live"] is True
             assert run_kwargs["root"] == str(tmp_path)
-            app.root.after.assert_called_once_with(100, app._poll_queue)
+            assert run_kwargs["out_queue"] is app._ui_updates
+            app.root.after.assert_called_once_with(100, app._poll_ui_updates)
 
     def test_dry_run_sets_live_false(self, tmp_path) -> None:
         app = _make_app()
@@ -290,13 +292,13 @@ class TestOnStart:
             patch(f"{APP}.save_run_mode"),
             patch(f"{APP}.suite_config"),
             patch(f"{APP}.active_batch"),
-            patch(f"{APP}.threading.Thread") as mock_thread,
             patch(f"{APP}.batch_analysis_engine") as mock_engine,
+            patch("audio_suite_shared.suite_app.threading.Thread") as mock_thread,
         ):
             app._on_start()
 
-            worker = mock_thread.call_args.kwargs["target"]
-            worker()
+            thread_kwargs = mock_thread.call_args.kwargs
+            thread_kwargs["target"](*thread_kwargs["args"])
             run_kwargs = mock_engine.run_batch.call_args.kwargs
             assert run_kwargs["live"] is False
             assert run_kwargs["analysis_duration"] == 30
@@ -304,76 +306,73 @@ class TestOnStart:
             assert run_kwargs["max_workers"] == 2
 
 
-class TestPollQueue:
-    def _app_with_msgs(self, msgs: list[tuple]) -> MoodAnalysisBatchTaggerApp:
+class TestDispatchUiMessage:
+    """One message at a time, rendered through the shell's poller."""
+
+    def _render(self, msgs: list[tuple]) -> MoodAnalysisBatchTaggerApp:
         app = _make_app()
-        app._running = True
         app._on_done = MagicMock()  # type: ignore[method-assign]
         for msg in msgs:
-            app._queue.put(msg)
+            app._ui_updates.put(msg)
+        app._poll_ui_updates()
         return app
 
     def test_folder_message(self) -> None:
-        app = self._app_with_msgs([("folder", "/music/sub", 3, 2)])
-        app._poll_queue()
+        app = self._render([("folder", "/music/sub", 3, 2)])
         app.file_listbox.insert.assert_called_with(
             tkinter.END, "\u25b6  /music/sub  (3 files)"
         )
         app.overall_status.set.assert_called_with("Scanning: /music/sub")
 
     def test_progress_message(self) -> None:
-        app = self._app_with_msgs([("progress", 5, 10, "track.mp3")])
-        app._poll_queue()
+        app = self._render([("progress", 5, 10, "track.mp3")])
         app.progress.__setitem__.assert_any_call("value", 50.0)
         app.overall_status.set.assert_called_with("Processing: track.mp3")
 
     def test_result_success(self) -> None:
-        app = self._app_with_msgs(
+        app = self._render(
             [("result", "/m/a.mp3", "a.mp3", True, "Energetic (conf 0.87)")]
         )
-        app._poll_queue()
         assert app._tagged_count == 1
         app.file_listbox.insert.assert_called_with(
             tkinter.END, "    OK   a.mp3  ->  Energetic (conf 0.87)"
         )
 
     def test_result_skip(self) -> None:
-        app = self._app_with_msgs(
-            [("result", "/m/b.flac", "b.flac", False, "cannot decode")]
-        )
-        app._poll_queue()
+        app = self._render([("result", "/m/b.flac", "b.flac", False, "cannot decode")])
         assert app._skipped_count == 1
 
     def test_slot_message_updates_slot_var(self) -> None:
-        app = self._app_with_msgs([("slot", 2, "Analyzing: a.mp3")])
+        app = _make_app()
         app.slot_vars = [MagicMock() for _ in range(4)]
-        app._poll_queue()
+        app._ui_updates.put(("slot", 2, "Analyzing: a.mp3"))
+        app._poll_ui_updates()
         app.slot_vars[2].set.assert_called_once_with("Analyzing: a.mp3")
 
     def test_slot_message_ignores_out_of_range_index(self) -> None:
-        app = self._app_with_msgs([("slot", 9, "Analyzing: a.mp3")])
+        app = _make_app()
         app.slot_vars = [MagicMock() for _ in range(4)]
-        app._poll_queue()
+        app._ui_updates.put(("slot", 9, "Analyzing: a.mp3"))
+        app._poll_ui_updates()
         for var in app.slot_vars:
             var.set.assert_not_called()
-        app.root.after.assert_called_once_with(100, app._poll_queue)
 
-    def test_done_message_calls_on_done_and_stops(self) -> None:
-        app = self._app_with_msgs([("done", 5, 2, 1, 3, "/m/a.log")])
-        app._poll_queue()
+    def test_done_message_renders_the_completion(self) -> None:
+        app = self._render([("done", 5, 2, 1, 3, "/m/a.log")])
         app._on_done.assert_called_once_with(5, 2, 1, 3)
         assert app._tagged_count == 5
         assert app._log_path == "/m/a.log"
-        assert app.root.after.call_count == 0
 
-    def test_no_messages_reschedules(self) -> None:
+    def test_error_message_shows_the_failure(self) -> None:
         app = _make_app()
-        app._running = True
-        app._poll_queue()
-        app.root.after.assert_called_once_with(100, app._poll_queue)
+        app._ui_updates.put(("error", "The batch failed."))
+        with patch("audio_suite_shared.suite_app.messagebox") as messagebox:
+            app._poll_ui_updates()
+        messagebox.showerror.assert_called_once_with("Error", "The batch failed.")
+        app.start_btn.config.assert_called_with(state="normal")
 
     def test_mixed_messages_processed_in_order(self) -> None:
-        app = self._app_with_msgs(
+        app = self._render(
             [
                 ("folder", "/music/sub", 2, 1),
                 ("progress", 1, 2, "a.mp3"),
@@ -381,10 +380,51 @@ class TestPollQueue:
                 ("done", 1, 0, 0, 1, "/music/sub/a.log"),
             ]
         )
-        app._poll_queue()
         app._on_done.assert_called_once_with(1, 0, 0, 1)
         assert app._folder_count == 1
         assert app._tagged_count == 1
+
+
+class TestRunBatch:
+    """The run's thread publishes on the shell's queue and reports a crash."""
+
+    def test_slots_ride_the_shell_queue(self) -> None:
+        app = _make_app()
+        app._run_root = "C:/Music"
+        with (
+            patch(f"{APP}.active_batch"),
+            patch(f"{APP}.batch_analysis_engine") as mock_engine,
+        ):
+            app._run_batch()
+
+        kwargs = mock_engine.run_batch.call_args.kwargs
+        assert kwargs["root"] == "C:/Music"
+        assert kwargs["out_queue"] is app._ui_updates
+        kwargs["on_worker_status"](2, "Analyzing: a.mp3")
+        assert app._ui_updates.get_nowait() == ("slot", 2, "Analyzing: a.mp3")
+
+    def test_a_finished_run_queues_nothing_else(self) -> None:
+        app = _make_app()
+        with (
+            patch(f"{APP}.active_batch"),
+            patch(f"{APP}.batch_analysis_engine") as mock_engine,
+        ):
+            app._run_batch()
+        assert mock_engine.run_batch.called
+        assert app._ui_updates.empty()
+
+    def test_a_swallowed_failure_is_reported(self) -> None:
+        app = _make_app()
+        with (
+            patch(f"{APP}.active_batch"),
+            patch(f"{APP}.batch_analysis_engine") as mock_engine,
+        ):
+            mock_engine.run_batch.return_value = None
+            app._run_batch()
+        assert app._ui_updates.get_nowait() == (
+            "error",
+            "The batch failed. See the log for details.",
+        )
 
 
 class TestApplyCliArgs:
@@ -512,8 +552,8 @@ class TestTypedWorkersAboveTheSlotGrid:
             patch(f"{APP}.save_run_mode"),
             patch(f"{APP}.suite_config") as mock_config,
             patch(f"{APP}.active_batch"),
-            patch(f"{APP}.threading.Thread") as mock_thread,
             patch(f"{APP}.batch_analysis_engine") as mock_engine,
+            patch("audio_suite_shared.suite_app.threading.Thread") as mock_thread,
             patch("audio_suite_shared.ui_common.messagebox") as warnings,
         ):
             app._on_start()
@@ -522,6 +562,6 @@ class TestTypedWorkersAboveTheSlotGrid:
             mock_config.save_value.assert_any_call("mood_analysis_batch_max_workers", 4)
             warnings.showwarning.assert_called_once()
 
-            worker = mock_thread.call_args.kwargs["target"]
-            worker()
+            thread_kwargs = mock_thread.call_args.kwargs
+            thread_kwargs["target"](*thread_kwargs["args"])
             assert mock_engine.run_batch.call_args.kwargs["max_workers"] == 4
