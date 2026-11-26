@@ -89,8 +89,10 @@ used once, and every bullet belongs to exactly one of them.
   never wrote. A run that wrote no report (cancelled, or failed before the
   write) is marked nowhere rather than in the previous run's report, and Album
   Art Sync's 3-second close after a failure states that time in the shell's
-  sentence. `tests/test_auto_end.py` freezes the one sentence, its exact bytes,
-  both delays and the eight adopters (D60, D61).
+  sentence. Album Art Sync snapshots the arming decision with the run's other
+  Tk inputs, because its worker may not read the Setup checkbox itself.
+  `tests/test_auto_end.py` freezes the one sentence, its exact bytes, both
+  delays and the eight adopters (D60, D61, D62).
 
 - **Every preset-carrying window uses the shell's preset trio.** The fifteen
   windows that still defined their own select/save/delete methods drop them, and
