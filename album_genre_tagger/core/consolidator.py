@@ -11,7 +11,10 @@ callbacks so this module is independently testable.
 
 Changed in 2.9.0: the report's summary marker is ``SUMMARY:`` like every other
 window's, so the suite's run-report lock reads this report the way it reads the
-shell's (C1 stage 3, D50).
+shell's (C1 stage 3, D50). A file the tag layer has no handler for (a ``.wma``
+or ``.aac``) is reported as a read error but left out of the coverage
+denominator, so a fully tagged album still passes the gate, and Phase 2 skips
+it instead of attempting a write that has no handler either.
 """
 
 import logging
@@ -27,7 +30,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 
-from .tag_reader import read_titlegenre
+from .tag_reader import is_unreadable_container, read_titlegenre
 from .tag_writer import write_album_genre
 
 logger = logging.getLogger(__name__)
@@ -100,6 +103,8 @@ def run_analysis(
     title_genres: list[str] = []
     files_with_genre = 0
     read_errors = 0
+    unreadable = 0
+    unreadable_files: list[str] = []
 
     for i, filename in enumerate(files):
         filepath = os.path.join(dir_path, filename)
@@ -112,8 +117,17 @@ def run_analysis(
             log = f"[OK] {filename}: {genre}\n"
         else:
             read_errors += 1
-            display = f"[SKIP] {filename}: {error}"
-            log = f"[SKIP] {filename}: {error}\n"
+            if is_unreadable_container(error):
+                # The container has no tag handler, so this file can never
+                # carry TITLEGENRE: report the skip, but keep it out of the
+                # coverage denominator so it cannot fail the gate.
+                unreadable += 1
+                unreadable_files.append(filename)
+                display = f"[SKIP] {filename}: {error} (not counted in coverage)"
+                log = f"[SKIP] {filename}: {error} (not counted in coverage)\n"
+            else:
+                display = f"[SKIP] {filename}: {error}"
+                log = f"[SKIP] {filename}: {error}\n"
 
         log_entries.append(log)
         on_phase1_progress(
@@ -125,8 +139,16 @@ def run_analysis(
             log_text=log,
         )
 
+    if unreadable:
+        log_entries.append(
+            f"Unreadable containers (not counted in coverage): {unreadable}\n"
+        )
+
     # ── Coverage gate ─────────────────────────────────────────────────────────
-    coverage_pct = (files_with_genre / total * 100) if total > 0 else 0.0
+    # A file with no tag handler can never carry TITLEGENRE, so it is not part
+    # of the denominator; counting it would fail an otherwise complete album.
+    measurable = total - unreadable
+    coverage_pct = (files_with_genre / measurable * 100) if measurable > 0 else 0.0
 
     if coverage_pct < min_coverage:
         log_entries += [
@@ -179,7 +201,19 @@ def run_analysis(
     write_count = 0
     write_errors = 0
 
+    unreadable_names = set(unreadable_files)
+
     for filename in files:
+        if filename in unreadable_names:
+            # No tag handler means no write path either: attempting the write
+            # would snapshot the file for undo and then report a write error
+            # for one already known untaggable, so it is reported as skipped.
+            display = f"[SKIPPED] {filename}: unreadable container, not written"
+            log = f"[SKIPPED] {filename}: unreadable container, not written\n"
+            log_entries.append(log)
+            on_phase2_progress(display_text=display, log_text=log)
+            continue
+
         filepath = os.path.join(dir_path, filename)
         success, message = write_album_genre(filepath, album_genre_string, is_dry_run)
 
@@ -213,6 +247,8 @@ def run_analysis(
     ]
     if write_errors:
         log_entries.append(f"Write errors: {write_errors}\n")
+    if unreadable:
+        log_entries.append(f"Unreadable containers: {unreadable}\n")
     log_entries += [
         f"Read errors: {read_errors}\n",
         f"Time: {minutes:02d}:{seconds:02d}\n",

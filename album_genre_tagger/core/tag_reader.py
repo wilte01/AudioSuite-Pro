@@ -10,7 +10,8 @@ handler table (WP-2).
 Changed in 2.9.0: a container with no tag handler (``.wma``, ``.aac``)
 returns an unreadable-file message instead of letting ``AudioFormatError``
 escape into ``run_analysis``'s decorator, where one such file aborted the
-whole run.
+whole run. :func:`is_unreadable_container` names that outcome, so the
+consolidator can leave such a file out of the coverage denominator.
 """
 
 import logging
@@ -22,6 +23,28 @@ from audio_suite_shared.exceptions import AudioFormatError, map_to_audio_error
 from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 
 logger = logging.getLogger(__name__)
+
+#: Appended to a file's outcome when the shared tag layer has no handler for
+#: its container. The consolidator reads it through
+#: :func:`is_unreadable_container` to keep such a file out of the coverage
+#: denominator: it can never carry TITLEGENRE, so counting it would fail a
+#: fully tagged album.
+NO_HANDLER_SUFFIX = "(no tag handler for this container)"
+
+
+def is_unreadable_container(error: Optional[str]) -> bool:
+    """Whether *error* is the no-handler outcome rather than a missing tag.
+
+    Args:
+        error: The second element :func:`read_titlegenre` returned.
+
+    Returns:
+        True when the container itself is unsupported, so the file can never
+        carry TITLEGENRE and must not count toward coverage.
+    """
+    if not error:
+        return False
+    return error.endswith(NO_HANDLER_SUFFIX)
 
 
 def read_titlegenre(filepath: str) -> tuple[Optional[str], Optional[str]]:
@@ -48,7 +71,7 @@ def read_titlegenre(filepath: str) -> tuple[Optional[str], Optional[str]]:
         # error is a per-file outcome: report the file as unreadable and
         # let the run continue instead of aborting the whole album.
         logger.info("[SKIP] %s - %s", filepath, exc)
-        return None, f"{exc} (no tag handler for this container)"
+        return None, f"{exc} {NO_HANDLER_SUFFIX}"
 
     except (OSError, ValueError, MutagenError) as exc:
         mapped = map_to_audio_error(exc)

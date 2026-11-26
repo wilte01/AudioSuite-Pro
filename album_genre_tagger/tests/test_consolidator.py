@@ -5,7 +5,7 @@ Gap G-28: run_analysis() — two-phase consolidation, coverage gate,
 
 Changed in 2.9.0: locks TestUnreadableContainers - a .wma or .aac file, which
 has no tag handler, is skipped as one unreadable file instead of aborting the
-whole album run.
+whole album run, and is left out of the coverage denominator.
 """
 
 import pytest
@@ -405,6 +405,57 @@ class TestUnreadableContainers:
         log_text = "".join(complete[0]["log_entries"])
         assert f"c{ext}" in log_text
         assert "no tag handler" in log_text
+
+    @pytest.mark.parametrize("ext", [".wma", ".aac"])
+    def test_unreadable_container_is_outside_the_coverage_denominator(
+        self, tmp_path, ext
+    ):
+        """A fully tagged album still clears a 100% gate beside such a file.
+
+        The container can never carry TITLEGENRE, so counting it in the
+        denominator would hold the album at 2 of 3 files (66.7%) and stop the
+        run before Phase 2.
+        """
+        _make_mp3(tmp_path, "a.mp3", "Rock")
+        _make_mp3(tmp_path, "b.mp3", "Jazz")
+        (tmp_path / f"c{ext}").write_bytes(b"not a real audio file")
+
+        _, coverage, p2, complete, errors = _run(tmp_path, min_coverage=100)
+
+        assert errors == []
+        assert coverage == []
+        assert len(complete) == 1
+        assert complete[0]["files_with_genre"] == 2
+        assert abs(complete[0]["coverage_pct"] - 100.0) < 0.1
+        assert complete[0]["read_errors"] == 1
+        # The run reached Phase 2 instead of stopping at the gate.
+        assert len(p2) == 3
+        assert complete[0]["album_genre_string"] == "Jazz; Rock"
+        log_text = "".join(complete[0]["log_entries"])
+        assert "Unreadable containers (not counted in coverage): 1" in log_text
+
+    @pytest.mark.parametrize("ext", [".wma", ".aac"])
+    def test_unreadable_container_is_not_written_in_phase2(self, tmp_path, ext):
+        """Phase 2 reports the unreadable file as skipped, not as a write error.
+
+        The write path resolves the same handler table, so it raises the same
+        ``AudioFormatError`` after taking an undo snapshot: attempting it would
+        both snapshot a file it cannot write and count a write error against an
+        album that succeeded.
+        """
+        _make_mp3(tmp_path, "a.mp3", "Rock")
+        _make_mp3(tmp_path, "b.mp3", "Jazz")
+        (tmp_path / f"c{ext}").write_bytes(b"not a real audio file")
+
+        _, _, p2, complete, _ = _run(tmp_path, is_dry_run=False, min_coverage=100)
+
+        assert complete[0]["write_count"] == 2
+        assert complete[0]["write_errors"] == 0
+        skipped = [r for r in p2 if "[SKIPPED]" in r["display_text"]]
+        assert len(skipped) == 1
+        assert f"c{ext}" in skipped[0]["display_text"]
+        assert "unreadable container" in skipped[0]["display_text"]
+        assert not any("[WRITE ERROR]" in r["display_text"] for r in p2)
 
 
 class TestGenreValueNormalization:

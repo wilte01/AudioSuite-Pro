@@ -21,12 +21,12 @@ The tool is intentionally guarded by a coverage check. If too few files have TIT
 
 1. The selected directory is scanned for supported audio files.
 1. Phase 1 reads TITLEGENRE from each supported audio file and records readable values.
-1. Coverage is calculated as files with TITLEGENRE divided by total audio files.
+1. Coverage is calculated as files with TITLEGENRE divided by the audio files whose tags can be read.
 1. If coverage meets the configured minimum, unique genre values are sorted alphabetically.
 1. The sorted values are joined into one string, for example Rock; Soul; Vocal.
-1. Phase 2 writes ALBUMGENRE and ALBUMDERIVED to every supported audio file.
+1. Phase 2 writes ALBUMGENRE and ALBUMDERIVED to every supported file whose tags can be read. A `.wma` or `.aac` file is reported as skipped and is not written, because it has no tag handler to write through.
 
-A file without tags, without TITLEGENRE, or with an unreadable tag is counted as a read error and does not contribute to coverage.
+A file without tags, without TITLEGENRE, or with an unreadable tag is counted as a read error and does not contribute to coverage. A `.wma` or `.aac` file has no tag handler, so it can never carry TITLEGENRE: it is reported as a read error and left out of the coverage denominator, which keeps it from lowering the percentage for an otherwise fully tagged album.
 
 ## Quick Start
 
@@ -71,7 +71,7 @@ The GUI writes AlbumGenre_Tagger_Log.txt in the selected directory. The log cont
 
 ## Coverage Gate
 
-The gate compares the actual coverage percentage with Minimum Coverage. The comparison requires coverage to be at least the configured value. For example, with 10 audio files and 5 readable TITLEGENRE values, coverage is 50.0 percent: a 50 percent requirement passes, while a 60 percent requirement fails.
+The gate compares the actual coverage percentage with Minimum Coverage. The comparison requires coverage to be at least the configured value. The denominator is the number of scanned files whose tags can be read, so a file with no tag handler does not count against the album. For example, with 10 readable audio files and 5 readable TITLEGENRE values, coverage is 50.0 percent: a 50 percent requirement passes, while a 60 percent requirement fails. Two fully tagged files beside one unreadable container still measure 100.0 percent.
 
 When the gate fails, the application writes a failure log and shows the total, files with TITLEGENRE, measured coverage, required coverage, and an insufficient coverage status. No ALBUMGENRE or ALBUMDERIVED writes are attempted.
 
