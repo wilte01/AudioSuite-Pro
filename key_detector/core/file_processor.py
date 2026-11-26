@@ -34,7 +34,8 @@ same gates, because the opening 90 s of a real song is often an intro.  One
 seam, ``detect_key_for_file``, serves the thread and process workers
 (PLAN_feature_expansion.md D156).
 Changed in 2.9.0: its display/log lines use ``->`` instead of a Unicode
-arrow, which a cp1252 console prints as a literal ``\u2192``.
+arrow, which a cp1252 console prints as a literal ``\u2192``, and the error log
+line writes ``-`` where it wrote an em dash, so the run report is ASCII too.
 """
 
 import logging
@@ -342,7 +343,7 @@ def _handle_key_result(
 
     if result.get("status") == "error":
         display = f"[ERROR] {filename}: {result.get('error', 'unknown error')}"
-        log = f"[ERROR] {filename}: key detection failed — {result.get('error')}\n"
+        log = f"[ERROR] {filename}: key detection failed - {result.get('error')}\n"
         with lock:
             on_progress(n_skipped=0, n_errors=1, display_text=display, log_text=log)
         return

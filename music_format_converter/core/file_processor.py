@@ -20,7 +20,8 @@ overwriting the first output. Also in 1.0.1: the source delete records its
 undo snapshot *before* removing the file, so a snapshot failure aborts the
 delete rather than losing the original.
 Changed in 2.9.0: its display/log lines use ``->`` instead of a Unicode
-arrow, which a cp1252 console prints as a literal ``\u2192``.
+arrow, which a cp1252 console prints as a literal ``\u2192``, including the
+conversion arrows inside the log line itself.
 """
 
 from __future__ import annotations
@@ -290,8 +291,8 @@ def _dry_run_report(
     )
     log = (
         f"[DRY RUN] {filename} | "
-        f"{input_format.upper()} \u2192 {output_format.upper()} | "
-        f"Est. Size: {input_size:.2f}MB \u2192 {output_size:.2f}MB"
+        f"{input_format.upper()} -> {output_format.upper()} | "
+        f"Est. Size: {input_size:.2f}MB -> {output_size:.2f}MB"
     )
     if delete_original:
         display += " [WOULD DELETE ORIGINAL]"
@@ -581,8 +582,8 @@ def process_single_file(
         )
         log = (
             f"[CONVERTED] {filename} | "
-            f"{input_format.upper()} \u2192 {output_format.upper()} | "
-            f"Size: {input_size:.2f}MB \u2192 {output_size:.2f}MB"
+            f"{input_format.upper()} -> {output_format.upper()} | "
+            f"Size: {input_size:.2f}MB -> {output_size:.2f}MB"
         )
         if gain_status:
             log += f" | {gain_status.strip()}"

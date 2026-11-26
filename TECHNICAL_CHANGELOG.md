@@ -27,6 +27,18 @@ used once, and every bullet belongs to exactly one of them.
   and `test_the_repaired_line_is_printable_on_a_cp1252_console` pins the
   composed line the shared workflow emits.
 
+- **The ASCII output lock reads the log line and the action fragment too.**
+  `_DISPLAY_NAMES` now covers `log`/`log_line`/`log_text` — the three names a
+  tool binds its run-report line to — and `action`, the verdict the display
+  line and the log line both quote. That found eleven constants the
+  display-only sweep could not see: the em dash in the error log line of the
+  BPM tool (both the main-thread and the process-pool handler), Key Detector,
+  the mood tool, Lyrics Manager (both error paths) and Album Art Normalizer,
+  plus the Unicode arrow inside Music Format Converter's two log builders. They
+  are `-`, `|` and `->` now. A `display_text=` whose value is a call — the
+  fingerprinter's `_result_display(result)` — is still outside the name-based
+  rule.
+
 - **All eight Auto End windows mark and close the same way.** The sentence, the
   delay it states and the close are the shell's (`auto_end_sentence`,
   `close_for_auto_end`), and the condition is the shell's

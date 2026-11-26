@@ -45,8 +45,12 @@ used once, and every bullet belongs to exactly one of them.
   Sync, Album Art Normalizer, Key Detector, Metadata Scrubber, Music Format
   Converter, Lyrics Manager and the shared in-place workflow now use `->` (or
   `-`), so `[TAGGED] Vienna.mp3 -> synced lyrics` reads the same everywhere.
-  The output test now inspects the per-file display line too, so a new arrow
-  cannot slip back in.
+  The output test now inspects the per-file display line, the log line and the
+  action text both lines are built from, so a new arrow cannot slip back in;
+  reading the log line also caught the remaining em dashes in BPM, Key
+  Detector, Mood Analyzer, Lyrics Manager and Album Art Normalizer's error
+  lines, and Music Format Converter's conversion arrows, so the saved run
+  report is ASCII too.
 
 ## [2.9.0] - 2026-11-20
 

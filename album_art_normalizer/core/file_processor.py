@@ -7,7 +7,9 @@ BaseFileProcessor infrastructure while preserving identical behaviour.
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
 Changed in 2.9.0: the per-file display line uses ``->`` instead of a
-Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``, and the
+error log line separates the name from the exception with ``|`` where it wrote
+an em dash, so the run report is ASCII as well.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -133,7 +135,7 @@ def _normalize_single_file(
         ) as exc:
             logger.exception("Handled error processing %s", name)
             display = f"[ERROR] {name}: {exc}"
-            log_line = f"[ERROR] {name} — {exc}\n"
+            log_line = f"[ERROR] {name} | {exc}\n"
             with lock:
                 on_progress(
                     n_skipped=0, n_errors=1, display_text=display, log_text=log_line

@@ -26,7 +26,9 @@ count and the key vote runs through ``chroma_cqt`` — and the anchors were
 tuned at 22 050 Hz.  The same clip read one mood at 22 050 Hz and another at
 48 kHz (PLAN D138).
 Changed in 2.9.0: the per-file display line uses ``->`` instead of a
-Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``, and the
+error log line writes ``-`` where it wrote an em dash, so the run report is
+ASCII as well.
 """
 
 import logging
@@ -258,7 +260,7 @@ def _handle_mood_result(
 
     if result.get("status") == "error":
         display = f"[ERROR] {filename}: {result.get('error', 'unknown error')}"
-        log = f"[ERROR] {filename}: mood analysis failed — {result.get('error')}\n"
+        log = f"[ERROR] {filename}: mood analysis failed - {result.get('error')}\n"
         with lock:
             on_progress(n_skipped=0, n_errors=1, display_text=display, log_text=log)
         return

@@ -25,7 +25,9 @@ Changed in 1.4.1: those files are also collected as structured records and
 handed to ``on_complete``, so the run summary and the CLI's ``--json`` can
 count them instead of leaving the evidence only in per-file lines (D109).
 Changed in 2.9.0: the per-file display line uses ``->`` instead of a
-Unicode arrow, which a cp1252 console prints as a literal ``\u2192``.
+Unicode arrow, which a cp1252 console prints as a literal ``\u2192``, and the
+error log line writes ``-`` where it wrote an em dash, so the run report is
+ASCII as well.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -239,7 +241,7 @@ def process_single_file(
             exc=exc,
         )
         display = f"[ERROR] {name}: {reason}"
-        log = f"[ERROR] {name}: BPM detection failed — {reason}\n"
+        log = f"[ERROR] {name}: BPM detection failed - {reason}\n"
         with lock:
             if error_files is not None:
                 error_files.append(_error_record(name, reason, exc))
@@ -384,7 +386,7 @@ def _handle_bpm_result(
         reason = str(result.get("error", "unknown error"))
         error_type = str(result.get("error_type", "BPMDetectionError"))
         display = f"[ERROR] {filename}: {reason}"
-        log = f"[ERROR] {filename}: BPM detection failed — {reason}\n"
+        log = f"[ERROR] {filename}: BPM detection failed - {reason}\n"
         with lock:
             if isinstance(error_files, list):
                 error_files.append(

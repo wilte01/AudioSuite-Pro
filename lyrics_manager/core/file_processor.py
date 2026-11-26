@@ -13,7 +13,9 @@ Changed in 2.4.1: takes ``TagHandlerFactory`` from
 ``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
 handler table (WP-2).
 Changed in 2.9.0: the per-file display lines use ``->`` rather than a Unicode
-arrow, which a cp1252 console encodes as a literal ``\\u2192``.
+arrow, which a cp1252 console encodes as a literal ``\\u2192``, and both error
+log lines write ``-`` where they wrote an em dash, so the run report is ASCII
+too.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -184,7 +186,7 @@ def process_single_file(
             n_skipped=0,
             n_errors=1,
             display=f"[ERROR] {name}: lyric lookup failed",
-            log=f"[ERROR] {name}: lyric lookup failed — {exc}\n",
+            log=f"[ERROR] {name}: lyric lookup failed - {exc}\n",
         )
         return
 
@@ -244,7 +246,7 @@ def process_single_file(
                     n_skipped=0,
                     n_errors=1,
                     display=f"[ERROR] {name}: could not embed synced lyrics",
-                    log=f"[ERROR] {name}: could not embed synced lyrics — {exc}\n",
+                    log=f"[ERROR] {name}: could not embed synced lyrics - {exc}\n",
                 )
                 return
     elif plain_fallback and result.plain_lyrics is not None:

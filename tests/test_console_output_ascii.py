@@ -23,7 +23,11 @@ rather than a periodic chore.
 Changed in 2.9.0: the scan also reads ``display``/``display_text`` values, the
 per-file line every tool prints through ``on_progress``; those were assigned to
 a variable rather than passed to an output call, so five tools kept an arrow a
-cp1252 console renders as ``\\u2192``.
+cp1252 console renders as ``\\u2192``.  The same rule now covers ``log_text``
+and the ``action`` fragment both lines are built from: a repair that prints
+``Fixed 1 thing - Done`` in ASCII still wrote an em dash into the run report
+through the fragment, so the lock has to read the fragment and not only the
+line that quotes it.
 """
 
 from __future__ import annotations
@@ -50,13 +54,27 @@ _OUTPUT_CALLS: frozenset[str] = frozenset(
     }
 )
 
-#: Names whose string value is the per-file line a tool shows and logs.  They
-#: reach the console through ``on_progress``, so they are output even when they
-#: are built in an assignment rather than passed to one of the calls above.
-#: ``repaired_suffix`` is the fragment an in-place repair tool appends to that
-#: line, so it prints there too.
+#: Names whose string value is a per-file line a tool shows and logs, or a
+#: fragment that line is built from.  They reach the console through
+#: ``on_progress`` and the run report through ``log_entries``, so they are
+#: output even when they are built in an assignment rather than passed to one
+#: of the calls above.  The log line is written as ``log``, ``log_line`` or
+#: ``log_text`` depending on the tool, so all three are covered; ``action`` is
+#: the verdict both lines quote (``Fixed 1 thing``) and ``repaired_suffix`` the
+#: fragment an in-place repair tool appends to it.  ``action`` is also the
+#: keyword argparse and Tk take for an option flag; those strings are ASCII by
+#: construction, so the shared name costs nothing and keeps one rule instead of
+#: one per call.
 _DISPLAY_NAMES: frozenset[str] = frozenset(
-    {"display", "display_text", "repaired_suffix"}
+    {
+        "display",
+        "display_text",
+        "log",
+        "log_line",
+        "log_text",
+        "action",
+        "repaired_suffix",
+    }
 )
 
 #: Directories that are not first-party source for this rule: a vendored build
@@ -153,7 +171,10 @@ class TestDisplayStringsAreScanned:
 
         assert any("\u2192" in value for value in values)
 
-    @pytest.mark.parametrize("keyword", ["display_text", "repaired_suffix"])
+    @pytest.mark.parametrize(
+        "keyword",
+        ["display_text", "log", "log_line", "log_text", "action", "repaired_suffix"],
+    )
     def test_a_display_keyword_is_scanned(self, keyword: str, tmp_path: Path) -> None:
         module = tmp_path / "mod.py"
         module.write_text(
@@ -164,6 +185,21 @@ class TestDisplayStringsAreScanned:
         values = [value for _line, value in _output_strings(module)]
 
         assert any("\u2192" in value for value in values)
+
+    @pytest.mark.parametrize("name", ["log", "log_line", "log_text", "action"])
+    def test_a_log_or_action_assignment_is_scanned(
+        self, name: str, tmp_path: Path
+    ) -> None:
+        """The report line and the verdict are output even before they print."""
+        module = tmp_path / "mod.py"
+        module.write_text(
+            f'{name} = f"Fixed 1 thing \\u2014 {{{{suffix}}}}"\n',
+            encoding="utf-8",
+        )
+
+        values = [value for _line, value in _output_strings(module)]
+
+        assert any("\u2014" in value for value in values)
 
 
 class TestConsoleOutputIsAscii:
