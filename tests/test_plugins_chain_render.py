@@ -13,9 +13,11 @@ internal state back:
   byte-identical files, so a preset renders the same next week as today.
 
 No real VST3/AU binary is bundled, downloaded or required: the render layer is
-driven with fake slot effects, and the worker is driven with chains that load no
-plugin at all.  A real bundle's determinism needs a bundle the project may ship,
-which it does not have (F-M1 order #2 decision).
+driven with fake slot effects, the worker is driven with chains that load no
+plugin at all, and the worker's bundle loader is pinned with a fake plugin class
+so a saved state, a parameter override and an unknown parameter are covered
+without a third-party binary.  A real bundle's determinism needs a bundle the
+project may ship, which it does not have (F-M1 order #2 decision).
 
 Changed in 3.0.0: new file — the render layer and worker success-path locks.
 """
@@ -23,9 +25,10 @@ Changed in 3.0.0: new file — the render layer and worker success-path locks.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -33,20 +36,27 @@ from pedalboard.io import AudioFile
 
 from audio_suite_shared.plugin_host.chain import PluginChain, PluginSlot
 from audio_suite_shared.plugin_host.render import (
+    PluginLoadError,
     PluginRenderError,
     SlotEffect,
     render_buffer,
 )
 from audio_suite_shared.plugin_host.runner import render_file
+from audio_suite_shared.plugin_host.state import PluginStateBlob
 from audio_suite_shared.plugin_host.worker import (
     EXIT_OK,
     EXIT_USAGE,
     WorkerRequestError,
     main,
+    pedalboard_effect,
     read_request,
 )
 
 SAMPLE_RATE = 48_000
+
+#: The ``scan`` *module*.  ``plugin_host.scan`` reads as the function of the same
+#: name on the package, so the module is resolved through the import system.
+SCAN_MODULE = importlib.import_module("audio_suite_shared.plugin_host.scan")
 
 
 def _tone(frames: int = 600, channels: int = 2) -> np.ndarray:
@@ -415,3 +425,111 @@ class TestWorkerSuccessPath:
 
         assert main([str(request_path)]) == EXIT_OK
         assert destination.is_file()
+
+
+class _FakePlugin:
+    """A ``pedalboard`` plugin stand-in that records what the worker set on it.
+
+    Only the surface :func:`pedalboard_effect` touches is modelled: ``raw_state``,
+    a ``parameters`` mapping and the call that renders a buffer.
+    """
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self.raw_state = b""
+        self.parameters: dict[str, float] = {"Gain": 0.0, "Mix": 1.0}
+        self.rendered: list[tuple[Any, float]] = []
+
+    def __call__(self, audio: Any, sample_rate: float) -> Any:
+        self.rendered.append((audio, sample_rate))
+        return audio * np.float32(self.parameters["Gain"])
+
+
+def _patch_plugin_class(
+    monkeypatch: pytest.MonkeyPatch, created: list[_FakePlugin]
+) -> None:
+    """Make the worker's loader build fake plugins and record them.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The active patch fixture.
+    created : list[_FakePlugin]
+        Receives each plugin the loader builds, in order.
+    """
+
+    def build(path: str) -> _FakePlugin:
+        plugin = _FakePlugin(path)
+        created.append(plugin)
+        return plugin
+
+    monkeypatch.setattr(SCAN_MODULE, "_plugin_class", lambda kind: build)
+
+
+class TestPedalboardEffect:
+    """The worker's loader: state, overrides, and what it refuses."""
+
+    def test_a_saved_state_is_restored_into_the_plugin(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The state bytes reach the plugin before it renders anything."""
+        created: list[_FakePlugin] = []
+        _patch_plugin_class(monkeypatch, created)
+        blob = PluginStateBlob(plugin="Vendor/Fake", version="1.2.3", payload=b"saved")
+        slot = PluginSlot(str(tmp_path / "Fake.vst3"), state=blob)
+
+        effect = pedalboard_effect(slot)
+        effect(_tone(), SAMPLE_RATE)
+
+        assert len(created) == 1
+        assert created[0].path == str(tmp_path / "Fake.vst3")
+        assert created[0].raw_state == b"saved"
+        assert len(created[0].rendered) == 1
+
+    def test_parameter_overrides_reach_the_plugin_and_its_render(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """An override is set by name, and the effect renders through it."""
+        created: list[_FakePlugin] = []
+        _patch_plugin_class(monkeypatch, created)
+        slot = PluginSlot(
+            str(tmp_path / "Fake.vst3"), parameter_overrides={"Gain": 0.5}
+        )
+        audio = _tone()
+
+        effect = pedalboard_effect(slot)
+        rendered = effect(audio, SAMPLE_RATE)
+
+        assert created[0].parameters["Gain"] == 0.5
+        assert created[0].parameters["Mix"] == 1.0
+        np.testing.assert_array_equal(rendered, audio * np.float32(0.5))
+        assert created[0].rendered[0][1] == float(SAMPLE_RATE)
+
+    def test_an_unknown_parameter_is_refused_by_name_and_changes_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A typo is a path-free refusal, and no override is half-applied."""
+        created: list[_FakePlugin] = []
+        _patch_plugin_class(monkeypatch, created)
+        slot = PluginSlot(
+            str(tmp_path / "Fake.vst3"),
+            parameter_overrides={"Nope": 1.0},
+        )
+
+        with pytest.raises(PluginLoadError, match="no parameter named 'Nope'"):
+            pedalboard_effect(slot)
+
+        assert created[0].parameters == {"Gain": 0.0, "Mix": 1.0}
+
+    def test_a_slot_that_names_no_bundle_is_refused_before_loading(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A non-bundle path never reaches the plugin class."""
+        created: list[_FakePlugin] = []
+        _patch_plugin_class(monkeypatch, created)
+        slot = PluginSlot(str(tmp_path / "Notes.txt"))
+
+        with pytest.raises(PluginLoadError, match=r"\.vst3 or \.component"):
+            pedalboard_effect(slot)
+
+        assert created == []
