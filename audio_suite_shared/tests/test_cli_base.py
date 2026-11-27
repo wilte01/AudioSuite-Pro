@@ -20,6 +20,9 @@ payload (D22).  ``TestRunExitStatus`` drives the real group so the status is
 observed on a command invocation, not only on the helper.
 Changed in 2.9.0: locks the stderr write so an unusable Windows console handle
 cannot abort the command before it reads a file.
+
+Changed in 2.9.1: `_run_tool` marks a reported abort that never completed
+as one failed item, while a completed run keeps its own error count.
 """
 
 from __future__ import annotations
@@ -222,15 +225,33 @@ class TestRunTool:
         )
         assert result.total == 5
 
-    def test_on_error_path_marks_result(self) -> None:
-        run_fn = MagicMock()
-        captured_errors: list[str] = []
+    def test_an_abort_after_on_error_is_one_failed_item(self) -> None:
+        """A run that reported an error and never completed failed."""
 
-        def on_error(msg: str) -> None:
-            captured_errors.append(msg)
+        def run_fn(*, on_error: Callable[[str], None], **_: object) -> None:
+            on_error("No supported audio files found.")
 
-        result = _run_tool("test_tool", run_fn, on_error=on_error)
-        assert result.errors == 0
+        result = _run_tool("test_tool", run_fn)
+
+        assert result.errors == 1
+        assert result.extra["error"] == "No supported audio files found."
+
+    def test_a_completed_run_keeps_its_own_error_count(self) -> None:
+        """A worker failure is per-file: the completion's count decides."""
+
+        def run_fn(
+            *,
+            on_error: Callable[[str], None],
+            on_complete: Callable[..., None],
+            **_: object,
+        ) -> None:
+            on_error("Worker error: could not decode track 2.")
+            on_complete(total=3, processed=3, errors=1)
+
+        result = _run_tool("test_tool", run_fn)
+
+        assert result.errors == 1
+        assert "error" not in result.extra
 
 
 class TestCliSuiteLogging:

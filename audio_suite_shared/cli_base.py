@@ -42,6 +42,12 @@ same rule to a command that builds its own payload.  The exit contract is 0 =
 clean (skips included), 1 = completed with per-file errors or crashed, 2 =
 usage (Click's own); ``--json`` payloads are unchanged (PLAN D9, D22).
 
+Changed in 2.9.1: ``_run_tool`` reports a run that called ``on_error`` and
+never completed as the one failed item, so a command that stopped before
+doing its work exits 1 and its ``--json`` document carries the reason in
+``error``.  A run that reports worker errors and still completes keeps the
+completion's own count.
+
 Changed in 2.9.0: every console line goes through ``_echo``, which writes to
 ``sys.stdout``/``sys.stderr`` instead of ``click.echo`` - Click's Windows
 console writer raises ``OSError: Windows error: 6`` for every write in a
@@ -249,6 +255,7 @@ def _run_tool(
     slot_vars = _make_slot_vars(slot_count)
     slot_queue = _make_slot_queue(slot_count)
     error_msg: list[str] = []
+    completed = False
 
     def on_progress(
         processed: int = 0,
@@ -275,6 +282,8 @@ def _run_tool(
             _echo(f"  [{processed}/{total}]", err=True)
 
     def on_complete(**cb_kwargs: Any) -> None:
+        nonlocal completed
+        completed = True
         result.total = cb_kwargs.get("total", 0)
         result.processed = cb_kwargs.get("processed", 0)
         result.skipped = cb_kwargs.get("skipped", 0)
@@ -322,6 +331,16 @@ def _run_tool(
         return result
 
     result.duration_secs = time.monotonic() - start
+    if error_msg and not completed:
+        # `on_error` fired and no completion followed: the run stopped
+        # before it did its work (an empty folder, a folder of containers
+        # the tag layer cannot read, a missing engine), so it is the one
+        # failed item the exit contract reports - and the payload must say
+        # why, or a `--json` consumer reads a clean zero.  A run that
+        # reports worker errors and then completes is already counted by
+        # its completion, so it keeps that count and gains no `error`.
+        result.errors = max(result.errors, 1)
+        result.extra.setdefault("error", "; ".join(error_msg))
     if error_msg:
         _echo(f"Finished with errors: {', '.join(error_msg)}", err=True)
     else:

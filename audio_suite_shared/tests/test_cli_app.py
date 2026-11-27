@@ -45,6 +45,12 @@ F-E6 channel tools).
 Changed in 2.7.0: the discoverability lock counts 33 tools and 30 commands (F-S4).
 
 Changed in 2.8.0: the documented-command locks follow the 32-tool registry.
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1 note
+below records what changed.
+Changed in 2.9.1: the `_run_tool` error-callback case and the BPM edge case
+assert the reported abort, status 1 rather than a clean zero.
 """
 
 from __future__ import annotations
@@ -342,6 +348,7 @@ class TestRunTool:
         assert "[DETECTED] a.mp3 -> C" in capsys.readouterr().err
 
     def test_run_tool_error_callback(self) -> None:
+        """An abort that never completed is the run's one failed item."""
 
         def dummy_run(**kwargs: object) -> None:
             cb = kwargs.get("on_error")
@@ -349,8 +356,10 @@ class TestRunTool:
                 cb("Something broke")
 
         result = _run_tool("test", dummy_run)
-        # on_error only prints to stderr; it does not modify result.errors
-        assert result.errors == 0
+        # The run stopped before it did anything, so the exit contract
+        # reports 1 and the payload says why instead of a clean zero.
+        assert result.errors == 1
+        assert result.extra["error"] == "Something broke"
 
     def test_run_tool_exception(self) -> None:
         def dummy_run(**kwargs: object) -> None:
@@ -690,8 +699,9 @@ class TestEdgeCases:
         result = runner.invoke(
             cli, ["bpm", str(d), "--bpm-min", "120", "--bpm-max", "120", "--dry"]
         )
-        # Parser accepts this; runtime may handle it
-        assert result.exit_code == 0
+        # The parser accepts this pair; the empty folder is the reported
+        # abort, so the run's status is 1 rather than a clean zero.
+        assert result.exit_code == 1
 
     def test_directory_does_not_exist(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["bpm", "C:\\nonexistent"])

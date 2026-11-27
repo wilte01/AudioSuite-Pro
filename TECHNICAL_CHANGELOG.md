@@ -866,6 +866,18 @@ used once, and every bullet belongs to exactly one of them.
   gate, and is now a usage error. `TestAlbumGenreAbortedRun` locks both
   output modes, and the empty-folder cases now expect 1.
 
+- **A CLI run that stopped before it could start no longer reports a clean
+  zero.** `_run_tool` printed an aborted run's reason to stderr and recorded
+  nothing in the result, so sixteen commands that rely on the shared
+  collector answered an empty folder with `errors: 0`, exit 0 and no
+  `error`, against the CLI reference's status-1 rule. The runner now marks an
+  `on_error` that no completion followed as the one failed item and carries
+  the reason in the document; a run that reports worker errors and then
+  completes keeps the completion's count, so per-file errors are unchanged.
+  The three commands that already collect their own `on_error` (`join`,
+  `pitchtime` and `album-genre`) are unaffected. `tests/test_cli_exit_status.py`
+  drives all sixteen and freezes the census.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

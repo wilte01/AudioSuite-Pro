@@ -1,4 +1,11 @@
-"""Tests for mood_analyzer CLI command."""
+"""Tests for mood_analyzer CLI command.
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1 note
+below records what changed.
+Changed in 2.9.1: an empty folder is the reported abort, so the run cases
+assert status 1 and the reason in the JSON document.
+"""
 
 from __future__ import annotations
 
@@ -55,8 +62,8 @@ class TestMoodAnalyzerValidation:
 class TestMoodAnalyzerRun:
     def test_dry_run_on_empty_dir(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(cli, ["mood-analyzer", str(audio_dir), "--dry"])
-        # No files → graceful on_error path, exit code 0.
-        assert result.exit_code == 0
+        # No files → the on_error path reports one failed item.
+        assert result.exit_code == 1
         assert "Summary" in result.output
 
     def test_json_flag_produces_valid_json(self, runner: CliRunner, audio_dir: Path):
@@ -65,13 +72,15 @@ class TestMoodAnalyzerRun:
         result = runner.invoke(
             cli, ["mood-analyzer", str(audio_dir), "--dry", "--json"]
         )
-        assert result.exit_code == 0
-        json_start = result.output.index("{")
-        payload = _json.loads(result.output[json_start:])
-        assert "processed" in payload
+        assert result.exit_code == 1
+        payload = _json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert payload["error"]
 
     def test_duration_option_accepted(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(
             cli, ["mood-analyzer", str(audio_dir), "--dry", "--duration", "60"]
         )
-        assert result.exit_code == 0
+        # The option is accepted; the empty folder is the reported abort.
+        assert result.exit_code == 1
+        assert "Invalid value" not in result.output

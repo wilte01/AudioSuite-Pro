@@ -6,6 +6,12 @@ Audit M4 (2026-10-06): the click CLI accepted any float for
 This module locks the click seam: a non-preset target fails fast with exit 2
 and the shared message, and a permitted target runs through to the tool's
 normal empty-directory outcome with no validation error.
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1 note
+below records what changed.
+Changed in 2.9.1: the permitted-target cases assert the empty folder's
+reported abort, status 1 rather than a clean zero.
 """
 
 from __future__ import annotations
@@ -34,10 +40,10 @@ class TestTargetLufsValidation:
     def test_permitted_target_reaches_the_run(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """-14 is a permitted preset: validation passes and the command runs
-        to its empty-directory outcome (exit 0, no audio files reported)."""
+        """The preset is permitted, so validation passes and the run reaches
+        its empty-directory outcome, which is a reported failure."""
         result = runner.invoke(replaygain, [str(tmp_path), "--target-lufs", "-14"])
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
         assert "Target LUFS must be one of" not in result.output
         assert "No audio files found in the selected directory." in result.output
 
@@ -46,7 +52,7 @@ class TestTargetLufsValidation:
     ) -> None:
         """Omitting the flag must not trip the validator."""
         result = runner.invoke(replaygain, [str(tmp_path)])
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
         assert "Target LUFS must be one of" not in result.output
 
 

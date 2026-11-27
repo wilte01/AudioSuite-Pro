@@ -6,6 +6,9 @@ A fake provider is temporarily registered in the shared registry so the CLI
 can be exercised end-to-end without network access.
 Changed in 2.9.0: locks the summary and JSON document against Click's Windows
 console writer, which raised ``OSError: Windows error: 6`` and lost both.
+
+Changed in 2.9.1: an empty folder is the reported abort, so the dry-run
+cases assert status 1 and its reason.
 """
 
 from __future__ import annotations
@@ -142,12 +145,15 @@ class TestDryRun:
 
         result = runner.invoke(cli, ["lyrics", "--dry", str(tmp_path)])
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
         assert "Summary:" in result.stdout
 
-    def test_dry_run_empty_directory_succeeds(self, runner: CliRunner, tmp_path: Path):
+    def test_dry_run_empty_directory_reports_why(
+        self, runner: CliRunner, tmp_path: Path
+    ):
         result = runner.invoke(cli, ["lyrics", "--dry", str(tmp_path)])
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
+        assert "No supported audio files found" in result.output
         assert "Summary:" in result.output
 
     def test_dry_run_does_not_write_lyrics(self, runner: CliRunner, tmp_path: Path):

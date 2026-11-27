@@ -18,6 +18,12 @@ to an unchanged file on disk, after a Master Driver Dry Run rewrote its files
 Changed in 2.8.0: TestNeuralEngineFlags locks the two neural flags to the run
 config and the missing-model refusal to a non-zero exit with the source
 untouched (noise-reduction amalgamation).
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1 note
+below records what changed.
+Changed in 2.9.1: the permitted-target cases assert the empty folder's
+reported abort, status 1 rather than a clean zero.
 """
 
 from __future__ import annotations
@@ -49,10 +55,10 @@ class TestTargetLufsValidation:
     def test_permitted_target_reaches_the_run(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """-16 is a permitted preset: validation passes and the command runs
-        to its empty-directory outcome (exit 0, no audio files reported)."""
+        """The preset is permitted, so validation passes and the run reaches
+        its empty-directory outcome, which is a reported failure."""
         result = runner.invoke(refine, [str(tmp_path), "--target-lufs", "-16"])
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
         assert "Target LUFS must be one of" not in result.output
         assert "No supported audio files found in the selected directory." in (
             result.output
@@ -63,7 +69,7 @@ class TestTargetLufsValidation:
     ) -> None:
         """Omitting the flag must not trip the validator."""
         result = runner.invoke(refine, [str(tmp_path)])
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
         assert "Target LUFS must be one of" not in result.output
 
 
