@@ -426,6 +426,18 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.plugin_host.render
+:members:
+```
+
+```{automodule} audio_suite_shared.plugin_host.worker
+:members:
+```
+
+```{automodule} audio_suite_shared.plugin_host.runner
+:members:
+```
+
 ## Tk helpers
 
 ```{automodule} audio_suite_shared.suite_app

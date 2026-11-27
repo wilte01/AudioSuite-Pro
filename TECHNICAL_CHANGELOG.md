@@ -30,6 +30,18 @@ used once, and every bullet belongs to exactly one of them.
   validation instead of being silently mis-loaded, and a missing plugin is
   named without its path. Rendering, worker isolation and the Refinery stage
   are later items.
+- **The plugin host renders a chain in a worker process.** `plugin_host.render`
+  applies the active slots in order and returns the caller's own array when
+  every slot is bypassed; `plugin_host.worker` (run as
+  `python -m audio_suite_shared.plugin_host.worker request.json`) renders one
+  file through the chain and reports one JSON status line; `plugin_host.runner`
+  runs one worker per file with a 120 s wall clock, so a plugin that refuses to
+  load, hangs or dies costs one file rather than the batch. The worker writes a
+  32-bit float WAV, which round-trips every sample, so bypass is proven
+  bit-transparent through the process boundary and two workers write
+  byte-identical output (F-M1 order-of-work #2). No real VST3/AU bundle may be
+  shipped for tests, so determinism is locked with fake slot effects and
+  bypassed chains; applying a saved state to a real bundle stays with #3.
 
 ### Changed
 - **Mood Analysis Batch Tagger's worker publishes on the shell's queue.** The

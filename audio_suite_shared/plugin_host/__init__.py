@@ -15,15 +15,22 @@ This package is the plumbing a plugin chain needs before any audio is touched:
 * :mod:`~audio_suite_shared.plugin_host.chain` holds the ordered slots and
   validates them against a scan;
 * :mod:`~audio_suite_shared.plugin_host.state` saves a plugin's own state
-  versioned, so a plugin update is reported rather than mis-loaded.
+  versioned, so a plugin update is reported rather than mis-loaded;
+* :mod:`~audio_suite_shared.plugin_host.render` applies the active slots to a
+  decoded buffer, in order, and returns the caller's own buffer when every slot
+  is bypassed;
+* :mod:`~audio_suite_shared.plugin_host.runner` runs the render in a worker
+  process per file, so a plugin that crashes costs one file, not the batch;
+* :mod:`~audio_suite_shared.plugin_host.worker` is that process's entry point.
 
-Rendering, the subprocess worker and the Refinery stage are later items of the
-same plan (F-M1 order #2 and #3); nothing in this package imports
-``pedalboard`` at import time, so a tool can describe a chain without paying for
-the plugin host.
+Nothing in this package imports ``pedalboard`` at import time, so a tool can
+describe a chain without paying for the plugin host; the worker pays it in its
+own process.
 
 Changed in 3.0.0: new package — the plugin host's public surface (F-M1
 order-of-work #1).
+Changed in 3.0.0: gains the render layer, the worker and its parent runner
+(F-M1 order-of-work #2).
 """
 
 from __future__ import annotations
@@ -36,6 +43,20 @@ from audio_suite_shared.plugin_host.chain import (
     ChainValidationError,
     PluginChain,
     PluginSlot,
+)
+from audio_suite_shared.plugin_host.render import (
+    PluginLoadError,
+    PluginRenderError,
+    SlotEffect,
+    render_buffer,
+)
+from audio_suite_shared.plugin_host.runner import (
+    DEFAULT_TIMEOUT_SECONDS,
+    RENDERED,
+    WORKER_MODULE,
+    RenderOutcome,
+    render_file,
+    render_files,
 )
 from audio_suite_shared.plugin_host.scan import (
     AU_SUFFIX,
@@ -72,10 +93,13 @@ __all__ = [
     "CACHE_VERSION",
     "CHAIN_PRESET_VERSION",
     "DEFAULT_CACHE_FILENAME",
+    "DEFAULT_TIMEOUT_SECONDS",
     "PLUGIN_DIRS_ENV",
+    "RENDERED",
     "STANDARD_FOLDERS",
     "STATE_FORMAT_VERSION",
     "VST3_SUFFIX",
+    "WORKER_MODULE",
     "ChainPresetError",
     "ChainProblem",
     "ChainValidation",
@@ -83,20 +107,27 @@ __all__ = [
     "MetadataLoader",
     "PluginChain",
     "PluginFolder",
+    "PluginLoadError",
     "PluginMetadata",
     "PluginParameter",
     "PluginRecord",
+    "PluginRenderError",
     "PluginSlot",
     "PluginStateBlob",
     "PluginStateError",
     "PluginStateMismatch",
+    "RenderOutcome",
     "ScanResult",
     "ScanRoot",
+    "SlotEffect",
     "capture_state",
     "default_cache_path",
     "default_scan_roots",
     "path_identity",
     "pedalboard_metadata",
+    "render_buffer",
+    "render_file",
+    "render_files",
     "require_compatible",
     "scan",
     "standard_folders",
