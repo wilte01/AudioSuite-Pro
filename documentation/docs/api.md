@@ -410,6 +410,22 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.plugin_host
+:no-members:
+```
+
+```{automodule} audio_suite_shared.plugin_host.scan
+:members:
+```
+
+```{automodule} audio_suite_shared.plugin_host.chain
+:members:
+```
+
+```{automodule} audio_suite_shared.plugin_host.state
+:members:
+```
+
 ## Tk helpers
 
 ```{automodule} audio_suite_shared.suite_app

@@ -70,11 +70,11 @@ The matrix below is **generated from the declared classification** in
 
 #### Branch enumeration
 
-* **Portable core** (15 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
+* **Portable core** (16 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
 * **Windows-only** (6 declared branches) — A genuinely Windows-only capability. The non-Windows side is a documented stop, placeholder or no-op.
-* **Unverified** (11 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
+* **Unverified** (12 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
 
-Every one of the 32 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
+Every one of the 34 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
 
 | Tier | Module | Subsystem | Non-Windows behaviour | Evidence |
 |---|---|---|---|---|
@@ -86,6 +86,7 @@ Every one of the 32 distinct branches below was found by an AST scan of the firs
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | win32 uses os.startfile; darwin shells out to `open`; every other platform uses `xdg-open`. All three arms are implemented. | audio_suite_shared/tests/test_platform_utils.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | The win32 arm of the three-way dispatch above. | audio_suite_shared/tests/test_platform_utils.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a generated user guide | The win32 arm of the guide-launching dispatch. | audio_suite_shared/tests/test_platform_utils.py |
+| Portable core | `audio_suite_shared/plugin_host/scan.py` | Audio plugin folder discovery (F-M1) | The running platform is only the default for a value the caller may pass; every arm is driven by an explicit platform string in tests/test_plugin_host_scan.py, so the host's own value is never the thing under test. | tests/test_plugin_host_scan.py |
 | Portable core | `audio_suite_shared/secure_subprocess.py` | Subprocess argument validation | Path-length ceiling: 260 on Windows (MAX_PATH), 4096 elsewhere (PATH_MAX). Read per call, so a non-Windows sys.platform is genuinely exercised. | audio_suite_shared/tests/test_platform_support.py::TestPortableCoreCLI::test_posix_path_ceiling_is_4096_not_260 |
 | Portable core | `audio_suite_shared/subprocess_utils.py` | Console suppression for subprocesses | Returns a hiding STARTUPINFO / CREATE_NO_WINDOW on Windows and None / 0 everywhere else, which Popen accepts unchanged. | replaygain_analyzer/tests/test_replaygain_pipeline.py::TestCreateFlagsAndStartupInfo |
 | Portable core | `audio_suite_shared/ui_tabs.py` | Open the suite log file | The macOS arm; Linux/POSIX falls through to `xdg-open`. | audio_suite_shared/tests/test_ui_common.py |
@@ -100,6 +101,7 @@ Every one of the 32 distinct branches below was found by an AST scan of the firs
 | Windows-only | `cd_ripper/core/drive_handler.py` (tool `cd_ripper`) | SCSI pass-through device I/O | Fails fast with AudioExternalToolError naming ctypes.windll as the missing requirement, instead of an AttributeError. | cd_ripper/tests/test_ripper_platform_fail_fast.py |
 | Windows-only | `cd_ripper/core/drive_handler.py` (tool `cd_ripper`) | SCSI pass-through device I/O | Imports ctypes.wintypes and loads kernel32 with use_last_error; off-Windows both are placeholders and every call site that needs them is guarded. | cd_ripper/tests/test_ripper_platform_fail_fast.py |
 | Unverified | `audio_suite_shared/platform_utils.py` | Saved window placement (`setup_window`) | Non-Windows screens cannot be queried, so any position that is not wildly off-screen is accepted. | none |
+| Unverified | `audio_suite_shared/plugin_host/scan.py` | Audio plugin metadata through pedalboard (F-M1) | An Audio Unit bundle is only loadable on macOS; elsewhere the branch raises a named error instead of attempting the import. Nothing on this host runs the macOS arm. | none |
 | Unverified | `audio_suite_shared/security/input_validator.py` | Path validation limits | Same 260/4096 ceiling as the subprocess validator, but bound at import time, so patching os.name afterwards cannot change it — only a module reload under a different platform would. | none |
 | Unverified | `audio_suite_shared/security/input_validator.py` | Windows reserved device names | An extra per-component fullmatch pass that runs only on Windows, on top of the platform-independent reserved-name and safe-character checks. It cannot be honestly exercised by patching os.name: pathlib.Path() consults os.name when it constructs, so such a test silently switches to PosixPath and measures a hybrid that exists on no real platform (see the os.name trap note in the module docstring). | none |
 | Unverified | `audio_suite_shared/styles.py` | Light/Dark theme detection | Only Windows reads the AppsUseLightTheme registry value; every other platform falls back to the documented 'Light' default. | none |

@@ -116,6 +116,11 @@ bijection with the tree.
 Changed in 2.4.3: the three 'open the suite log file' rows now name
 ``audio_suite_shared/ui_tabs.py``, where the WP-9 split moved that
 dispatch; the declaration stays a bijection with the code.
+Changed in 3.0.0: declares the plugin host's two platform sites (F-M1 order #1).
+``scan.standard_folders`` reads the running platform only as the default for a
+value its callers and tests pass explicitly, so it is portable-core;
+``scan._plugin_class`` guards the macOS-only Audio Unit class and is unverified,
+because nothing on this host can run its macOS arm.
 """
 
 from __future__ import annotations
@@ -262,6 +267,31 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
             "an explicit platform value, so neither depends on the host."
         ),
         evidence="audio_suite_shared/tests/test_venv_bootstrap.py",
+    ),
+    PlatformBranch(
+        module="audio_suite_shared/plugin_host/scan.py",
+        source="current = sys.platform if platform is None else platform",
+        tier=PORTABLE_CORE,
+        subsystem="Audio plugin folder discovery (F-M1)",
+        behaviour=(
+            "The running platform is only the default for a value the caller may "
+            "pass; every arm is driven by an explicit platform string in "
+            "tests/test_plugin_host_scan.py, so the host's own value is never "
+            "the thing under test."
+        ),
+        evidence="tests/test_plugin_host_scan.py",
+    ),
+    PlatformBranch(
+        module="audio_suite_shared/plugin_host/scan.py",
+        source='if sys.platform != "darwin":',
+        tier=UNVERIFIED,
+        subsystem="Audio plugin metadata through pedalboard (F-M1)",
+        behaviour=(
+            "An Audio Unit bundle is only loadable on macOS; elsewhere the "
+            "branch raises a named error instead of attempting the import. "
+            "Nothing on this host runs the macOS arm."
+        ),
+        evidence="none",
     ),
     PlatformBranch(
         module="audio_suite_shared/platform_utils.py",

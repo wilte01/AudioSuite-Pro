@@ -43,6 +43,10 @@ audio_suite_config.json
 audio_suite_config.key
 # suite_config sidecars: cross-process lock + PID-scoped atomic-write temp files
 audio_suite_config.json.lock
+# Changed in 3.0.0: the VST3/AU scan cache and its atomic-write temp files. It
+# records this machine's plugin paths, so it is machine state, never shipped.
+audio_plugin_scan.json
+audio_plugin_scan.json.tmp.*
 audio_suite_config.json.tmp.*
 # album_art_sync API-key files (live Fanart.tv keys — never commit; template lives on disk)
 # Changed in 2.1.3: the config file is canonical at album_art_sync/config/ and

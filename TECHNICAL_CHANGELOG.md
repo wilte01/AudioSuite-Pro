@@ -16,6 +16,21 @@ used once, and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+### Added
+- **The plugin host discovers installed VST3 and Audio Unit bundles.**
+  `audio_suite_shared.plugin_host` holds the scan, chain and state code the
+  3.0.0 plugin subsystem is built on (F-M1 order-of-work #1). `scan` visits the
+  standard Windows and macOS folders plus `AUDIOSUITE_AUDIO_PLUGIN_DIRS`,
+  records a plugin's name, vendor, category, version and parameters through an
+  injected loader, and caches the result in `audio_plugin_scan.json` keyed by
+  folder, path, mtime and size. The default route reads the bundle's file name
+  only, so discovery imports no plugin library and instantiates no third-party
+  binary; `metadata_source` records which route each record took. A chain slot
+  holds a versioned, base64 state blob, so a plugin update is reported at
+  validation instead of being silently mis-loaded, and a missing plugin is
+  named without its path. Rendering, worker isolation and the Refinery stage
+  are later items.
+
 ### Changed
 - **Mood Analysis Batch Tagger's worker publishes on the shell's queue.** The
   window starts the run with `SuiteApp._start_worker` and renders its

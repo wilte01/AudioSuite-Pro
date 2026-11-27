@@ -241,6 +241,16 @@ ninth row), so their notes were relabelled rather than left dated to a released
 version. The asserted non-empty exception category stays the narrative ``.md``
 documents: this re-baseline lands with the plan row and the changelog entry that
 record it, so the scan cannot be vacuous here.
+Changed in 3.0.0: re-baselined the lock for the post-2.9.0 window. BASE_COMMIT
+is now 5006c50 -- the tip of the dedup wave, after the ``v2.9.0`` tag -- and
+NOTE_MARKER is ``Changed in 3.0.0``, so the 2.9.0 and 2.9.1 notes inside the
+closed window stay as each file's own history and only the feature wave's work
+needs a note. Those two windows closed without a re-baseline, so every note
+written after the tag had to satisfy the 2.9.0 marker the file already carried;
+a brand-new 3.0.0 module cannot, which is what surfaced it. The asserted
+non-empty exception category stays the narrative ``.md`` documents: this
+re-baseline lands with the plan row and the technical changelog entry, so the
+scan cannot be vacuous.
 Changed in 2.7.0: the pre-sale diligence pack classified its two new artefact
 types by the rule this file already states - a format with comment syntax is
 annotated, a comment-less binary is exempted. ``.mailmap`` joins CODE_SUFFIXES
@@ -263,19 +273,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at 02785ea, the commit the ``v2.6.0`` tag points at:
-#: that window is closed and its notes are written, so only work after it does.
-#: Earlier work is documented in its own plans and the changelogs, so it does
-#: not require per-file notes here.
+#: the cut. Earlier work is documented in its own plans and the changelogs, so
+#: it does not require per-file notes here.
 # Changed in 2.9.0: re-baselined to c50e533 (the 2.8.0 cut) with the 2.9.0
 # marker. The a94c43d base sat at the 2.7.1 cut while the release had moved
 # to 2.8.0, so the lock still demanded a 2.8.0 note from work landing after
 # that release - the misfiling its own history warns against. The closed
 # window's notes stay as each file's own history.
-BASE_COMMIT = "c50e533"
+# Changed in 3.0.0: re-baselined to 5006c50 (the dedup wave's tip, after the
+# v2.9.0 tag) with the 3.0.0 marker, because a brand-new 3.0.0 module has no
+# 2.9.0 note to inherit and the release-notes lock demanded one.
+BASE_COMMIT = "5006c50"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.9.0"
+NOTE_MARKER = "Changed in 3.0.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
