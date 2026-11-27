@@ -26,7 +26,7 @@ The tool is intentionally guarded by a coverage check. If too few files have TIT
 1. The sorted values are joined into one string, for example Rock; Soul; Vocal.
 1. Phase 2 writes ALBUMGENRE and ALBUMDERIVED to every supported file whose tags can be read. A `.wma` or `.aac` file is reported as skipped and is not written, because it has no tag handler to write through.
 
-A file without tags, without TITLEGENRE, or with an unreadable tag is counted as a read error and does not contribute to coverage. A `.wma` or `.aac` file has no tag handler, so it can never carry TITLEGENRE: it is reported as a read error and left out of the coverage denominator, which keeps it from lowering the percentage for an otherwise fully tagged album.
+A file without tags, without TITLEGENRE, or with an unreadable tag is counted as a read error and does not contribute to coverage. A `.wma` or `.aac` file has no tag handler, so it can never carry TITLEGENRE: it is reported as a read error and left out of the coverage denominator, which keeps it from lowering the percentage for an otherwise fully tagged album. If every file in the folder is one of those containers, there is no coverage figure to measure: the run stops and reports that no file could be read.
 
 ## Quick Start
 

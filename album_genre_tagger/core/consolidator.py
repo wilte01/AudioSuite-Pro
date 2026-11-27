@@ -15,6 +15,10 @@ shell's (C1 stage 3, D50). A file the tag layer has no handler for (a ``.wma``
 or ``.aac``) is reported as a read error but left out of the coverage
 denominator, so a fully tagged album still passes the gate, and Phase 2 skips
 it instead of attempting a write that has no handler either.
+
+Changed in 2.9.1: a directory that is nothing but such containers reports that
+no file could be read, instead of measuring 0 percent coverage and failing the
+gate over files this tool can never tag.
 """
 
 import logging
@@ -148,7 +152,23 @@ def run_analysis(
     # A file with no tag handler can never carry TITLEGENRE, so it is not part
     # of the denominator; counting it would fail an otherwise complete album.
     measurable = total - unreadable
-    coverage_pct = (files_with_genre / measurable * 100) if measurable > 0 else 0.0
+    if measurable == 0:
+        # Every file was one of those containers, so there is no read to report
+        # on: a 0% coverage verdict would blame missing tags for files this tool
+        # can never tag. Say what actually happened instead.
+        logger.warning(
+            "No readable audio files in %s: all %d are containers without a "
+            "tag handler",
+            dir_path,
+            total,
+        )
+        on_error(
+            "No file could be read in the selected directory: every audio file "
+            "found is a container the tag layer has no handler for (.wma, .aac)."
+        )
+        return
+
+    coverage_pct = files_with_genre / measurable * 100
 
     if coverage_pct < min_coverage:
         log_entries += [

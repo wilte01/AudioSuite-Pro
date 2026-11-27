@@ -457,6 +457,29 @@ class TestUnreadableContainers:
         assert "unreadable container" in skipped[0]["display_text"]
         assert not any("[WRITE ERROR]" in r["display_text"] for r in p2)
 
+    @pytest.mark.parametrize("ext", [".wma", ".aac"])
+    def test_folder_of_only_unreadable_containers_reports_no_readable_file(
+        self, tmp_path, ext
+    ):
+        """A folder of nothing but such containers is not 0% coverage.
+
+        Every file leaves the denominator, so there is no coverage figure to
+        report: the run says no file could be read instead of failing a gate
+        over files this tool can never tag.
+        """
+        (tmp_path / f"a{ext}").write_bytes(b"not a real audio file")
+        (tmp_path / f"b{ext}").write_bytes(b"not a real audio file")
+
+        p1, coverage, p2, complete, errors = _run(tmp_path, min_coverage=100)
+
+        assert coverage == []
+        assert complete == []
+        assert p2 == []
+        assert len(errors) == 1
+        assert "No file could be read" in errors[0]
+        assert p1[-1]["total"] == 2
+        assert p1[-1]["errors"] == 2
+
 
 class TestGenreValueNormalization:
     def test_case_variants_treated_as_distinct_genres(self, tmp_path):

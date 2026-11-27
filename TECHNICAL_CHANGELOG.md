@@ -834,9 +834,12 @@ used once, and every bullet belongs to exactly one of them.
   Such a file also leaves the coverage denominator, because it can never carry
   TITLEGENRE: counting it would hold a fully tagged album below the gate (2 of
   3 files, 66.7 percent), so two tagged tracks beside one `.wma` now measure
-  100 percent and the run reaches Phase 2
+  100 percent and the run reaches Phase 2; a folder of nothing but such
+  containers has no figure to measure at all, so it reports that no file could
+  be read rather than failing the gate at 0 percent
   (`album_genre_tagger/tests/test_consolidator.py::TestUnreadableContainers`
-  covers both extensions, the coverage denominator and the Phase 2 skip). The
+  covers both extensions, the coverage denominator, the Phase 2 skip and the
+  all-unreadable folder). The
   same missing handler is on the write side, so Phase 2 reports such a file as
   skipped rather than attempting a write that snapshotted it for undo and
   surfaced as a write error. The guides and the overview presentation follow
