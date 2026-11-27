@@ -9,6 +9,10 @@ Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
 ``click.echo``, whose Windows console writer rejects every write in a
 PowerShell console; a ``--json`` document that cannot be written now
 exits 1.
+
+Changed in 2.9.1: a folder with no playlist is reported through
+``on_error`` instead of finishing a zero-file run, so `asx-extract`
+exits 1 and its ``--json`` document carries the reason.
 """
 
 from __future__ import annotations
@@ -105,14 +109,10 @@ def run_cli_extraction(
         on_progress(processed=0, total=total, display_text="Scanning ASX files...")
 
         if not asx_files:
-            on_complete(
-                total=0,
-                processed=0,
-                skipped=0,
-                errors=0,
-                duration_secs=time.monotonic() - start,
-                log_entries=log_entries,
-            )
+            # A folder with no playlist is a run that cannot start, so it
+            # is reported like every peer's empty input instead of
+            # finishing a zero-file run that exits 0 with no reason.
+            on_error("No ASX playlists found in the selected directory.")
             return
 
         failures: list[dict[str, Any]] = []

@@ -1,4 +1,13 @@
-"""Tests for asx_extractor CLI commands."""
+"""Tests for asx_extractor CLI commands.
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1
+note below records what changed.
+
+Changed in 2.9.1: the empty-folder cases expect status 1 and the reason,
+and ``run_cli_extraction`` reports the abort instead of completing with
+zeroes.
+"""
 
 from __future__ import annotations
 
@@ -55,11 +64,19 @@ class TestAsxExtractValidation:
 class TestAsxExtractRun:
     def test_dry_run_on_empty_dir(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(cli, ["asx-extract", str(audio_dir), "--dry"])
-        assert result.exit_code == 0
+        # A folder with no playlist is a run that could not start, so it
+        # reports one failed item instead of a clean zero.
+        assert result.exit_code == 1
+        assert "No ASX playlists found" in result.output
 
     def test_json_flag(self, runner: CliRunner, audio_dir: Path):
+        import json as _json
+
         result = runner.invoke(cli, ["asx-extract", str(audio_dir), "--dry", "--json"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
+        payload = _json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert "No ASX playlists found" in payload["error"]
 
 
 class TestNoOpCallbacks:
@@ -112,15 +129,19 @@ class TestRunCliExtraction:
         for n in names:
             (tmp_path / n).write_text("<ASX/>")
 
-    def test_empty_dir_completes_zero(self, tmp_path: Path) -> None:
-        calls: dict = {}
+    def test_empty_dir_reports_why(self, tmp_path: Path) -> None:
+        completions: list = []
+        errors: list = []
         asx_cli.run_cli_extraction(
-            str(tmp_path), on_complete=lambda **kw: calls.update(kw)
+            str(tmp_path),
+            on_complete=completions.append,
+            on_error=errors.append,
         )
-        assert calls["total"] == 0
-        assert calls["processed"] == 0
-        assert calls["errors"] == 0
-        assert calls["skipped"] == 0
+
+        # No completion: the runner turns the reported error into the
+        # single failed item the exit contract counts.
+        assert not completions
+        assert errors == ["No ASX playlists found in the selected directory."]
 
     def test_default_callbacks_are_noops(self, tmp_path: Path) -> None:
         self._make_asx(tmp_path, "a.asx")

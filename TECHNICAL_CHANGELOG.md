@@ -878,6 +878,17 @@ used once, and every bullet belongs to exactly one of them.
   `pitchtime` and `album-genre`) are unaffected. `tests/test_cli_exit_status.py`
   drives all sixteen and freezes the census.
 
+- **The three commands that finished an empty folder silently now report
+  it.** ASX Playlist Extractor, File Reorganizer and Stem Separator
+  completed a zero-file run instead of aborting, so `asx-extract`,
+  `reorganize` and `stems` exited 0 with `errors: 0` and no message at all
+  - not even the `ERROR:` line their peers printed. Each now reports the
+  empty input through `on_error` at its own discovery seam (no playlist
+  found, nothing to reorganise, nothing to separate), so the runner's rule
+  turns it into status 1 and the document's `error`. The census in
+  `tests/test_cli_exit_status.py` now drives nineteen commands, and the
+  empty-folder cases in both engines assert the abort.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

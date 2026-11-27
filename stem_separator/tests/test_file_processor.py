@@ -6,6 +6,13 @@ that land on disk: how many, where, at what level, and that a dry run wrote
 none of them.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1
+note below records what changed.
+
+Changed in 2.9.1: the empty-directory case expects the reported abort
+instead of a completion with zeroes.
 """
 
 from __future__ import annotations
@@ -319,15 +326,29 @@ class TestFatalCases:
         assert "CPU" in line
         assert "turned off" in line
 
-    def test_an_empty_directory_completes_with_zeroes(self, tmp_path: Path) -> None:
-        completion, _progress, errors = _run(
-            tmp_path,
-            StemSeparationParams(
-                output_dir=str(tmp_path / "out"), device="cpu", dry_run=True
-            ),
-            patch_model=False,
-        )
+    def test_an_empty_directory_reports_why(self, tmp_path: Path) -> None:
+        completions: list[dict[str, Any]] = []
+        errors: list[str] = []
+        slots = [MagicMock() for _ in range(file_processor.MAX_WORKERS)]
+        slots_queue: Queue[int] = Queue()
+        for index in range(file_processor.MAX_WORKERS):
+            slots_queue.put(index)
 
-        assert completion["total"] == 0
-        assert completion["processed"] == 0
-        assert not errors
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(demucs_engine, "require_demucs", lambda: None)
+            file_processor.run_stem_separation(
+                str(tmp_path),
+                StemSeparationParams(
+                    output_dir=str(tmp_path / "out"), device="cpu", dry_run=True
+                ),
+                slots,
+                slots_queue,
+                lambda **_kwargs: None,
+                completions.append,
+                errors.append,
+            )
+
+        # No completion: the empty folder is one reported failure, not a
+        # zero-file run the caller reads as clean.
+        assert not completions
+        assert errors == ["No supported audio files found in the selected directory."]

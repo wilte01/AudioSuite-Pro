@@ -8,6 +8,10 @@ Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
 ``click.echo``, whose Windows console writer rejects every write in a
 PowerShell console; a ``--json`` document that cannot be written now
 exits 1.
+
+Changed in 2.9.1: a source folder with no supported audio file is
+reported through ``on_error`` instead of finishing a zero-file run, so
+`reorganize` exits 1 and its ``--json`` document carries the reason.
 """
 
 from __future__ import annotations
@@ -78,6 +82,12 @@ def run_reorganizer(
 
     with active_batch("file_reorganizer", "file_reorg"):
         stats = reorganizer.run(source_dir, progress_callback=_progress_callback)
+
+    if stats.files_scanned == 0:
+        # Nothing to reorganise: report the empty folder like every other
+        # tool instead of completing a zero-file run that exits 0.
+        on_error("No supported audio files found in the selected directory.")
+        return
 
     on_complete(
         total=stats.files_scanned,

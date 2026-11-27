@@ -38,6 +38,9 @@ GUI's grid (C1 stage 2).  The run report's header line is ASCII too - its
 three em dashes reached ``*_separate_log.txt``, where a cp1252 console cannot
 print them.
 
+Changed in 2.9.1: a folder with no supported audio file is reported
+through ``on_error`` instead of completing with zeroes, so `stems`
+exits 1 and its ``--json`` document carries the reason.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -291,6 +294,12 @@ def run_stem_separation(
     except Exception as exc:  # noqa: BLE001 - re-raised as a fatal error
         on_error(failure_reason(exc))
         raise
+
+    if not files:
+        # Nothing to separate: report the empty folder like every other
+        # tool instead of completing a zero-file run that exits 0.
+        on_error("No supported audio files found in the selected directory.")
+        return
 
     separated = [0]
     skipped = [0]
