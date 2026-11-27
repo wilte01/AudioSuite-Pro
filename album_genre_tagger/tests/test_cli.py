@@ -1,7 +1,17 @@
-"""Tests for album_genre_tagger CLI commands."""
+"""Tests for album_genre_tagger CLI commands.
+
+Changed in 2.9.0: this file's first change in the window that opened at
+c50e533; the per-file note lock names that window 2.9.0, and the 2.9.1 note
+below records what changed.
+Changed in 2.9.1: a run that stops before measuring a file is one
+failed item - status 1 and the reason in the ``--json`` document's
+``error`` field - so the empty-folder cases assert 1 and
+``TestAlbumGenreAbortedRun`` locks the folder of unreadable containers.
+"""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -54,12 +64,17 @@ class TestAlbumGenreValidation:
 class TestAlbumGenreRun:
     def test_dry_run_on_empty_dir(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(cli, ["album-genre", str(audio_dir), "--dry"])
-        # Should not crash; dry-run on empty dir should complete gracefully
-        assert result.exit_code == 0
+        # An empty folder is a run that could not start, not a clean run:
+        # the command reports one failed item and exits 1.
+        assert result.exit_code == 1
+        assert "No supported audio files found" in result.output
 
     def test_json_flag_produces_valid_json(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(cli, ["album-genre", str(audio_dir), "--dry", "--json"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert "No supported audio files found" in payload["error"]
 
 
 class TestAlbumGenreCoverageOption:
@@ -67,13 +82,19 @@ class TestAlbumGenreCoverageOption:
         result = runner.invoke(
             cli, ["album-genre", str(audio_dir), "--coverage", "75", "--dry"]
         )
-        assert result.exit_code == 0
+        # The empty folder is the one reported failure; the point is that
+        # the option is accepted, not rejected as a usage error.
+        assert result.exit_code == 1
+        assert "Invalid value" not in result.output
 
     def test_coverage_out_of_range_rejected(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(
             cli, ["album-genre", str(audio_dir), "--coverage", "999"]
         )
-        assert result.exit_code in (0, 2)
+        # The help text and the CLI reference both say 0-100, so an
+        # out-of-range value is a usage error, not a run that always fails.
+        assert result.exit_code == 2
+        assert "--coverage" in result.output
 
 
 class TestAlbumGenreUndoBatch:
@@ -91,3 +112,43 @@ class TestAlbumGenreUndoBatch:
         assert result.exit_code == 0
         mock_active_batch.assert_called_once_with("album_genre_tagger", "tag_edit")
         mock_run.assert_called_once()
+
+
+class TestAlbumGenreAbortedRun:
+    """A run that measured nothing must not look like a clean run.
+
+    An empty folder and a folder of nothing but containers the tag layer cannot
+    read both reach ``run_analysis``'s ``on_error``.  ``_run_tool``'s own
+    collector echoed the line to stderr but left the result at ``errors=0``, so
+    the command printed a clean zero summary, exited 0 and its ``--json``
+    document carried no reason at all.
+    """
+
+    @pytest.fixture
+    def unreadable_dir(self, tmp_path: Path) -> Path:
+        d = tmp_path / "unreadable"
+        d.mkdir()
+        (d / "track.wma").write_bytes(b"not really a wma")
+        (d / "track.aac").write_bytes(b"not really an aac")
+        return d
+
+    def test_text_mode_exits_one_and_prints_the_reason(
+        self, runner: CliRunner, unreadable_dir: Path
+    ):
+        result = runner.invoke(cli, ["album-genre", str(unreadable_dir), "--dry"])
+
+        assert result.exit_code == 1
+        assert "No file could be read in the selected directory" in result.output
+        assert "1 errors" in result.output
+
+    def test_json_mode_carries_the_reason(
+        self, runner: CliRunner, unreadable_dir: Path
+    ):
+        result = runner.invoke(
+            cli, ["album-genre", str(unreadable_dir), "--dry", "--json"]
+        )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert "No file could be read in the selected directory" in payload["error"]

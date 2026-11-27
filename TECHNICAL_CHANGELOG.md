@@ -850,6 +850,22 @@ used once, and every bullet belongs to exactly one of them.
   tag field updater no longer claims WMA. `tests/test_guide_claims.py` pins the
   two subset counts as deliberate with their reasons.
 
+- **The Album Genre Tagger's CLI no longer reports a run it could not
+  measure as clean.** An empty folder, and a folder of nothing but
+  `.wma`/`.aac` containers, reach `run_analysis`'s `on_error`; `_run_tool`
+  echoed the line to stderr but recorded nothing in the result, so
+  `audiosuite album-genre` printed `Summary: 0 files, 0 processed, 0
+  errors`, exited 0 and published no reason in its `--json` document - while
+  the CLI reference promises status 1 for a run that stops early and says
+  the payload's `errors` count matches. The command now collects `on_error`
+  the way `audio_join` does, counts the aborted run as the one failed item
+  and carries the reason in the document's `error` field, so a scheduler
+  sees the failure the window already shows in its dialog. The same pass
+  gave `--coverage` the 0-100 range its help text and the CLI reference
+  already documented: `--coverage 999` was accepted and simply failed every
+  gate, and is now a usage error. `TestAlbumGenreAbortedRun` locks both
+  output modes, and the empty-folder cases now expect 1.
+
 ## [2.9.0] - 2026-11-20
 
 ### Added

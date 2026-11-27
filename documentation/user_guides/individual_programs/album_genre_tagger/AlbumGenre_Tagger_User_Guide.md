@@ -90,7 +90,7 @@ python -m audio_suite_shared.cli_app album-genre <folder> --dry\
 python -m audio_suite_shared.cli_app album-genre <folder> --coverage 75\
 python -m audio_suite_shared.cli_app album-genre <folder> --coverage 50 --json
 
-The --coverage option accepts 0 through 100 and defaults to 50. Use the shared dry-run option to preview changes and --json to print the structured result. The command reports coverage failures separately from ordinary write errors.
+The --coverage option accepts 0 through 100 and defaults to 50. Use the shared dry-run option to preview changes and --json to print the structured result. The command reports coverage failures separately from ordinary write errors. A run that cannot measure anything (an empty folder, or one holding only containers whose tags cannot be read) writes nothing and exits 1, with the reason on stderr and in the JSON document's error field.
 
 ## Master Driver Use
 

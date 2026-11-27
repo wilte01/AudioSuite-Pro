@@ -8,6 +8,13 @@ Changed in 2.9.0: CLI output goes through ``cli_base._echo`` instead of
 ``click.echo``, whose Windows console writer rejects every write in a
 PowerShell console; a ``--json`` document that cannot be written now
 exits 1.
+Changed in 2.9.1: a run that stops before measuring a file (an empty
+folder, or one holding only containers the tag layer cannot read) is
+reported as one failed item, so the command exits 1 and its ``--json``
+document carries the reason in ``error`` instead of a clean "0 errors"
+summary.  ``--coverage`` also enforces the 0-100 range its help text and
+the CLI reference already documented, instead of accepting 999 and
+failing every gate.
 """
 
 from __future__ import annotations
@@ -138,11 +145,18 @@ def run_cli_analysis(
 @click.option(
     "--coverage",
     default=50,
-    type=int,
+    type=click.IntRange(0, 100),
     help="Minimum coverage percentage (0-100) before writing.",
 )
 def album_genre(directory: str, dry_run: bool, json: bool, coverage: int) -> None:
     """Consolidate album-level genre tags from custom field hierarchy."""
+    failures: list[str] = []
+
+    def _on_error(message: str) -> None:
+        """Record a run that could not start, so the exit status says so."""
+        failures.append(message)
+        _echo(f"  ERROR: {message}", err=True)
+
     with active_batch("album_genre_tagger", "tag_edit"):
         result = _run_tool(
             "Album Genre Tagger",
@@ -150,7 +164,17 @@ def album_genre(directory: str, dry_run: bool, json: bool, coverage: int) -> Non
             dir_path=directory,
             is_dry_run=dry_run,
             min_coverage=coverage,
+            on_error=_on_error,
         )
+    # A run that stopped before measuring a file - an empty folder, or one
+    # holding only containers the tag layer cannot read - completed nothing
+    # and counted nothing, while the CLI reference promises status 1 for a
+    # run that stopped early.  Count it as the one failed item and carry the
+    # reason into the payload, so a `--json` consumer sees why nothing was
+    # written.
+    if failures:
+        result.errors = max(result.errors, 1)
+        result.extra.setdefault("error", "; ".join(failures))
     if json:
         _echo(
             _json.dumps(result.to_payload("album-genre", dry_run=dry_run), indent=2),
